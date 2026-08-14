@@ -31,3 +31,13 @@ nhắc luật đầu phiên, tự kiểm lỗi kiểu sau khi sửa code, ghi nh
 Vì sao: chủ dự án không đọc code, nên rủi ro lớn nhất là AI âm thầm sửa vào mã gốc hoặc thay thế
 cả một vùng giao diện — cả hai đều không gây lỗi, nên sẽ không bị phát hiện. Luật ghi trong file
 thì AI có thể quên giữa phiên dài; hook thì không quên.
+
+## 2026-08-14 — Tách tài liệu thành ba tầng
+
+`CLAUDE.md` rút từ 150 xuống 75 dòng, chỉ còn phần cốt lõi và bảng định tuyến. Chi tiết dời vào
+`.claude/rules/` (`ui-slots.md`, `upstream-boundary.md`), quy trình lặp lại thành skill
+(`them-tinh-nang`, `nang-cap-engine`, `kiem-tra-ranh-gioi`) và lệnh `/commit`.
+
+Vì sao: `CLAUDE.md` được nạp toàn bộ mỗi phiên. Bảng 17 vị trí giao diện chỉ hữu ích khi đang làm
+giao diện, nhưng trước đó chiếm chỗ mọi lúc — mà khi ngữ cảnh đầy thì thứ bị quên đầu tiên thường
+là luật. Khớp luôn với cách tổ chức đang dùng ở các dự án khác của chủ dự án.
