@@ -1,0 +1,29 @@
+{
+  "name": "harness-desktop",
+  "productName": "Harness Desktop",
+  "version": "0.1.0",
+  "description": "Unofficial Windows desktop app built on DeepSeek Harness",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc && electron .",
+    "typecheck": "tsc --noEmit",
+    "icons": "powershell -ExecutionPolicy Bypass -File scripts/make-icons.ps1",
+    "engine:install": "npm --prefix engine install --omit=dev",
+    "engine:ci": "npm --prefix engine ci --omit=dev",
+    "runtime:install": "powershell -ExecutionPolicy Bypass -File scripts/fetch-node.ps1",
+    "dist": "tsc && electron-builder",
+    "spike": "node scripts/spike.mjs",
+    "spike:picker": "node scripts/spike-picker.mjs",
+    "spike:frames": "node scripts/spike-frames.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.7.0"
+  }
+}

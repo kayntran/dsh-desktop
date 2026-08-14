@@ -1,0 +1,61 @@
+appId: com.harness-desktop.app
+productName: Harness Desktop
+copyright: MIT. Built on DeepSeek Harness — not affiliated with DeepSeek.
+
+directories:
+  output: release
+
+files:
+  - dist/**/*
+  - resources/**/*
+  - package.json
+
+# Engine được chép nguyên khối, không đi qua bộ thu thập phụ thuộc của
+# electron-builder. Bộ đó chỉ lần theo `dependencies`, trong khi các gói của dsh
+# khai báo phụ thuộc thật bằng `peerDependencies` — cách cũ bỏ sót 214 gói và
+# app chết ngay khi khởi động với ERR_MODULE_NOT_FOUND. Ở đây npm đã phân giải
+# xong trong `engine/`, việc còn lại chỉ là chép.
+#
+# runtime/node.exe là Node runtime chính thức mà engine chạy trên đó. Không
+# dùng binary Electron ở chế độ Node được: V8 của Electron bật memory cage nên
+# N-API không tạo được external ArrayBuffer, và koffi — đường upstream gọi
+# dialog chọn thư mục của Windows — cần đúng khả năng đó. Thiếu nó thì tiến
+# trình chết hẳn giữa chừng. Lấy về bằng `npm run runtime:install`.
+extraResources:
+  - from: engine/node_modules
+    to: engine/node_modules
+  - from: runtime/node.exe
+    to: runtime/node.exe
+
+# Không biên dịch lại native addon cho ABI của Electron — chúng không chạy
+# trong Electron mà trong node.exe ở trên. Cả hai addon trong cây phụ thuộc
+# (koffi, node-pty) đều phát hành sẵn bản dựng theo N-API, nên dùng nguyên
+# trạng. Bật lại việc biên dịch chỉ đòi hỏi Visual Studio và làm hỏng bản dựng
+# sẵn đang chạy tốt.
+npmRebuild: false
+
+# Chỉ còn mã của app nằm trong asar; engine đã ra ngoài qua extraResources.
+asar: true
+
+win:
+  target:
+    - nsis
+    - portable
+  icon: resources/icon.ico
+  artifactName: ${productName}-${version}-setup.${ext}
+
+nsis:
+  # Cho người dùng thấy và chọn nơi cài, thay vì cài lén vào AppData.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  # Shortcut trong Start Menu là thứ Windows dùng để gắn AppUserModelID cho app.
+  # Không có nó thì mọi thông báo bị hệ điều hành nuốt im lặng.
+  shortcutName: Harness Desktop
+  uninstallDisplayName: Harness Desktop
+  deleteAppDataOnUninstall: false
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

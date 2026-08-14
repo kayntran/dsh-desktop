@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Đang khởi động</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfd;
+    --fg: #1c1c1e;
+    --muted: #6b6b70;
+    --accent: #4f6bed;
+    --track: #e3e3e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16161a; --fg: #ececf1; --muted: #8e8e95; --track: #2a2a31; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+  .mark {
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(140deg, var(--accent), #7a5cf0);
+    display: grid; place-items: center;
+    color: #fff; font-weight: 600; font-size: 22px; letter-spacing: -0.5px;
+  }
+  h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  p { margin: 0; color: var(--muted); font-size: 13px; }
+  .track { width: 210px; height: 3px; border-radius: 2px; background: var(--track); overflow: hidden; }
+  .bar { width: 40%; height: 100%; border-radius: 2px; background: var(--accent); animation: slide 1.5s ease-in-out infinite; }
+  @keyframes slide {
+    0%   { transform: translateX(-105%); }
+    100% { transform: translateX(255%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar { animation: none; width: 100%; opacity: 0.5; }
+  }
+</style>
+</head>
+<body>
+  <div class="mark">H</div>
+  <h1>Đang khởi động Harness</h1>
+  <p>Lần đầu chạy có thể lâu hơn một chút.</p>
+  <div class="track"><div class="bar"></div></div>
+</body>
+</html>

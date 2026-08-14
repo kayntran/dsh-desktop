@@ -1,0 +1,27 @@
+# Bản clone thượng nguồn, chỉ để tra cứu khi phát triển — không phải mã của dự án
+# này và không được đóng gói. Lấy về bằng:
+#   git clone https://github.com/deepseek-ai/deepseek-harness.git _upstream_dsh
+_upstream_dsh/
+
+node_modules/
+engine/node_modules/
+dist/
+release/
+
+# Node runtime tải từ nodejs.org, ~88 MB — không nhét binary đó vào git. Lấy
+# về bằng `npm run runtime:install`; script đối chiếu SHA256 với bản phát hành
+# chính thức nên mọi máy dựng ra cùng một thứ.
+runtime/
+
+# engine/package-lock.json CÓ được commit: nó ghim toàn bộ cây phụ thuộc của
+# engine. Thiếu nó thì hai lần dựng cách nhau vài ngày có thể ra hai bản khác
+# nhau, mà đây là thứ phát hành dưới dạng binary cho người khác chạy.
+
+# Nhật ký thô do hook ghi tự động sau mỗi lần sửa file — dùng để truy lại trong
+# lúc làm việc, không phải lịch sử dự án. Lịch sử thật nằm ở git; ghi chép có
+# chọn lọc nằm ở MY-CHANGES.md.
+.claude/change-log.txt
+
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,70 @@
+name: Release
+
+# Đẩy một tag dạng v1.2.3 là dựng bản Windows và tạo GitHub Release kèm
+# installer + portable. Chạy tay được qua workflow_dispatch để thử trước khi
+# gắn tag.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Cài công cụ cho lớp vỏ
+        run: npm ci
+
+      # Engine cài riêng: các gói của dsh khai báo phụ thuộc bằng
+      # peerDependencies, nên nó cần npm tự phân giải trọn cây trong thư mục
+      # của chính nó. Xem README.
+      - name: Cài engine dsh
+        run: npm run engine:ci
+
+      # Node runtime đóng gói kèm app, không phải Node của runner. Script đối
+      # chiếu SHA256 với bản phát hành chính thức nên bản dựng ở đây và bản
+      # dựng trên máy cá nhân ra cùng một binary.
+      - name: Tải Node runtime
+        run: npm run runtime:install
+
+      - name: Sinh icon
+        run: npm run icons
+
+      - name: Kiểm kiểu
+        run: npm run typecheck
+
+      - name: Dựng installer và portable
+        run: npm run dist
+
+      - name: Tải hiện vật lên (cho lần chạy tay)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            release/*.exe
+            release/*.blockmap
+          if-no-files-found: error
+
+      - name: Tạo GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            release/*.exe
+            release/*.blockmap
+          body: |
+            Bản dựng Windows chưa ký số — SmartScreen sẽ cảnh báo ở lần chạy đầu
+            (More info → Run anyway).
+
+            Engine dsh đi kèm: xem `engine/package.json`.

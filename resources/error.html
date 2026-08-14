@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Không khởi động được</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfd;
+    --fg: #1c1c1e;
+    --muted: #6b6b70;
+    --accent: #4f6bed;
+    --line: #e3e3e8;
+    --code-bg: #f2f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16161a; --fg: #ececf1; --muted: #8e8e95; --line: #2a2a31; --code-bg: #1e1e24; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 48px 32px;
+    display: flex; flex-direction: column; align-items: center;
+    background: var(--bg); color: var(--fg);
+    font: 400 14px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+  main { width: 100%; max-width: 680px; }
+  h1 { margin: 0 0 10px; font-size: 20px; font-weight: 600; }
+  .msg { margin: 0 0 22px; color: var(--muted); white-space: pre-wrap; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
+  button {
+    font: inherit; padding: 8px 18px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:hover { filter: brightness(1.08); }
+  details { border-top: 1px solid var(--line); padding-top: 16px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  pre {
+    margin: 14px 0 0; padding: 14px; border-radius: 8px;
+    background: var(--code-bg); color: var(--fg);
+    font: 12px/1.5 "Cascadia Mono", Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow: auto;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Không khởi động được engine</h1>
+  <p class="msg" id="msg">Đang tải chi tiết…</p>
+  <div class="row">
+    <button class="primary" onclick="location.href='harness-action:retry'">Thử lại</button>
+    <button onclick="location.href='harness-action:open-log'">Mở file log</button>
+  </div>
+  <details id="wrap" hidden>
+    <summary>Chi tiết kỹ thuật</summary>
+    <pre id="tail"></pre>
+  </details>
+</main>
+<script>
+  // Tiến trình chính gọi hàm này ngay sau khi trang nạp xong.
+  window.__setError = ({ message, tail }) => {
+    document.getElementById('msg').textContent = message
+    if (tail) {
+      document.getElementById('tail').textContent = tail
+      document.getElementById('wrap').hidden = false
+    }
+  }
+</script>
+</body>
+</html>

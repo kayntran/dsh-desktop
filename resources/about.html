@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Giới thiệu</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfd; --fg: #1c1c1e; --muted: #6b6b70; --accent: #4f6bed; --line: #e3e3e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16161a; --fg: #ececf1; --muted: #8e8e95; --line: #2a2a31; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 30px 32px 26px;
+    /* Đường dẫn thư mục dữ liệu là chuỗi liền không có chỗ ngắt tự nhiên; nếu
+       người dùng đặt DSH_HOME vào một đường dẫn dài thì nó phải xuống dòng
+       được thay vì đẩy trang rộng ra. */
+    overflow-wrap: anywhere;
+    background: var(--bg); color: var(--fg);
+    font: 400 13px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+  }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+  .mark {
+    width: 46px; height: 46px; border-radius: 12px; flex: none;
+    background: linear-gradient(140deg, var(--accent), #7a5cf0);
+    display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 20px;
+  }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  .ver { color: var(--muted); font-size: 12px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0 0 20px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; user-select: text; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  a { color: var(--accent); }
+  .fence {
+    border: 1px solid var(--line); border-radius: 9px; padding: 13px 15px; margin-bottom: 16px;
+  }
+  .fence strong { color: var(--fg); font-weight: 600; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="mark">H</div>
+    <div>
+      <h1 id="name">Harness Desktop</h1>
+      <div class="ver">Phiên bản app <span id="appVersion">—</span></div>
+    </div>
+  </header>
+
+  <dl>
+    <dt>Engine dsh</dt><dd id="dshVersion">—</dd>
+    <dt>Node chạy engine</dt><dd id="nodeVersion">—</dd>
+    <dt>Electron (vỏ)</dt><dd id="electronVersion">—</dd>
+    <dt>Thư mục dữ liệu</dt><dd id="dataDir">—</dd>
+  </dl>
+
+  <div class="fence">
+    <p><strong>Đây không phải sản phẩm của DeepSeek.</strong> Harness Desktop là lớp vỏ
+    desktop không chính thức, do cộng đồng làm, bọc quanh
+    <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noreferrer">DeepSeek Harness</a>
+    — agent harness mã nguồn mở của DeepSeek AI, giấy phép MIT.</p>
+    <p>Toàn bộ giao diện chat, agent và công cụ bên trong app là công sức của thượng nguồn.
+    Dự án này không sửa đổi mã nguồn đó; nó chỉ đóng góp phần vỏ: vòng đời tiến trình,
+    cửa sổ, khay hệ thống, thông báo và bộ cài.</p>
+  </div>
+
+  <p>Lớp vỏ phát hành theo giấy phép MIT. Danh sách phụ thuộc bên thứ ba của thượng nguồn
+  nằm trong THIRD_PARTY_NOTICES.md của kho gốc.</p>
+
+<script>
+  // Tiến trình chính gọi hàm này ngay sau khi trang nạp xong.
+  window.__setAbout = (info) => {
+    document.getElementById('name').textContent = info.name
+    document.getElementById('appVersion').textContent = info.appVersion
+    document.getElementById('dshVersion').textContent = info.dshVersion
+    document.getElementById('nodeVersion').textContent = info.nodeVersion
+    document.getElementById('electronVersion').textContent = info.electronVersion
+    document.getElementById('dataDir').textContent = info.dataDir
+  }
+</script>
+</body>
+</html>
