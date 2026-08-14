@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Edit(_upstream_dsh/**)",
+      "Edit(node_modules/**)",
+      "Edit(engine/node_modules/**)",
+      "Edit(runtime/**)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-d:/AI/DeepSeek Harness Desktop}/.claude/hooks/session-rules.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-d:/AI/DeepSeek Harness Desktop}/.claude/hooks/guard-upstream.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Kiểm tra vùng bảo vệ..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-d:/AI/DeepSeek Harness Desktop}/.claude/hooks/change-log.mjs\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-d:/AI/DeepSeek Harness Desktop}/.claude/hooks/typecheck.mjs\"",
+            "timeout": 180,
+            "async": true,
+            "asyncRewake": true,
+            "statusMessage": "Kiểm lỗi kiểu..."
+          }
+        ]
+      }
+    ]
+  }
+}
