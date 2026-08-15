@@ -77,15 +77,11 @@ trong biến mất theo.
 
 Ba chỗ này giải quyết gần hết nhu cầu "thêm page" mà không phải chạm vào gì.
 
-## Màu sắc và component
+## Dựng bằng gì
 
-- **Không sửa CSS của upstream.** Ghi đè biến `--dsw-*` trong CSS của mình. Bảng biến gốc:
-  `_upstream_dsh/packages/client/ui-theme/src/styles/design-platform.css`
-- Dùng lại component có sẵn ở `_upstream_dsh/packages/client/ui-primitives/src/`: `Button`, `Modal`,
-  `Menu`, `Tooltip`, `Pill`, `Toast`, `JsonTree`, `DiffBlock`, `TerminalBlock`, `HoverCard`,
-  `StateDot`, `SearchBlock`, `ReadBlock`, `DisclosureRow`
-- Dùng token + primitives thì giao diện mới trông như một phần của app và tự chạy theo chế độ
-  sáng/tối. Tự vẽ CSS riêng thì sau vài bản cập nhật sẽ lệch tông thấy rõ.
+File này chỉ trả lời **cắm vào đâu**. Câu hỏi **dựng bằng gì** — component nào, icon nào, màu nào —
+nằm ở `.claude/rules/ui-toolkit.md`, và ở đó là luật bắt buộc: dùng đồ có sẵn của upstream, không tự
+vẽ lại thứ đã có.
 
 ## Danh sách này chụp ở phiên bản nào
 

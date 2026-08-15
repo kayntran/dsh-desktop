@@ -40,6 +40,18 @@ Nếu chưa đủ rõ để viết được câu đó → **hỏi**, đừng đo
 
 Chờ quyết định. Đây là loại quyết định không được để AI tự quyết.
 
+## 3b. Chọn vật liệu — trước khi viết giao diện
+
+Đọc `.claude/rules/ui-toolkit.md`. Liệt kê ra **tên component và icon có sẵn** sẽ dùng, ví dụ:
+*"nút dùng `Button`, icon dùng `IconDownloadOutline16`, hộp thoại dùng `Modal`."*
+
+Không tự viết nút, ô nhập, menu, hộp thoại, tooltip, thẻ, icon. Không viết cứng mã màu — chỉ dùng
+biến `--dsw-*`.
+
+Nếu tin rằng cần một thành phần upstream không có: kiểm tra bằng
+`grep -n "export" _upstream_dsh/packages/client/ui-primitives/src/index.ts`, rồi **báo cho chủ dự án
+trước khi tự viết**.
+
 ## 4. Dựng plugin
 
 Đọc [plugins/README.md](../../../plugins/README.md) cho cấu trúc đầy đủ. Tối thiểu:

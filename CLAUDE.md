@@ -31,7 +31,10 @@ Nên: **mọi thứ chúng ta thêm vào đều là plugin.** Không có lý do 
    thuộc về lớp vỏ. Xem [plugins/README.md](plugins/README.md).
 3. **Giao diện chỉ được cộng thêm**, vào các vị trí upstream chừa sẵn. Cấm thay thế cả vùng.
    Danh sách đầy đủ: `.claude/rules/ui-slots.md`.
-4. **Không sửa CSS của upstream.** Ghi đè biến `--dsw-*` trong CSS của mình.
+4. **Dùng vật liệu của hệ thống, không tự vẽ.** Component, icon, biến màu đều lấy từ upstream —
+   25 component và 70 icon đã có sẵn trong engine đã cài. Chỉ tự viết khi đã kiểm tra và xác nhận
+   không có sẵn, và phải báo trước. Không sửa CSS của upstream; ghi đè biến `--dsw-*` trong CSS của
+   mình. Chi tiết: `.claude/rules/ui-toolkit.md`.
 5. **Khai báo mức trước khi viết code giao diện**: mức 1 (cộng thêm), mức 2 (chen có chọn lọc),
    mức 3 (thay thế — cấm).
 6. **Ghi sổ.** Việc đáng nhớ ghi một dòng vào [MY-CHANGES.md](MY-CHANGES.md).
@@ -43,7 +46,8 @@ cho việc chính.
 
 | Đụng tới | Đọc |
 |---|---|
-| Bất cứ thứ gì liên quan giao diện, slot, CSS, theme | `rules/ui-slots.md` |
+| Chọn chỗ cắm giao diện vào | `rules/ui-slots.md` |
+| Dựng giao diện: component, icon, màu, CSS | `rules/ui-toolkit.md` |
 | Bị chặn ghi file, hoặc định đụng vào `_upstream_dsh/`, `node_modules/`, `runtime/` | `rules/upstream-boundary.md` |
 | Viết plugin mới | [plugins/README.md](plugins/README.md) |
 

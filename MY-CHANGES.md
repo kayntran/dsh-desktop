@@ -41,3 +41,19 @@ thì AI có thể quên giữa phiên dài; hook thì không quên.
 Vì sao: `CLAUDE.md` được nạp toàn bộ mỗi phiên. Bảng 17 vị trí giao diện chỉ hữu ích khi đang làm
 giao diện, nhưng trước đó chiếm chỗ mọi lúc — mà khi ngữ cảnh đầy thì thứ bị quên đầu tiên thường
 là luật. Khớp luôn với cách tổ chức đang dùng ở các dự án khác của chủ dự án.
+
+## 2026-08-14 — Luật bắt buộc dùng vật liệu giao diện của hệ thống
+
+Luật 4 đổi từ "không sửa CSS của upstream" thành "dùng component/icon/biến màu của upstream, cấm
+tự vẽ lại thứ đã có". Chi tiết ở `.claude/rules/ui-toolkit.md`: 25 component, 70 icon, 78 biến màu
+`--dsw-alias-*`, kèm bảng "cần gì → dùng gì".
+
+Đã xác nhận **mọi gói giao diện của upstream đều nằm trong `engine/node_modules/@deepseek-ai/`** —
+plugin import trực tiếp được, nên luật này thi hành được chứ không phải nói suông.
+
+Vì sao: tự vẽ lại nút hay hộp thoại không gây lỗi nào, chỉ làm app lệch tông dần, mất chế độ
+sáng/tối, và mất khả năng dùng bàn phím. Không có gì báo — đúng loại hỏng im lặng mà bộ luật này
+sinh ra để chống.
+
+**Còn treo:** chưa xác nhận cách khai `react`/`react-dom` là external khi đóng gói plugin giao
+diện. Hai bản React trong một trang làm hook vỡ. Kiểm lại khi dựng plugin giao diện đầu tiên.

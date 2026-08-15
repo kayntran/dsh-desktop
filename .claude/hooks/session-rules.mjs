@@ -19,7 +19,10 @@ const RULES = `LUẬT DỰ ÁN HARNESS DESKTOP (bản rút gọn — bản đầ
    tương lai của vùng đó mà không có lỗi nào báo.
 5. Mỗi lần đụng giao diện, nói rõ đang ở mức 1 (cộng thêm), mức 2 (chen có chọn
    lọc) hay mức 3 (thay thế — cấm).
-6. Không sửa CSS của upstream; ghi đè biến --dsw-* trong CSS của mình.
+6. Dùng vật liệu giao diện của hệ thống, KHÔNG tự vẽ: 25 component và 70 icon đã
+   có sẵn trong engine đã cài (@deepseek-ai/dsh-client-ui-primitives). Màu chỉ
+   dùng biến --dsw-*, không viết cứng mã màu. Không sửa CSS của upstream.
+   Chỉ tự viết khi đã kiểm tra xác nhận không có sẵn, và phải báo trước.
 7. Việc đáng nhớ thì ghi một dòng vào MY-CHANGES.md.
 
 Chủ dự án không đọc code: giải thích theo hướng người dùng app sẽ thấy gì, và hỏi
