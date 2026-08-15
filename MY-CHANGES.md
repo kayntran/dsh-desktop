@@ -573,3 +573,74 @@ nghiệm thu mọi thay đổi khác. Dọn dần trong lúc thêm mục kiểm 
 
 Nghiệm thu: `npm run typecheck` sạch, `npm run spike:dock` **tất cả đạt**, và hook được thử cả hai
 chiều — chặn tên tiếng Việt, không chặn mã tiếng Anh hiện có.
+
+## 2026-08-15 — Agent với tới được trang web: đường nối, hai lớp rào, công tắc quyền
+
+Ba giai đoạn, ba commit riêng. Trước đó cầu nối chỉ mở được tab mới; giờ nửa Node đọc và chạy được
+mã trong chính trang web đang mở.
+
+### Đo trước khi xây — và một phép đo đã đổi kiến trúc
+
+Năm mục kiểm mới, đặt trước mọi dòng mã của tầng tool:
+
+- **Cú bấm do máy gửi tới được trang KỂ CẢ khi cửa sổ app không ở trước mặt.** Tài liệu Electron
+  ghi ngược lại. Nếu tin tài liệu thì đã tự áp một giới hạn không có thật — agent chỉ làm việc được
+  khi người dùng đang nhìn.
+- **Chụp ảnh: hai đường cùng tên hàm, kết quả khác hẳn.** Gọi từ tiến trình chính chạy 23KB trong
+  5ms; gọi từ trong trang làm **treo cứng vòng lặp sự kiện của cả cửa sổ** trên trang https thật —
+  `setTimeout` bọc ngoài cũng không nổ, không có cách nào tự cứu. Nên lệnh chụp ảnh **bắt buộc đi
+  qua lớp vỏ**, và đó là một kết luận về kiến trúc chứ không phải một chi tiết.
+- Vì lẽ đó, hai mục nữa đo **đúng đường plugin sẽ đi** (gọi từ trang chủ lên thẻ webview) thay vì
+  suy ra từ đường tiến trình chính. Cả chạy mã lẫn gửi cú bấm đều tới nơi.
+
+Bài học: **cùng một tên hàm, hai vị trí gọi, hai kết quả** — không được suy ra, phải đo riêng.
+
+### Đường tới sân khấu: một cái ô, không phải một tham chiếu
+
+Cầu mở trong `apply()`, tức trước khi panel tồn tại; và slot có thể dựng lại panel bất cứ lúc nào,
+mỗi lần là một sân khấu mới còn cái cũ bị `destroy()`. Cầu giữ cứng một tham chiếu là cầm một sân
+khấu đã chết — không lỗi nào báo, chỉ là từ đó agent nhờ gì cũng hết giờ. Một ô mutable giải quyết
+cả hai chiều.
+
+Sân khấu lộ thêm mười năng lực. Đáng nhớ nhất là `isDrawable` và `revealForInput`, chép từ dự án
+tham chiếu: **tab không được vẽ vẫn nhận cú bấm và vẫn trả lời "xong", nhưng không làm gì cả.**
+Không có phép kiểm đó thì agent báo thành công cho những thao tác chưa từng xảy ra.
+
+### Hai lớp rào chuyển hướng, và kẽ hở còn lại
+
+Lỗ nguy hiểm nhất không đi qua cửa mà rào địa chỉ canh: agent đưa một địa chỉ công cộng hợp lệ,
+trang đó trả về lệnh chuyển hướng sang cổng engine. Phép kiểm lúc mở đã chạy xong và đã cho qua.
+
+- **Lớp vỏ** chặn cứng gốc engine ở tầng request, cho mọi tab. Đặt ở lớp vỏ vì một chốt mà plugin
+  tự đặt được thì plugin cũng tự gỡ được. Giá cho người dùng bằng không.
+- **Plugin** từ chối mọi lệnh đọc và thao tác nếu tab đang mở địa chỉ nội bộ — bất kể tới đó bằng
+  đường nào. Đây là chốt mạnh nhất vì nó chặn *lợi ích*, không chỉ chặn *lối vào*.
+
+Kẽ hở còn lại, nói thẳng: **đúng một request** có thể kịp bay tới địa chỉ nội bộ trước khi tab bị
+kéo về trang trắng. Bịt nốt thì phải tách kho cookie riêng cho tab agent; chủ dự án đã chọn dùng
+chung để agent thừa hưởng phiên đăng nhập.
+
+Địa chỉ agent mở cũng không sống lại sau khi tắt app nữa — kho panel có `persist`, và lượt mở lại
+vốn không đi qua phép kiểm nào.
+
+### Công tắc quyền
+
+Cài đặt → General, **bật sẵn**. Đọc thì luôn cho phép: bịt mắt agent không ngăn được nó hành động,
+chỉ làm nó hành động mù. Nguồn sự thật ở **nửa Node** nơi tool chạy; giao diện chỉ là chỗ bấm và
+chỗ lưu, và nó đẩy giá trị sang mỗi lần nối cầu cũng như mỗi lần người dùng gạt.
+
+**Không dùng cơ chế xin phép sẵn có của upstream** (`tools/pre-execute` → `ask`), dù đó là vật liệu
+của hệ thống: nó chỉ cấp phép **một lần cho một lời gọi**, không có "cho phép luôn". Một chuỗi thao
+tác bình thường có hàng chục cú bấm, nghĩa là hàng chục hộp thoại. Dòng cài đặt vẫn dựng bằng `Menu`
+của upstream đúng khuôn `EnterBehaviorRow`, không tự vẽ công tắc gạt.
+
+### Bộ kiểm thôi kiểm bằng bản sao
+
+Bốn chốt an toàn của `src/main/window.ts` trước đây được **chép tay** sang bài kiểm, kèm chú thích
+*"lệch là spike vô nghĩa"*. Nó đã lệch thật ngay lần đầu chạm tới: chốt mới không có trong bản chép,
+nên mục kiểm báo đỏ trong khi app thì đúng. Giờ bài kiểm nạp thẳng hàm thật từ `dist/`, nên nó cũng
+đồng thời xác nhận bản dựng còn chạy được.
+
+**Một chốt an toàn được kiểm bằng bản sao của chính nó thì không kiểm được gì.**
+
+Bộ kiểm nay **36/36 đạt**.
