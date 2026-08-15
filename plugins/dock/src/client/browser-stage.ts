@@ -45,7 +45,40 @@ export interface WebviewTag extends HTMLElement {
   goBack: () => void
   goForward: () => void
   executeJavaScript: (code: string) => Promise<unknown>
+  /**
+   * Gửi chuột/phím thật vào trang khách.
+   *
+   * Đo được (mục 15e): đường này tới nơi. Và mục 15a đo thêm một điều quan
+   * trọng hơn — nó tới nơi **kể cả khi cửa sổ app không ở trước mặt**, ngược với
+   * ghi chú trong tài liệu Electron. Nhờ vậy agent làm việc được trong lúc người
+   * dùng đang dùng app khác.
+   */
+  sendInputEvent: (event: InputEvent) => void
+  /** Gõ chữ vào phần tử đang giữ con trỏ. Nhanh và đúng hơn gõ từng phím. */
+  insertText: (text: string) => Promise<void>
+  setUserAgent: (ua: string) => void
+  setZoomFactor: (factor: number) => void
+  /**
+   * ĐỪNG GỌI. Trên trang https thật, gọi từ trong trang chủ làm **treo cứng
+   * vòng lặp sự kiện của cả trang chủ** — `setTimeout` bọc ngoài cũng không nổ,
+   * nên không có cách nào tự cứu. Khai ra để người đọc biết nó tồn tại và biết
+   * vì sao không dùng. Đường chụp ảnh duy nhất lành là từ tiến trình chính.
+   */
   capturePage: () => Promise<{ toDataURL: () => string }>
+}
+
+/** Một sự kiện chuột hoặc phím gửi vào trang khách. */
+export interface InputEvent {
+  type: string
+  x?: number
+  y?: number
+  button?: 'left' | 'middle' | 'right'
+  clickCount?: number
+  keyCode?: string
+  modifiers?: readonly string[]
+  deltaX?: number
+  deltaY?: number
+  canScroll?: boolean
 }
 
 /** Những gì panel cần biết về một tab để vẽ thanh địa chỉ và pill. */
@@ -71,7 +104,22 @@ interface Tab {
    */
   historyLength: number
   historyIndex: number
+  /** Ai mở tab này. Quyết định rào địa chỉ có áp cho nó không. */
+  owner: TabOwner
+  /** Vòng đệm console, cắt đuôi ở `MAX_CONSOLE_LINES`. */
+  consoleLines: ConsoleLine[]
 }
+
+/**
+ * Số dòng console giữ lại cho mỗi tab.
+ *
+ * Đủ để lần ra một lỗi vừa xảy ra, và đủ nhỏ để một trang spam `console.log`
+ * trong vòng lặp không ăn hết bộ nhớ của cửa sổ.
+ */
+const MAX_CONSOLE_LINES = 200
+
+/** Bốn mức của `console-message`, theo thứ tự Chromium đánh số. */
+const CONSOLE_LEVELS: readonly ConsoleLine['level'][] = ['debug', 'info', 'warn', 'error']
 
 /** Ô mà sân khấu phải bám theo, tính theo toạ độ khung nhìn. */
 export interface StageRect {
@@ -104,6 +152,78 @@ export interface Stage {
   focus: (id: string) => void
   element: (id: string) => WebviewTag | undefined
   destroy: () => void
+
+  // --- Bề mặt cho tầng tool của agent ---
+
+  /** Mọi tab đang có, theo đúng thứ tự trên dải pill. */
+  list: () => TabInfo[]
+  /** Tab này do agent mở hay do người dùng mở. */
+  openedBy: (id: string) => TabOwner | undefined
+  /** Ghi chủ nhân lúc tạo tab. Mặc định là người dùng. */
+  claim: (id: string, owner: TabOwner) => void
+  /**
+   * Chạy mã trong trang khách và nhận lại giá trị.
+   * @throws khi không có tab đó, hoặc mã ném trong trang.
+   */
+  evaluate: (id: string, code: string) => Promise<unknown>
+  /** Gửi một sự kiện chuột/phím thật vào trang. */
+  sendInput: (id: string, event: InputEvent) => void
+  /** Gõ chữ vào phần tử đang giữ con trỏ trong trang. */
+  insertText: (id: string, text: string) => Promise<void>
+  /**
+   * Trang có ĐANG ĐƯỢC VẼ không.
+   *
+   * Bài học đắt nhất chép từ dự án tham chiếu: một tab không được vẽ **vẫn nhận
+   * cú bấm và vẫn trả lời "xong"**, nhưng không làm gì cả. Không kiểm chỗ này
+   * thì agent báo thành công cho những thao tác chưa từng xảy ra.
+   */
+  isDrawable: (id: string) => Promise<boolean>
+  /**
+   * Tạm đưa tab lên trước để nó được vẽ, rồi trả về hàm khôi phục.
+   *
+   * Gọi ở đầu mọi lệnh thao tác. Hàm trả về đưa mọi thứ về đúng chỗ cũ, nên
+   * agent làm việc ở tab nền mà người dùng không bị nhảy màn hình.
+   */
+  revealForInput: (id: string) => Promise<() => void>
+  /** Vài trăm dòng console gần nhất của trang. */
+  consoleLog: (id: string) => readonly ConsoleLine[]
+  /** Đổi kích thước khung nhìn mà trang tin là mình đang có. */
+  setViewport: (id: string, size: ViewportSize | undefined) => void
+}
+
+/** Tab do ai mở — quyết định rào địa chỉ có áp cho nó không. */
+export type TabOwner = 'user' | 'agent'
+
+/** Một tab, gọt cho tầng tool. */
+export interface TabInfo {
+  id: string
+  url: string
+  title: string
+  loading: boolean
+  active: boolean
+  openedBy: TabOwner
+}
+
+/** Một dòng console của trang khách. */
+export interface ConsoleLine {
+  level: 'debug' | 'info' | 'warn' | 'error'
+  text: string
+  source: string
+  line: number
+  at: number
+}
+
+/**
+ * Khung nhìn giả lập.
+ *
+ * Panel hẹp hơn nhiều so với một màn hình desktop, nên không thể đặt bề rộng
+ * thật là 1280px. Cách làm: đặt bề rộng BỐ CỤC là 1280 rồi thu nhỏ hình cho vừa
+ * ô. Trang tin nó đang ở 1280px — media query, breakpoint, bố cục đều theo đó —
+ * còn người dùng vẫn thấy trọn vẹn trong panel.
+ */
+export interface ViewportSize {
+  width: number
+  height: number
 }
 
 /** Thêm `https://` khi người dùng gõ thiếu, và từ chối thứ không thành URL. */
@@ -239,6 +359,8 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       status: { url: url ?? '', title: '', loading: url !== undefined, canBack: false, canForward: false },
       historyLength: 1,
       historyIndex: 0,
+      owner: 'user',
+      consoleLines: [],
     }
 
     const patchStatus = (patch: Partial<TabStatus>): void => {
@@ -262,6 +384,25 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       const e = event as unknown as { url: string, isMainFrame: boolean }
       if (e.isMainFrame) patchStatus({ url: e.url })
     })
+    // Console của trang. Hứng liên tục chứ không bật khi cần: lỗi mà agent muốn
+    // đọc thường đã xảy ra TRƯỚC lúc nó nghĩ tới việc đi đọc.
+    el.addEventListener('console-message', (event) => {
+      const e = event as unknown as { level: number, message: string, line: number, sourceId: string }
+      tab.consoleLines.push({
+        level: CONSOLE_LEVELS[e.level] ?? 'info',
+        text: e.message,
+        source: e.sourceId,
+        line: e.line,
+        at: Date.now(),
+      })
+      if (tab.consoleLines.length > MAX_CONSOLE_LINES) {
+        tab.consoleLines.splice(0, tab.consoleLines.length - MAX_CONSOLE_LINES)
+      }
+    })
+    // Điều hướng sang trang khác thì console cũ không còn nói về trang đang xem.
+    // Giữ lại là đưa cho agent bằng chứng của một trang đã đi mất.
+    el.addEventListener('did-navigate', () => { tab.consoleLines.length = 0 })
+
     el.addEventListener('did-fail-load', (event) => {
       const e = event as unknown as { errorCode: number, isMainFrame: boolean }
       // -3 là ERR_ABORTED: người dùng bấm dừng, hoặc trang tự chuyển hướng giữa
@@ -344,5 +485,128 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       tabs.clear()
       root.remove()
     },
+
+    // --- Bề mặt cho tầng tool ---
+
+    list: () => [...tabs].map(([id, tab]) => ({
+      id,
+      url: tab.status.url,
+      title: tab.status.title,
+      loading: tab.status.loading,
+      active: id === activeId,
+      openedBy: tab.owner,
+    })),
+
+    openedBy: (id) => tabs.get(id)?.owner,
+    claim: (id, owner) => {
+      const tab = tabs.get(id)
+      if (tab !== undefined) tab.owner = owner
+    },
+
+    evaluate: async (id, code) => {
+      const tab = tabs.get(id)
+      if (tab === undefined) throw new Error(`không có tab "${id}"`)
+      return tab.el.executeJavaScript(code)
+    },
+
+    sendInput: (id, event) => { tabs.get(id)?.el.sendInputEvent(event) },
+
+    insertText: async (id, text) => {
+      const tab = tabs.get(id)
+      if (tab === undefined) throw new Error(`không có tab "${id}"`)
+      await tab.el.insertText(text)
+    },
+
+    isDrawable: async (id) => {
+      const tab = tabs.get(id)
+      if (tab === undefined) return false
+      try {
+        // Hai câu hỏi, và phải hỏi cả hai. `visibilityState` bắt trường hợp tab
+        // bị ẩn; một lượt `requestAnimationFrame` bắt trường hợp nặng hơn — bề
+        // mặt hiển thị chưa từng được cấp, lúc đó trang chạy đủ script và trả
+        // lời đủ mọi câu hỏi khác, chỉ là không có khung hình nào.
+        const drawn = await Promise.race([
+          tab.el.executeJavaScript(`new Promise((res) => {
+            if (document.visibilityState !== 'visible') { res(false); return }
+            requestAnimationFrame(() => { res(true) })
+          })`),
+          new Promise((r) => { setTimeout(() => { r(false) }, 1500) }),
+        ])
+        return drawn === true
+      } catch {
+        return false
+      }
+    },
+
+    revealForInput: async (id) => {
+      const tab = tabs.get(id)
+      if (tab === undefined) throw new Error(`không có tab "${id}"`)
+      const prevActive = activeId
+      const wasSunk = root.style.zIndex === '-1'
+
+      if (activeId !== id) { activeId = id; restack() }
+      // `raise()` khôi phục đúng vị trí và kích thước cũ, vì `sink()` cố ý chỉ
+      // đổi tầng chứ không đụng tới hình học — xem chú thích của `sink`.
+      if (wasSunk) raise()
+      await waitFrames(tab.el, 2)
+
+      return () => {
+        if (activeId !== prevActive) { activeId = prevActive; restack() }
+        if (wasSunk) sink()
+      }
+    },
+
+    consoleLog: (id) => tabs.get(id)?.consoleLines ?? [],
+
+    setViewport: (id, size) => {
+      const tab = tabs.get(id)
+      if (tab === undefined) return
+      if (size === undefined) {
+        tab.el.style.width = ''
+        tab.el.style.height = ''
+        tab.el.style.transform = ''
+        tab.el.style.transformOrigin = ''
+        return
+      }
+      // Đặt bề rộng BỐ CỤC theo đúng con số agent yêu cầu, rồi thu nhỏ hình cho
+      // vừa ô. Trang tin nó đang ở kích thước đó — media query, breakpoint, bố
+      // cục responsive đều theo con số này — còn người dùng vẫn thấy trọn vẹn
+      // trong panel hẹp. Đổi kích thước thật thì không được: panel chỉ rộng tối
+      // đa 720px, không chứa nổi một khung nhìn desktop 1280px.
+      const box = root.getBoundingClientRect()
+      const scale = Math.min(1, box.width / size.width, box.height / size.height)
+      tab.el.style.width = `${String(size.width)}px`
+      tab.el.style.height = `${String(size.height)}px`
+      tab.el.style.transformOrigin = 'top left'
+      tab.el.style.transform = `scale(${String(scale)})`
+    },
+  }
+}
+
+/**
+ * Chờ trang khách vẽ xong vài khung hình.
+ *
+ * Chờ theo KHUNG HÌNH CỦA CHÍNH TRANG KHÁCH, không phải `setTimeout` ở trang
+ * chủ. Khác biệt quan trọng: một khoảng ngủ chỉ nói "đã trôi qua ngần này mili
+ * giây", còn thứ cần biết là "trang đã kịp vẽ chưa" — và hai điều đó tách nhau
+ * ra đúng lúc máy bận, tức đúng lúc dễ hỏng nhất.
+ * @param el - thẻ trang khách.
+ * @param count - số khung hình cần chờ.
+ */
+async function waitFrames(el: WebviewTag, count: number): Promise<void> {
+  try {
+    await Promise.race([
+      el.executeJavaScript(`new Promise((res) => {
+        let left = ${String(count)}
+        const step = () => { left -= 1; if (left <= 0) res(1); else requestAnimationFrame(step) }
+        requestAnimationFrame(step)
+      })`),
+      // Trang không được vẽ thì `requestAnimationFrame` không bao giờ chạy. Chờ
+      // vô hạn ở đây là treo cả lệnh của agent; hết giờ rồi để phép kiểm
+      // `isDrawable` nói ra sự thật đó.
+      new Promise((r) => { setTimeout(r, 1200) }),
+    ])
+  } catch {
+    // Trang đóng giữa chừng. Chỗ gọi sẽ tự phát hiện khi thao tác thật.
   }
 }

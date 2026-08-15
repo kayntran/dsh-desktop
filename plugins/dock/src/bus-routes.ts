@@ -307,6 +307,20 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
         return
       }
 
+      // `?eval=<biểu thức>` chạy trọn vòng Node → cầu → sân khấu → trang khách.
+      // Đây là đường duy nhất để bài kiểm — chạy ở tiến trình khác engine — xác
+      // nhận cả chuỗi đó còn thông, thay vì chỉ biết cầu còn sống.
+      const code = url.searchParams.get('eval')
+      if (code !== null) {
+        try {
+          const result = await bus.call('page_eval', { code }, 10_000)
+          json(res, 200, { ok: true, result })
+        } catch (error) {
+          json(res, 503, { reason: error instanceof Error ? error.message : String(error) })
+        }
+        return
+      }
+
       if (!bus.hasDriver()) { json(res, 200, { connected: false }); return }
       pingInFlight ??= (async () => {
         const started = Date.now()

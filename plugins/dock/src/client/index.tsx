@@ -15,6 +15,7 @@ import xtermStyles from '@xterm/xterm/css/xterm.css'
 import { openBridge } from './bus.ts'
 import { DockPanel } from './DockPanel.tsx'
 import { DockToggle } from './DockToggle.tsx'
+import { createStageHolder } from './stage-holder.ts'
 import { createDock } from './store.ts'
 import styles from './styles.css'
 
@@ -57,13 +58,21 @@ export function apply(ctx: ClientContext): void {
   // `store`: hai slot này ở hai phạm vi khác nhau (cửa sổ và phiên), mà `store`
   // phát cho mỗi phạm vi một bản sao riêng — xem chú thích đầu `store.ts`.
   const dock = createDock()
-  const share = (): { hooks: { dock: typeof dock.store }, actions: typeof dock.actions } =>
-    ({ hooks: { dock: dock.store }, actions: dock.actions })
+
+  // Ô chứa sân khấu webview. Dựng ở đây vì cầu cần nó NGAY, còn sân khấu thì
+  // mãi tới lúc panel mount mới có — xem `stage-holder.ts`.
+  const stageHolder = createStageHolder()
+
+  const share = (): {
+    hooks: { dock: typeof dock.store }
+    actions: typeof dock.actions
+    stageHolder: typeof stageHolder
+  } => ({ hooks: { dock: dock.store }, actions: dock.actions, stageHolder })
 
   // Cầu nối với nửa Node. Đặt ở ĐÂY chứ không trong `DockPanel`: slot có thể
   // remount component bất cứ lúc nào, và cầu remount là cầu chết — im lặng, chỉ
   // biểu hiện ở chỗ nửa Node nhờ gì cũng hết giờ.
-  ctx.effect(() => openBridge(dock.actions), 'hdw-dock: cầu nối nửa Node')
+  ctx.effect(() => openBridge(dock.actions, stageHolder), 'hdw-dock: cầu nối nửa Node')
 
   // `ctx.slots.inject` là bắt buộc, không phải cẩn thận thừa: đăng ký thẳng vào
   // một slot chưa được khai báo sẽ ném. `inject` chờ tới khi chủ slot mount,

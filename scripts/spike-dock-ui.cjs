@@ -1031,6 +1031,37 @@ async function main() {
       maCongCong === 200, `mã HTTP ${String(maCongCong)}`)
   }
 
+  // --- 16. ĐƯỜNG TỚI SÂN KHẤU: nửa Node chạm được vào chính trang web
+  //
+  // Đây là mục quyết định của Giai đoạn 1. Cầu đã thông từ trước (14a–14c),
+  // nhưng thông tới đâu mới là câu hỏi: bản trước cầu chỉ mở được tab mới, vì
+  // sân khấu webview nằm gọn trong `useRef` của một component và tầng plugin
+  // không nhìn thấy.
+  //
+  // Mục này đi trọn vòng: bài kiểm (tiến trình riêng) → HTTP → nửa Node → cầu
+  // WebSocket → tầng plugin → ô chứa sân khấu → thẻ webview → trang https thật,
+  // rồi giá trị đi ngược về đủ đường. Xanh nghĩa là mọi lệnh điều khiển trang
+  // đều có chỗ đứng.
+  {
+    const co = await hoiThu(baseUrl, `?eval=${encodeURIComponent('1 + 1')}`)
+    record('16a. nửa Node chạy được mã trong chính trang web',
+      co.body.ok === true && co.body.result && co.body.result.value === 2,
+      JSON.stringify(co.body))
+
+    const doc = await hoiThu(baseUrl, `?eval=${encodeURIComponent('document.title')}`)
+    record('16b. nửa Node đọc được nội dung thật của trang',
+      doc.body.ok === true && typeof doc.body.result?.value === 'string' && doc.body.result.value.length > 0,
+      JSON.stringify(doc.body))
+
+    // Ô rỗng phải nói rõ "chưa mở panel", không phải một lỗi khó hiểu. Đây là
+    // trạng thái BÌNH THƯỜNG (người dùng chưa mở panel lần nào), và agent cần
+    // phân biệt được nó với sân khấu hỏng.
+    const tabs = await hoiThu(baseUrl, `?eval=${encodeURIComponent('location.href')}`)
+    record('16c. lệnh trả về đúng tab đang hiện',
+      tabs.body.ok === true && typeof tabs.body.result?.tab_id === 'string' && tabs.body.result.tab_id.length > 0,
+      JSON.stringify(tabs.body.result ?? tabs.body))
+  }
+
   // Ảnh chụp để nhìn bằng mắt, kể cả khi mọi mục đều đạt.
   if (process.env['HDW_ANH'] !== undefined) {
     const anh = await win.webContents.capturePage()

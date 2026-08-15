@@ -12,6 +12,7 @@
  * @module
  */
 
+import type { StageHolder } from './stage-holder.ts'
 import type { DockActions } from './store.ts'
 
 /** Phải khớp `BUS_VERSION` ở `bus-routes.ts`. */
@@ -30,13 +31,59 @@ const MAX_BACKOFF_MS = 30_000
 type CommandTable = Record<string, (params: unknown) => unknown>
 
 /**
+ * Chọn tab để thao tác.
+ *
+ * Bỏ trống `tab_id` thì lấy tab web đang hiện — đúng thói quen "làm trên cái
+ * tôi đang nhìn". Không có tab web nào đang hiện thì **báo lỗi**, không tự chọn
+ * bừa một tab nền: agent thao tác nhầm tab là loại lỗi nó không tự phát hiện
+ * được, vì mọi lệnh vẫn trả về "xong".
+ */
+function pickTab(holder: StageHolder, params: unknown): string {
+  const stage = holder.require()
+  const wanted = (params as { tab_id?: unknown } | null)?.tab_id
+  const tabs = stage.list()
+
+  if (typeof wanted === 'string' && wanted !== '') {
+    if (!tabs.some((t) => t.id === wanted)) {
+      throw new Error(`không có tab "${wanted}". Đang mở: ${tabs.map((t) => t.id).join(', ') || '(không có tab web nào)'}`)
+    }
+    return wanted
+  }
+
+  const active = tabs.find((t) => t.active)
+  if (active !== undefined) return active.id
+  throw new Error(
+    tabs.length === 0
+      ? 'chưa có tab trình duyệt nào đang mở'
+      : `không có tab web nào đang hiện — nêu rõ tab_id. Đang mở: ${tabs.map((t) => t.id).join(', ')}`,
+  )
+}
+
+/**
  * Dựng bảng lệnh.
  * @param actions - bộ hành động của kho panel.
+ * @param holder - ô chứa sân khấu webview.
  * @returns bảng lệnh cho cầu.
  */
-function buildCommands(actions: DockActions): CommandTable {
+function buildCommands(actions: DockActions, holder: StageHolder): CommandTable {
   return {
     ping: () => ({ at: Date.now() }),
+
+    /** Mọi tab đang mở. Nền cho `browser_tabs`. */
+    tabs_list: () => ({ tabs: holder.require().list() }),
+
+    /**
+     * Chạy mã trong trang khách.
+     *
+     * Đường này là nền của mọi lệnh đọc — đọc trang, lấy chữ, tìm phần tử, đo
+     * vị trí để bấm. Mục kiểm 15d đo được nó tới nơi trên trang https thật.
+     */
+    page_eval: async (params) => {
+      const code = (params as { code?: unknown } | null)?.code
+      if (typeof code !== 'string' || code === '') throw new Error('thiếu tham số code')
+      const id = pickTab(holder, params)
+      return { tab_id: id, value: await holder.require().evaluate(id, code) }
+    },
 
     /**
      * Mở một tab trình duyệt vào địa chỉ cho trước.
@@ -61,10 +108,11 @@ function buildCommands(actions: DockActions): CommandTable {
 /**
  * Nối vào cầu và giữ kết nối đó sống.
  * @param actions - bộ hành động của kho panel, để lệnh tác động lên các tab.
+ * @param holder - ô chứa sân khấu webview, đường duy nhất chạm tới trang web.
  * @returns hàm đóng cầu, gọi khi plugin gỡ.
  */
-export function openBridge(actions: DockActions): () => void {
-  const commands = buildCommands(actions)
+export function openBridge(actions: DockActions, holder: StageHolder): () => void {
+  const commands = buildCommands(actions, holder)
   let socket: WebSocket | undefined
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let step = 0

@@ -24,12 +24,15 @@ import { FilesTab } from './FilesTab.tsx'
 import { Resizer } from './Resizer.tsx'
 import { TabBar } from './TabBar.tsx'
 import { TerminalTab } from './TerminalTab.tsx'
+import type { StageHolder } from './stage-holder.ts'
 import type { DockActions, DockState } from './store.ts'
 
 export interface DockPanelProps {
   /** Kho panel, do plugin chuyền vào — cùng một kho với nút ở header phiên. */
   useDock: SnapshotSelectorHook<DockState>
   actions: DockActions
+  /** Ô chứa sân khấu, để cầu nối ở tầng plugin với tới được trang web. */
+  stageHolder: StageHolder
   useSessions: SnapshotSelectorHook<SessionListState>
   useWorkspaces: SnapshotSelectorHook<WorkspaceListState>
 }
@@ -39,7 +42,7 @@ export interface DockPanelProps {
  * @param props - trạng thái panel cộng bộ chọn dữ liệu toàn cục của framework.
  * @returns phần tử panel.
  */
-export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: DockPanelProps): React.JSX.Element {
+export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorkspaces }: DockPanelProps): React.JSX.Element {
   const open = useDock((s) => s.open)
   const width = useDock((s) => s.width)
   const panes = useDock((s) => s.panes)
@@ -64,7 +67,20 @@ export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: Dock
     })
   }
   const stage = stageRef.current
-  useEffect(() => () => { stage.destroy() }, [stage])
+
+  // Trao sân khấu cho tầng plugin, và THU LẠI khi component tháo.
+  //
+  // Bước thu lại quan trọng ngang bước trao: slot có thể dựng lại component bất
+  // cứ lúc nào, và sân khấu cũ bị `destroy()`. Không xoá khỏi ô thì từ giây đó
+  // cầu cầm một sân khấu đã chết — không lỗi nào báo, chỉ là mọi lệnh của agent
+  // bắt đầu im lặng thất bại.
+  useEffect(() => {
+    stageHolder.current = stage
+    return () => {
+      if (stageHolder.current === stage) stageHolder.current = undefined
+      stage.destroy()
+    }
+  }, [stage, stageHolder])
 
   const active = useMemo(() => panes.find((p) => p.id === activeId), [panes, activeId])
 
