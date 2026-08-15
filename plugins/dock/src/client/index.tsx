@@ -12,6 +12,7 @@
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import xtermStyles from '@xterm/xterm/css/xterm.css'
+import { moCau } from './bus.ts'
 import { DockPanel } from './DockPanel.tsx'
 import { DockToggle } from './DockToggle.tsx'
 import { createDock } from './store.ts'
@@ -58,6 +59,11 @@ export function apply(ctx: ClientContext): void {
   const dock = createDock()
   const share = (): { hooks: { dock: typeof dock.store }, actions: typeof dock.actions } =>
     ({ hooks: { dock: dock.store }, actions: dock.actions })
+
+  // Cầu nối với nửa Node. Đặt ở ĐÂY chứ không trong `DockPanel`: slot có thể
+  // remount component bất cứ lúc nào, và cầu remount là cầu chết — im lặng, chỉ
+  // biểu hiện ở chỗ nửa Node nhờ gì cũng hết giờ.
+  ctx.effect(() => moCau(dock.actions), 'hdw-dock: cầu nối nửa Node')
 
   // `ctx.slots.inject` là bắt buộc, không phải cẩn thận thừa: đăng ký thẳng vào
   // một slot chưa được khai báo sẽ ném. `inject` chờ tới khi chủ slot mount,

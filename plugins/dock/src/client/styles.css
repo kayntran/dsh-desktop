@@ -32,21 +32,27 @@
  * chính Tooltip của upstream đã dựa vào đúng tính chất này trong cùng cây DOM.
  */
 /*
- * KHÔNG ĐẶT NỀN ĐỤC Ở ĐÂY. Nền của panel phải nằm ở từng phần con, không nằm ở
- * cả cột.
+ * KHÔNG ĐẶT NỀN ĐỤC Ở ĐÂY, VÀ KHÔNG BẮT CHUỘT Ở ĐÂY. Cả hai thứ đó thuộc về
+ * từng phần con, không thuộc về cả cột.
  *
- * Lý do: panel này sống trong lớp `overlayLayer` của upstream, và lớp đó khai
- * `z-index: 20`. Sân khấu webview thì gắn thẳng vào `document.body` và khai
- * `z-index: 5`. Hai con số đó tranh nhau trong cùng một bối cảnh xếp lớp, nên
- * 20 thắng: cả cột panel được sơn ĐÈ LÊN trang web.
+ * Lý do chung: panel này sống trong lớp `overlayLayer` của upstream, và lớp đó
+ * khai `z-index: 20`. Sân khấu webview thì gắn thẳng vào `document.body` và
+ * khai `z-index: 5`. Hai con số tranh nhau trong cùng một bối cảnh xếp lớp, nên
+ * 20 thắng: cả cột panel nằm ĐÈ LÊN trang web.
  *
- * Hậu quả là một lỗi không hề báo gì: pill đổi tên theo tiêu đề trang, thanh
- * địa chỉ đúng, trang web vẫn chạy và vẫn được cấp khung hình đều đặn — chỉ có
- * điều thứ người dùng nhìn thấy là nền panel, một khoảng trắng.
+ * Từ một nguyên nhân đó ra HAI lỗi riêng biệt, và sửa cái này không sửa cái kia:
  *
- * Vì sao không nâng sân khấu lên trên 20 cho xong: mọi menu, tooltip, hộp thoại
- * của upstream cũng nằm trong đúng lớp 20 đó. Nâng sân khấu lên trên là mỗi lần
- * mở menu "+" nó lại chui xuống dưới trang web.
+ *   1. Nền đục sơn phủ trang → người dùng thấy một khoảng trắng.
+ *   2. Phần tử phủ lên trang vẫn NUỐT CHUỘT dù đã trong suốt → bấm và gõ không
+ *      tới được trang. Trong suốt là chuyện của mắt; `pointer-events` mới là
+ *      chuyện của tay.
+ *
+ * Lỗi 1 sửa xong rồi tưởng là hết, và lỗi 2 vẫn còn nguyên thêm một thời gian.
+ * Nên hai chú thích này nằm cạnh nhau: ai đụng tới một cái phải thấy cái kia.
+ *
+ * Vì sao không nâng sân khấu lên trên 20 cho xong: menu, tooltip, hộp thoại của
+ * upstream cũng nằm trong đúng lớp đó. Nâng sân khấu lên là mỗi lần mở menu "+"
+ * nó lại chui xuống dưới trang web.
  */
 .hdw-dock {
   position: fixed;
@@ -58,8 +64,37 @@
   flex-direction: column;
   overflow: hidden;
   background: transparent;
+  pointer-events: none;
   border-left: 1px solid var(--dsw-alias-border-l1);
   color: var(--dsw-alias-label-primary);
+}
+
+/*
+ * Ba khối bao ngoài ô trang web đều phải thôi bắt chuột — không chỉ riêng
+ * `.hdw-slot`. Trước đây chỉ `.hdw-slot` khai `none`, và cú bấm rơi xuống đúng
+ * cha nó là `.hdw-browser`; đo bằng `elementFromPoint` giữa ô trang thì thấy
+ * `.hdw-browser` chứ không thấy thẻ webview.
+ *
+ * Khai đích danh từng khối thay vì để kế thừa từ `.hdw-dock` lan xuống: phần tử
+ * mới thêm sau này vào trong `.hdw-tabbar`/`.hdw-files`/… vẫn bấm được, còn thứ
+ * đặt thẳng dưới `.hdw-dock` thì không — và "không bấm được" là lỗi thấy ngay,
+ * khác hẳn một lỗ rò im lặng.
+ */
+.hdw-body,
+.hdw-browser {
+  pointer-events: none;
+}
+
+/* Và những phần thật sự cần bấm thì nhận lại. Con cháu của chúng theo cùng, vì
+   `pointer-events` là thuộc tính kế thừa — nên không phải kể tên nút đóng trên
+   pill, ô địa chỉ, hàng file hay nút trong thanh trạng thái terminal. */
+.hdw-tabbar,
+.hdw-navbar,
+.hdw-files,
+.hdw-termwrap,
+.hdw-empty,
+.hdw-resizer {
+  pointer-events: auto;
 }
 
 /* ------------------------------------------------------------- thanh tab */
@@ -227,6 +262,8 @@
 .hdw-slot {
   flex: 1 1 auto;
   min-height: 0;
+  /* Một mình dòng này KHÔNG đủ để cú bấm tới được trang web — nó chỉ bỏ qua
+     đúng phần tử này, rồi cú bấm rơi vào cha. Xem `.hdw-browser` ở trên. */
   pointer-events: none;
 }
 

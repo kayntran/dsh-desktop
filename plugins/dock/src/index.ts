@@ -10,6 +10,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { registerBusRoutes } from './bus-routes.ts'
 import { registerFsRoutes } from './fs-routes.ts'
 import { registerPtyRoutes } from './pty-routes.ts'
 
@@ -28,4 +29,7 @@ export const inject = ['webServer', 'fs', 'workspaceRegistry']
 export function apply(ctx: Context): void {
   ctx.effect(() => registerFsRoutes(ctx), 'hdw-dock: route Files')
   ctx.effect(() => registerPtyRoutes(ctx), 'hdw-dock: route Terminal')
+  // Cầu nối tới nửa giao diện. Hiện chưa có tool nào gọi nó — nó là nền móng
+  // cho tầng tool sắp tới, và `bus` trả về ở đây chính là bề mặt tầng đó dùng.
+  ctx.effect(() => registerBusRoutes(ctx).dispose, 'hdw-dock: cầu nối giao diện')
 }

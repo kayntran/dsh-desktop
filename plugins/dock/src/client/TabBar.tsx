@@ -13,7 +13,7 @@
  * @module
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Button,
   IconApiOutline14,
@@ -52,6 +52,25 @@ export interface TabBarProps {
  */
 export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose }: TabBarProps): React.JSX.Element {
   const [moMenu, setMoMenu] = useState(false)
+
+  // Đóng menu khi một trang web giành lấy bàn phím.
+  //
+  // `Menu` của upstream tự đóng bằng cách nghe cú bấm trên `document`. Nhưng từ
+  // khi panel thôi bắt chuột ở vùng trang web (xem `styles.css`), một cú bấm vào
+  // trang KHÔNG còn tới `document` của app — nó đi thẳng vào tiến trình của
+  // trang. Nên mở menu rồi bấm ra giữa trang web để bỏ thì menu cứ đứng đó.
+  //
+  // Thứ vẫn tới được: thẻ `<webview>` nhận tiêu điểm DOM, và sự kiện đó nổi lên
+  // `document` dưới dạng `focusin`.
+  useEffect(() => {
+    if (!moMenu) return undefined
+    const khiTrangGiuBanPhim = (event: FocusEvent): void => {
+      const dich = event.target
+      if (dich instanceof HTMLElement && dich.tagName.toLowerCase() === 'webview') setMoMenu(false)
+    }
+    document.addEventListener('focusin', khiTrangGiuBanPhim)
+    return () => { document.removeEventListener('focusin', khiTrangGiuBanPhim) }
+  }, [moMenu])
 
   const muc: MenuEntry[] = [
     { id: 'browser', label: 'Trang web mới', icon: <IconGlobeOutline14 /> },

@@ -85,8 +85,13 @@ export interface Stage {
   /** Tạo tab nếu chưa có, rồi trả về nó. */
   ensure: (id: string, url?: string) => void
   remove: (id: string) => void
-  /** Tab nào nằm trên. `undefined` là không tab nào (dải rỗng). */
-  setActive: (id: string | undefined) => void
+  /**
+   * Tab nào nằm trên. `undefined` là không tab nào (dải rỗng).
+   * @param traoBanPhim - true khi chính người dùng vừa chọn tab này, để trao
+   * luôn bàn phím cho trang. Mặc định false: lúc app tự dựng lại panel mà giành
+   * bàn phím là cướp nó khỏi ô nhập hội thoại.
+   */
+  setActive: (id: string | undefined, traoBanPhim?: boolean) => void
   /** Đặt vị trí sân khấu; `undefined` là ẩn hẳn. */
   setRect: (rect: StageRect | undefined) => void
   status: (id: string) => TabStatus | undefined
@@ -95,6 +100,8 @@ export interface Stage {
   goForward: (id: string) => void
   reload: (id: string) => void
   stop: (id: string) => void
+  /** Trao bàn phím cho trang của tab này. */
+  focus: (id: string) => void
   element: (id: string) => WebviewTag | undefined
   destroy: () => void
 }
@@ -160,12 +167,45 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
   const bao = (id: string, tab: Tab): void => { onChange(id, { ...tab.status }) }
 
-  const xepChong = (): void => {
+  const xepChong = (traoBanPhim = false): void => {
     for (const [id, tab] of tabs) {
       // Tab đang xem nằm trên; tab nền bị nó che kín. Đây là cách ẩn DUY NHẤT
       // còn chụp ảnh được — xem chú thích đầu file.
       tab.el.style.zIndex = id === activeId ? '1' : '0'
     }
+    banGiaoTieuDiem(traoBanPhim)
+  }
+
+  /**
+   * Bàn giao tiêu điểm bàn phím khi tab đang xem đổi.
+   *
+   * Phải làm tường minh: `z-index` chỉ đổi thứ tự sơn, nó KHÔNG lấy lại tiêu
+   * điểm. Mà ở đây tab nền không bị ẩn, chỉ bị che — nên thiếu bước này thì
+   * người dùng bấm vào trang ở tab A, chuyển sang tab khác, gõ phím, và phím đi
+   * thẳng vào một trang web vô hình đang nằm dưới. Không có gì báo; người dùng
+   * chỉ thấy "gõ mà không có gì xảy ra".
+   *
+   * Chỉ GIÀNH bàn phím khi CHÍNH NGƯỜI DÙNG vừa chọn tab — `traoBanPhim`. Giành
+   * vô điều kiện thì mở app lên, panel tự dựng lại một tab web, và bàn phím bị
+   * cướp khỏi ô nhập hội thoại; đó là đổi một lỗi lấy một lỗi khó chịu hơn.
+   *
+   * Ý định phải được KHAI BÁO chứ không suy đoán. Bản trước đoán bằng cách xem
+   * tiêu điểm có đang nằm trong panel không — nghe hợp lý, nhưng sai ngay ở một
+   * đường thường gặp: gọi `.click()` bằng mã (và vài cách chọn bằng bàn phím)
+   * không hề dời tiêu điểm, nên ý định thật bị đọc thành "không phải người dùng".
+   *
+   * Chiều NHẢ thì làm vô điều kiện: một trang đang bị che mà vẫn giữ bàn phím
+   * thì luôn là sai.
+   * @param traoBanPhim - người dùng vừa tự chọn tab này.
+   */
+  const banGiaoTieuDiem = (traoBanPhim: boolean): void => {
+    const tren = activeId === undefined ? undefined : tabs.get(activeId)
+    if (tren === undefined) {
+      const dangGiu = document.activeElement
+      if (dangGiu instanceof HTMLElement && dangGiu.tagName.toLowerCase() === 'webview') dangGiu.blur()
+      return
+    }
+    if (traoBanPhim) tren.el.focus()
   }
 
   const tao = (id: string, url?: string): Tab => {
@@ -176,7 +216,22 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
     // `partition` bị lớp vỏ ép lại ở `will-attach-webview` bất kể ghi gì ở đây;
     // ghi ra cho người đọc thấy ý định, và để thẻ đúng ngay cả khi chốt đổi.
     el.setAttribute('partition', 'persist:hdw-browser')
-    el.setAttribute('allowpopups', 'false')
+    // KHÔNG khai `allowpopups`. Nó là thuộc tính boolean của HTML: có mặt là
+    // BẬT, kể cả khi giá trị là chuỗi "false". Bản trước ghi `allowpopups="false"`
+    // với ý tắt popup, và nó nói ngược đúng điều nó định nói. Không gây hậu quả
+    // thật vì lớp vỏ xoá thuộc tính này ở `will-attach-webview` rồi chặn tiếp ở
+    // `setWindowOpenHandler` — nhưng để lại là để lại một cái bẫy đọc hiểu.
+    // `tabindex="-1"` để `focus()` gọi được bằng mã.
+    //
+    // Không có nó thì thẻ `<webview>` không phải phần tử nhận tiêu điểm, và
+    // `el.focus()` im lặng không làm gì — đo được: sau khi gọi focus, trang chủ
+    // vẫn báo `activeElement=BODY` và trang khách vẫn `hasFocus=false`. Đúng
+    // loại hỏng im lặng mà bộ luật này sinh ra để chống.
+    //
+    // Chọn `-1` chứ không phải `0`: trang web không nên chen vào vòng Tab của
+    // giao diện app — người dùng bấm Tab trong panel là để đi giữa các nút của
+    // panel, không phải để rơi vào trong trang.
+    el.setAttribute('tabindex', '-1')
     el.className = 'hdw-webview'
 
     const tab: Tab = {
@@ -236,9 +291,9 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       xepChong()
     },
 
-    setActive: (id) => {
+    setActive: (id, traoBanPhim = false) => {
       activeId = id
-      xepChong()
+      xepChong(traoBanPhim)
     },
 
     setRect: (rect) => {
@@ -282,6 +337,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
     reload: (id) => { tabs.get(id)?.el.reload() },
     stop: (id) => { tabs.get(id)?.el.stop() },
+    focus: (id) => { tabs.get(id)?.el.focus() },
     element: (id) => tabs.get(id)?.el,
 
     destroy: () => {

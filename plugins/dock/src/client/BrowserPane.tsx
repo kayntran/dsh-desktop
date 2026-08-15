@@ -144,6 +144,10 @@ export function BrowserPane({ paneId, stage, an, batDau }: BrowserPaneProps): Re
     if (url === undefined) return
     stage.navigate(paneId, url)
     setDangGo(false)
+    // Trả bàn phím cho trang. Không có dòng này thì trang mới nạp xong nhưng
+    // tiêu điểm vẫn nằm ở ô địa chỉ, và phím đầu tiên người dùng gõ — thường là
+    // để cuộn hoặc để tìm trong trang — lại chui vào ô nhập.
+    stage.focus(paneId)
   }
 
   return (

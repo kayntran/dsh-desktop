@@ -415,3 +415,86 @@ ai đoán ra vì triệu chứng là *mọi* mục kiểm bị từ chối (gi�
 plugin gieo workspace nằm trong repo (`scripts/spike-ws-seed.mjs`), còn file patch trỏ vào nó được
 sinh ra ngay trong `DSH_HOME` tạm lúc chạy — vì nó phải chứa đường dẫn tuyệt đối, thứ khác nhau
 trên mỗi máy. Biến `HDW_SEED_PATCH` vẫn còn để ghi đè khi cần.
+
+## 2026-08-15 — Bấm và gõ được trên trang web, và cầu nối cho agent
+
+### Nửa còn lại của lỗi "trang trắng"
+
+Cùng một nguyên nhân đẻ ra HAI lỗi, và sửa cái này không sửa cái kia:
+
+1. Nền đục của panel **sơn phủ** trang → thấy một khoảng trắng (đã sửa sáng nay).
+2. Phần tử của panel **vẫn nuốt chuột** dù đã trong suốt → bấm và gõ không tới được trang.
+
+Trong suốt là chuyện của mắt, `pointer-events` mới là chuyện của tay. Sửa: `.hdw-dock`,
+`.hdw-body`, `.hdw-browser`, `.hdw-slot` đều `pointer-events: none`; các phần cần bấm
+(`.hdw-tabbar`, `.hdw-navbar`, `.hdw-files`, `.hdw-termwrap`, `.hdw-empty`, `.hdw-resizer`)
+nhận lại `auto`. Khai đích danh từng khối bao thay vì để kế thừa lan từ gốc: thứ thêm sau này
+vào trong các khối đã bật thì tự bấm được, còn thứ đặt thẳng dưới `.hdw-dock` thì không — và
+"không bấm được" là lỗi thấy ngay, khác hẳn một lỗ rò im lặng.
+
+**Cho chuột đi qua không làm bàn phím đi theo.** Ba việc nữa phải làm, mỗi việc chống một lỗi
+riêng:
+
+- Thẻ `<webview>` cần `tabindex="-1"` mới `focus()` được. Thiếu nó thì `el.focus()` im lặng
+  không làm gì — đo được: trang chủ vẫn báo `activeElement=BODY`, trang khách `hasFocus=false`.
+- `xepChong()` phải **bàn giao tiêu điểm**. `z-index` chỉ đổi thứ tự sơn; tab nền thì bị che chứ
+  không bị ẩn, nên thiếu bước này là người dùng gõ vào một trang web vô hình.
+- Enter ở thanh địa chỉ phải trả bàn phím cho trang.
+
+Ý định "người dùng vừa tự chọn tab" được **khai báo** (`setActive(id, traoBanPhim)`) chứ không
+suy đoán từ tiêu điểm: bản đầu đoán bằng `document.activeElement`, và sai ngay ở đường `.click()`
+— cách đó không dời tiêu điểm. Giành bàn phím vô điều kiện cũng sai: mở app lên mà panel khôi
+phục một tab web thì bàn phím bị cướp khỏi ô nhập hội thoại.
+
+Kèm: đóng menu "+" khi trang giành bàn phím (cú bấm vào trang không còn tới `document` của app
+nữa, nên menu không tự đóng như trước), và bỏ `allowpopups="false"` — thuộc tính boolean, **có
+mặt là bật**, dòng đó nói ngược điều nó định nói.
+
+### Cầu nối `/hdw/bus` — nền móng cho agent điều khiển trình duyệt
+
+Tool của agent sẽ chạy ở nửa Node, trang web sống ở nửa giao diện; cầu là đường duy nhất giữa
+hai bên. `plugins/dock/src/bus-routes.ts` (sao khuôn `pty-routes.ts`) + `client/bus.ts`. Giao
+thức JSON, khớp yêu cầu–trả lời bằng `id`, có số phiên bản trong khung chào.
+
+Hai quyết định đáng nhớ:
+
+- **Ai lái khi nhiều cửa sổ nối vào: cái đầu tiên, giữ tới khi socket của nó đóng.** Không phải
+  "cái mới nhất" như phản xạ đầu tiên. `isTrustedRequest` là rào chống trang lạ, **không phải xác
+  thực** — một tab Chrome mở `http://127.0.0.1:<cổng>` cũng qua được; luật "mới nhất lái" trao vô
+  lăng cho tab đó, và agent sẽ mở trang trong một cửa sổ không ai nhìn.
+- **`mo_trang` trả `pane_id`, KHÔNG hứa "đã tải xong"**: `openPane` chỉ đẩy pane vào kho, webview
+  dựng ở lượt render sau. Hứa quá tay là tool đầu tiên sẽ báo thành công cho một địa chỉ 404.
+
+Rào địa chỉ `net-policy.ts` port từ dự án tham chiếu, **chỉ chặn agent** — người dùng gõ tay vẫn
+vào được router và server nội bộ. Ba lỗ hổng bản gốc đã trả giá để bịt, giữ nguyên cả ba:
+`URL.hostname` của IPv6 còn **ngoặc vuông**; chặn **cả dải `127/8`** chứ không riêng `127.0.0.1`;
+so IPv6 bằng **mặt nạ bit** chứ không `startsWith("fc")` — cách kia chặn oan `fc2.com`, mà một rào
+chặn oan là một rào sẽ bị tắt.
+
+### Bộ kiểm: 16 → 26 mục
+
+Mục mới đáng kể nhất là **4f/4g/4h** và **14a–14e**. Ba bài học về phép đo:
+
+- Hộp thoại chào mừng của upstream bật lên **sau** khi panel mount, và bản trước hỏi đúng một lần
+  rồi kết luận "không có" — nên cả bài kiểm chạy dưới một lớp mask phủ kín, mà **mọi mục dùng
+  `.click()` vẫn xanh** vì `.click()` gọi thẳng handler, không qua phép dò trúng đích. Giờ phải chờ
+  nó xuất hiện, và chờ đủ lâu cho lệnh ghi xác nhận bay xong.
+- **Cú bấm thì máy KHÔNG đo được.** `sendInputEvent` bắn thẳng vào widget trang chủ nên không tới
+  trang khách (đo được: bắn kiểu đó trang khách đếm 0, bắn thẳng vào trang khách thì đếm 1).
+  `Input.dispatchMouseEvent` qua DevTools cũng vậy — nhưng PHÍM thì tới nơi, vì phím đi tới widget
+  đang giữ tiêu điểm chứ không qua bước dò toạ độ. Nên mục 4f đo thứ đo được và đúng là nguyên
+  nhân đã gây lỗi: chuỗi phần tử phủ lên ô trang có còn cái nào bắt chuột không.
+- Mục 9 (terminal có chữ của shell) **chập chờn** — cùng một mã, lúc xanh lúc đỏ. Chưa truy.
+
+### Giai đoạn sau phải làm ĐẦU TIÊN
+
+1. **Đường tới sân khấu webview.** Cầu sống ở tầng plugin nên thấy `dock.actions`, nhưng `stage`
+   chỉ nằm trong `useRef` của `DockPanel`. Mọi lệnh điều khiển chính trang web — bấm, gõ, đọc nội
+   dung, chụp ảnh — đều cần đường này.
+2. **Chốt chuyển hướng theo từng tab.** Agent đưa một URL công cộng, trang trả 302 sang
+   `http://127.0.0.1:<cổng engine>/` — rào lúc mở không cản được, và vì là điều hướng top-level nên
+   `isTrustedRequest` cho qua. Agent có một tab điều khiển được đứng ngay trong giao diện engine.
+   Chốt đúng chỗ là tầng điều hướng của guest trong `src/main/window.ts`, và phải phân biệt tab do
+   agent mở với tab người dùng tự gõ.
+3. **URL sống lại qua localStorage.** Kho panel có `persist`, nên địa chỉ agent mở được lưu lại và
+   mở lại ở lần chạy sau, bỏ qua mọi phép kiểm ở lượt đó.

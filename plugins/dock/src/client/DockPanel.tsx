@@ -68,10 +68,23 @@ export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: Dock
 
   const active = useMemo(() => panes.find((p) => p.id === activeId), [panes, activeId])
 
+  // Người dùng vừa tự bấm chọn tab, hay panel đang tự dựng lại?
+  //
+  // Khác biệt này quyết định có trao bàn phím cho trang web hay không, và nó
+  // KHÔNG suy ra được từ trạng thái: cùng một `activeId` mới, một đằng là cú
+  // bấm, một đằng là app vừa mở lên và đọc lại phiên trước. Nên ý định được ghi
+  // ngay tại chỗ phát sinh rồi tiêu đi khi dùng.
+  const doNguoiDungChon = useRef(false)
+  const chonTab = useCallback((id: string) => {
+    doNguoiDungChon.current = true
+    actions.setActive(id)
+  }, [actions])
+
   // Sân khấu chỉ hiện khi panel mở VÀ pane đang xem là một trang web. Mọi lúc
   // khác nó ẩn hẳn — nếu không, trang web sẽ nổi đè lên tab Files.
   useEffect(() => {
-    stage.setActive(activeId)
+    stage.setActive(activeId, doNguoiDungChon.current)
+    doNguoiDungChon.current = false
     if (!open || active?.kind !== 'browser') stage.setRect(undefined)
   }, [stage, open, activeId, active?.kind])
 
@@ -94,7 +107,7 @@ export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: Dock
       <TabBar
         panes={panes}
         activeId={activeId}
-        onSelect={actions.setActive}
+        onSelect={chonTab}
         onClosePane={dongPane}
         onOpen={(kind) => { actions.openPane(kind) }}
         onClose={actions.close}

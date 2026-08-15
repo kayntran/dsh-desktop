@@ -137,9 +137,30 @@ function guardWebviews(win) {
 
 // ------------------------------------------------------------------- chính
 
+/**
+ * Hỏi route chẩn đoán của cầu nối.
+ * @param {string} baseUrl - gốc của engine.
+ * @param {string} [qs] - phần query, ví dụ `?mo=https://...`.
+ * @returns {Promise<{status: number, body: any}>} mã HTTP và thân JSON.
+ */
+async function hoiThu(baseUrl, qs = '') {
+  const res = await fetch(`${baseUrl}/hdw/bus/thu${qs}`)
+  return { status: res.status, body: await res.json() }
+}
+
 async function main() {
   const baseUrl = await moEngine()
   console.log(`engine:  ${baseUrl}\n`)
+
+  // Hỏi cầu TRƯỚC khi mở cửa sổ nào: đây là đường "chưa có ai nối", và nó phải
+  // trả lời ngay chứ không được treo. Đo ở đây vì lát nữa không còn cơ hội —
+  // cửa sổ mở rồi thì không đóng lại được mà không phá các mục khác.
+  let truocKhiMoCuaSo
+  try {
+    truocKhiMoCuaSo = (await hoiThu(baseUrl)).body
+  } catch (e) {
+    truocKhiMoCuaSo = { ly_do: e.message }
+  }
 
   const win = new BrowserWindow({
     width: 1400,
@@ -319,6 +340,188 @@ async function main() {
     record('4d. không có gì sơn đè lên ô trang web',
       che.soDuc === 0,
       che.ly_do ?? (che.soDuc === 0 ? 'không kẻ nào' : `bị ${che.soDuc} lớp đục phủ: ${JSON.stringify(che.ten)}`))
+  }
+
+  // --- 4e–4h. NGƯỜI DÙNG CÓ THAO TÁC ĐƯỢC TRÊN TRANG KHÔNG
+  //
+  // "Nhìn thấy" và "bấm được" là hai chuyện khác nhau, và lỗi thứ hai sống sót
+  // lâu hơn lỗi thứ nhất: sau khi bỏ nền đục thì trang hiện ra, nhưng phần tử
+  // trong suốt của panel VẪN nuốt chuột.
+  //
+  // 4e chỉ nói "về lý thuyết thì tới được". 4f và 4g mới là mục thật: gửi cú
+  // bấm và phím THẬT qua cửa sổ, rồi hỏi chính trang khách xem nó có nhận
+  // không. Không có hai mục đó thì mọi phép kiểm bằng `.click()` trong trang
+  // đều xanh trong khi người dùng bấm không ăn — `.click()` gọi thẳng handler,
+  // nó không đi qua phép dò trúng đích.
+  {
+    // Hộp thoại của upstream phủ một lớp mask kín cửa sổ. Còn nó thì mọi mục
+    // bấm thật đều đỏ oan, kể cả khi phép sửa đúng — nên dọn lại lần nữa ngay
+    // trước khi đo, và nói ra nếu không dọn được.
+    const conHop = await win.webContents.executeJavaScript(
+      `document.querySelectorAll('[role="dialog"]').length`)
+    if (conHop > 0) console.log(`  (dọn lại) còn ${conHop} hộp thoại: ${await dongHopThoai(win)}`)
+
+    const oTrang = await win.webContents.executeJavaScript(`(() => {
+      const stage = document.querySelector('.hdw-stage')
+      if (stage === null) return { ly_do: 'không thấy sân khấu' }
+      const s = stage.getBoundingClientRect()
+      const x = Math.round(s.x + s.width / 2), y = Math.round(s.y + s.height / 2)
+      const trung = document.elementFromPoint(x, y)
+      return {
+        x, y,
+        // Bấm ở góc dưới-trái cho ít khả năng trúng link của trang thật.
+        xGoc: Math.round(s.x + 12), yGoc: Math.round(s.y + s.height - 12),
+        trung: trung === null ? null : (trung.className || trung.tagName).toString().slice(0, 30),
+      }
+    })()`)
+    record('4e. bắn tia vào giữa ô trang thì trúng thẻ webview',
+      typeof oTrang.trung === 'string' && oTrang.trung.includes('hdw-webview'),
+      oTrang.ly_do ?? `trúng ${JSON.stringify(oTrang.trung)}`)
+
+    const guest = guests[0]
+    const dat = async () => {
+      if (guest === undefined || guest.isDestroyed()) return false
+      await guest.executeJavaScript(`(() => {
+        window.__hdwBam = 0
+        window.__hdwPhim = ''
+        addEventListener('mousedown', () => { window.__hdwBam += 1 }, true)
+        addEventListener('keydown', (e) => { window.__hdwPhim += e.key }, true)
+        return 1
+      })()`)
+      return true
+    }
+    const doc = async () => guest.executeJavaScript(
+      `({ bam: window.__hdwBam, phim: window.__hdwPhim })`)
+
+    if (await dat()) {
+      // Gửi input qua GIAO THỨC DEVTOOLS của trang chủ, không qua
+      // `sendInputEvent`.
+      //
+      // Khác biệt quyết định: `sendInputEvent` bắn thẳng vào widget của trang
+      // chủ, nên nó KHÔNG bao giờ tới trang khách — đã đo: bắn kiểu đó thì trang
+      // khách đếm 0, nhưng bắn thẳng vào trang khách thì nó đếm 1, tức trang
+      // khách vẫn ăn input bình thường và phép đo mới là thứ không đi tới nơi.
+      // `Input.dispatchMouseEvent` thì đi qua bộ định tuyến input ở tiến trình
+      // duyệt — đúng đường mà con chuột thật đi, gồm cả bước dò trúng đích trên
+      // dữ liệu của bộ tổng hợp khung hình. Đó là lý do nó trả lời được câu hỏi
+      // mà đường kia không trả lời được.
+      const dbg = win.webContents.debugger
+      try { if (!dbg.isAttached()) dbg.attach('1.3') } catch { /* 4g sẽ báo */ }
+
+      // --- 4f. không còn lớp nào của panel bắt chuột trên ô trang
+      //
+      // CÚ BẤM THÌ MÁY KHÔNG ĐO ĐƯỢC — đã thử cả hai đường và cả hai đều không
+      // đi qua bộ định tuyến theo toạ độ của tiến trình duyệt:
+      //   - `sendInputEvent` bắn thẳng vào widget của trang chủ (trang khách
+      //     đếm 0, trong khi bắn thẳng vào trang khách thì nó đếm 1)
+      //   - `Input.dispatchMouseEvent` qua giao thức DevTools cũng vậy: PHÍM
+      //     thì tới nơi (nó đi tới widget đang giữ tiêu điểm), còn CHUỘT thì
+      //     không, vì chuột phải qua bước dò trúng đích theo toạ độ.
+      //
+      // Nên mục này đo thứ máy đo được và đúng là nguyên nhân đã gây ra lỗi:
+      // chuỗi phần tử phủ lên ô trang có còn cái nào bắt chuột không. Cộng với
+      // mục 4e (bắn tia trúng thẻ webview) thì đủ để nói cơ chế đã thông.
+      // Bằng chứng cuối cùng vẫn là một cú bấm tay trên app thật.
+      const chuoi = await win.webContents.executeJavaScript(`(() => {
+        const doc_ = (sel) => {
+          const el = document.querySelector(sel)
+          return el === null ? '(không có)' : getComputedStyle(el).pointerEvents
+        }
+        return {
+          phaiNone: {
+            dock: doc_('.hdw-dock'), body: doc_('.hdw-body'),
+            browser: doc_('.hdw-browser'), slot: doc_('.hdw-slot'),
+          },
+          phaiAuto: { tabbar: doc_('.hdw-tabbar'), navbar: doc_('.hdw-navbar') },
+        }
+      })()`)
+      const none = Object.values(chuoi.phaiNone).every((v) => v === 'none')
+      const auto = Object.values(chuoi.phaiAuto).every((v) => v === 'auto')
+      record('4f. không lớp nào của panel bắt chuột trên ô trang',
+        none && auto,
+        `phải none: ${JSON.stringify(chuoi.phaiNone)}; phải auto: ${JSON.stringify(chuoi.phaiAuto)}`)
+
+      // --- 4g. bấm pill sang tab web rồi GÕ THẬT
+      //
+      // Đi đúng đường người dùng đi. Bấm pill là thao tác trong panel, nên bước
+      // bàn giao tiêu điểm phải trao bàn phím cho trang — nếu không, người dùng
+      // bấm sang tab web rồi gõ mà không có gì xảy ra, phải bấm thêm một cái vào
+      // giữa trang mới gõ được.
+      //
+      // Cố ý bấm Files trước rồi mới bấm lại tab web: bấm vào pill đang chọn
+      // không đổi trạng thái nên cũng không kích hoạt bước bàn giao.
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('.hdw-pillwrap .hdw-pill')[0].click()`)
+      await cho(400)
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('.hdw-pillwrap .hdw-pill')[1].click()`)
+      await cho(500)
+
+      // Chẩn đoán kèm: sau bước bàn giao, ai đang thật sự giữ bàn phím?
+      const aiGiu = await win.webContents.executeJavaScript(
+        `(document.activeElement && document.activeElement.tagName) || '?'`)
+      const khachCoTieuDiem = await guest.executeJavaScript('document.hasFocus()')
+      console.log(`  (chẩn đoán) trang chủ: activeElement=${aiGiu}; trang khách: hasFocus=${khachCoTieuDiem}`)
+
+      let phimKq
+      try {
+        await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'k', text: 'k', windowsVirtualKeyCode: 75 })
+        await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'k', windowsVirtualKeyCode: 75 })
+        await cho(500)
+        phimKq = await doc()
+      } catch (e) {
+        phimKq = { loi: e.message }
+      }
+      record('4g. bấm pill sang tab web rồi gõ, phím tới được trang',
+        typeof phimKq.phim === 'string' && phimKq.phim.length > 0,
+        phimKq.loi ?? `trang khách nhận ${JSON.stringify(phimKq.phim)}`)
+
+      // --- 4h. đổi sang tab Files thì trang web PHẢI nhả bàn phím
+      //
+      // Tab nền chỉ bị CHE chứ không bị ẩn, và `z-index` không lấy lại tiêu
+      // điểm. Thiếu bước bàn giao thì người dùng gõ vào một trang vô hình.
+      const truoc = (await doc()).phim.length
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('.hdw-pillwrap .hdw-pill')[0].click()`)
+      await cho(600)
+      try {
+        await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'z', text: 'z', windowsVirtualKeyCode: 90 })
+        await dbg.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'z', windowsVirtualKeyCode: 90 })
+      } catch { /* mục 4g đã báo lý do rồi */ }
+      await cho(500)
+      const sauDoi = (await doc()).phim.length
+      record('4h. đổi sang tab khác thì trang web nhả bàn phím',
+        sauDoi === truoc, `trước ${truoc} phím, sau ${sauDoi} phím`)
+
+      // Trả lại tab web cho các mục sau.
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('.hdw-pillwrap .hdw-pill')[1].click()`)
+      await cho(400)
+    } else {
+      record('4f. cú bấm THẬT tới được trang web', false, 'không bắt được trang khách')
+    }
+
+    // --- 4i. giữ chỗ ngược lại: phần bấm được của panel vẫn phải bấm được
+    //
+    // Phép sửa ở 4f là gỡ `pointer-events` khỏi các khối bao. Mục này canh cho
+    // nó không gỡ quá tay và đổi lỗi này lấy lỗi khác.
+    const oDiaChi = await win.webContents.executeJavaScript(`(() => {
+      const o = document.querySelector('.hdw-address input')
+      if (o === null) return { ly_do: 'không thấy thanh địa chỉ' }
+      const r = o.getBoundingClientRect()
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+    })()`)
+    if (oDiaChi.ly_do === undefined) {
+      win.webContents.sendInputEvent({ type: 'mouseDown', x: oDiaChi.x, y: oDiaChi.y, button: 'left', clickCount: 1 })
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: oDiaChi.x, y: oDiaChi.y, button: 'left', clickCount: 1 })
+      await cho(400)
+      const dangChon = await win.webContents.executeJavaScript(
+        `(document.activeElement && document.activeElement.tagName || '?') + '|' + (document.activeElement && document.activeElement.className || '')`)
+      record('4i. bấm THẬT vào thanh địa chỉ vẫn ăn',
+        dangChon.startsWith('INPUT'), `tiêu điểm đang ở ${dangChon}`)
+    } else {
+      record('4i. bấm THẬT vào thanh địa chỉ vẫn ăn', false, oDiaChi.ly_do)
+    }
   }
 
   // CÒN TREO (chỉ với capturePage gọi TỪ TRONG TRANG) — đường tiến trình chính
@@ -529,6 +732,61 @@ async function main() {
       kh.ly_do ?? `${kh.n} khung hình/giây, visibility=${kh.vis}, khung nhìn ${kh.w}x${kh.h}`)
   }
 
+  // --- 14. CẦU NỐI giữa nửa Node và nửa giao diện
+  //
+  // Đây là nền móng cho tầng tool của agent: tool chạy ở nửa Node, còn trang web
+  // sống ở nửa giao diện, và cầu là đường duy nhất giữa hai bên. Nếu cầu chết
+  // thì mọi lệnh của agent chỉ im lặng hết giờ — nên nó phải có mục kiểm riêng
+  // ngay từ khi chưa có tool nào.
+  record('14a. chưa mở cửa sổ thì cầu trả lời "chưa ai nối" (không treo)',
+    truocKhiMoCuaSo?.noi_ket === false,
+    JSON.stringify(truocKhiMoCuaSo))
+
+  {
+    const kq = await hoiThu(baseUrl)
+    record('14b. cửa sổ đã dựng thì cầu nối được và trả lời nhanh',
+      kq.body.noi_ket === true && typeof kq.body.tre_ms === 'number' && kq.body.tre_ms < 2000,
+      JSON.stringify(kq.body))
+  }
+
+  // --- 14c. tải lại trang thì cầu phải tự nối lại
+  //
+  // Người dùng bấm Ctrl+R là chuyện thường ngày. Không tự nối lại thì từ lúc đó
+  // agent mất trình duyệt mà không có gì báo.
+  await win.webContents.reload()
+  await doiDenKhi(win, `!!document.querySelector('.hdw-dock')`, 30_000)
+  let noiLai = { noi_ket: false }
+  for (let i = 0; i < 20; i += 1) {
+    noiLai = (await hoiThu(baseUrl)).body
+    if (noiLai.noi_ket === true) break
+    await cho(500)
+  }
+  record('14c. tải lại trang thì cầu tự nối lại', noiLai.noi_ket === true, JSON.stringify(noiLai))
+
+  // --- 14d. RÀO ĐỊA CHỈ: agent không mở được địa chỉ nội bộ
+  //
+  // Bốn địa chỉ, và cái thứ tư quan trọng ngang ba cái đầu: `fc2.com` là một
+  // trang thật, và bản gốc của rào này từng chặn nhầm nó vì so tiền tố chuỗi
+  // `fc` với dải IPv6 `fc00::/7`. Một rào chặn oan là một rào sẽ bị tắt.
+  {
+    const thu = async (url) => {
+      try {
+        return (await hoiThu(baseUrl, `?mo=${encodeURIComponent(url)}`)).status
+      } catch (e) {
+        return `lỗi: ${e.message}`
+      }
+    }
+    const noiBo = ['http://127.0.0.1/', 'http://[::1]/', 'http://192.168.1.1/', 'http://10.0.0.1/']
+    const ma = {}
+    for (const u of noiBo) ma[u] = await thu(u)
+    const chanHet = Object.values(ma).every((s) => s === 400)
+    record('14d. agent KHÔNG mở được địa chỉ nội bộ', chanHet, JSON.stringify(ma))
+
+    const maCongCong = await thu('http://fc2.com/')
+    record('14e. rào không chặn oan trang công cộng (fc2.com)',
+      maCongCong === 200, `mã HTTP ${String(maCongCong)}`)
+  }
+
   // Ảnh chụp để nhìn bằng mắt, kể cả khi mọi mục đều đạt.
   if (process.env['HDW_ANH'] !== undefined) {
     const anh = await win.webContents.capturePage()
@@ -556,7 +814,21 @@ async function main() {
 async function dongHopThoai(win) {
   const dem = async () => await win.webContents.executeJavaScript(
     `document.querySelectorAll('[role="dialog"]').length`)
-  if (await dem() === 0) return 'không có'
+
+  // CHỜ hộp thoại xuất hiện đã, đừng hỏi một phát rồi kết luận "không có".
+  //
+  // Hộp "Internal Testing Notice" bật lên SAU khi panel đã mount: nó phải đọc
+  // cấu hình qua API trước, và trong lúc đọc thì nó render null. Bản trước hỏi
+  // đúng một lần nên gần như luôn trả "không có" — rồi cả bài kiểm chạy tiếp
+  // với một lớp mask phủ kín cửa sổ. Mọi mục dùng `.click()` vẫn xanh (gọi
+  // thẳng handler, không qua phép dò trúng đích), nên chuyện này KHÔNG hề lộ ra
+  // cho tới khi có mục bấm thật.
+  let co = 0
+  for (let i = 0; i < 16 && co === 0; i += 1) {
+    co = await dem()
+    if (co === 0) await cho(500)
+  }
+  if (co === 0) return 'không có'
 
   // Nút đóng lành tính, theo thứ tự ưu tiên. Cố ý KHÔNG có "Save"/"Confirm" —
   // bài kiểm không được cam kết thay người dùng thứ gì.
@@ -567,20 +839,30 @@ async function dongHopThoai(win) {
     `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`,
   ]
 
+  /** Chờ số hộp thoại tụt xuống dưới `truoc`, tối đa `giay` giây. */
+  const choTut = async (truoc, giay) => {
+    for (let i = 0; i < giay * 4; i += 1) {
+      if (await dem() < truoc) return true
+      await cho(250)
+    }
+    return false
+  }
+
   const daDong = []
   for (let vong = 0; vong < 6; vong += 1) {
     const truoc = await dem()
     if (truoc === 0) return `đã đóng ${daDong.length} hộp (${daDong.join(', ')})`
     const ten = await win.webContents.executeJavaScript(
       `document.querySelector('[role="dialog"]').textContent.trim().slice(0, 28)`)
+    let tut = false
     for (const ma of cach) {
       try { await win.webContents.executeJavaScript(ma) } catch { /* thử cách sau */ }
-      await cho(450)
-      if (await dem() < truoc) break
+      // Bấm "Continue" là GHI một xác nhận qua API settings rồi mới đóng. Bản
+      // trước chỉ chờ 450ms nên bỏ cuộc giữa lúc lệnh ghi còn đang bay.
+      tut = await choTut(truoc, 6)
+      if (tut) break
     }
-    if (await dem() >= truoc) {
-      return `không đóng được hộp "${ten}" (không sao — các mục kiểm chịu được)`
-    }
+    if (!tut) return `không đóng được hộp "${ten}" — MỌI MỤC BẤM THẬT SẼ SAI`
     daDong.push(ten)
   }
   return `còn hộp thoại sau 6 vòng — đã đóng ${daDong.length}`
