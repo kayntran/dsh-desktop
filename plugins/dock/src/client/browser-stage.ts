@@ -28,6 +28,8 @@
  * @module
  */
 
+import { isPublicUrl } from '../net-policy.ts'
+
 /**
  * Phần API của thẻ `<webview>` mà panel dùng tới.
  *
@@ -131,7 +133,7 @@ export interface StageRect {
 
 export interface Stage {
   /** Tạo tab nếu chưa có, rồi trả về nó. */
-  ensure: (id: string, url?: string) => void
+  ensure: (id: string, url?: string, owner?: TabOwner) => void
   remove: (id: string) => void
   /**
    * Tab nào nằm trên. `undefined` là không tab nào (dải rỗng).
@@ -328,7 +330,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
     if (giveKeyboard) top.el.focus()
   }
 
-  const create = (id: string, url?: string): Tab => {
+  const create = (id: string, url?: string, owner: TabOwner = 'user'): Tab => {
     // `document.createElement('webview')` chứ không phải JSX: thẻ này phải nằm
     // ngoài tầm tay của React, và nó không bao giờ được dựng lại.
     const el = document.createElement('webview') as WebviewTag
@@ -359,7 +361,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       status: { url: url ?? '', title: '', loading: url !== undefined, canBack: false, canForward: false },
       historyLength: 1,
       historyIndex: 0,
-      owner: 'user',
+      owner,
       consoleLines: [],
     }
 
@@ -375,6 +377,33 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
     })
     el.addEventListener('did-navigate', (event) => {
       const address = (event as unknown as { url: string }).url
+
+      // Tab của AGENT vừa đáp xuống một địa chỉ nội bộ: kéo nó ra ngay.
+      //
+      // Đường tới đây không phải lệnh mở của agent — lệnh đó đã bị rào địa chỉ
+      // ở nửa Node chặn từ trước. Đây là đường vòng: agent đưa một địa chỉ công
+      // cộng hợp lệ, trang đó trả về lệnh chuyển hướng sang mạng nội bộ. Phép
+      // kiểm lúc mở đã chạy xong và đã cho qua.
+      //
+      // Thành thật về giới hạn: tới được đây nghĩa là ĐÚNG MỘT request đã kịp
+      // bay tới địa chỉ nội bộ đó. Cái chặn được là mọi thứ sau đó — agent
+      // không đọc được nội dung, không thao tác được, và tab không sống lại ở
+      // lần mở app sau. Bịt luôn cả request đầu tiên thì phải tách kho cookie
+      // riêng cho tab agent, và chủ dự án đã chọn dùng chung.
+      //
+      // Địa chỉ của chính engine thì không tới được đây: lớp vỏ đã chặn cứng ở
+      // tầng request cho MỌI tab (`window.ts`, chốt 4).
+      if (tab.owner === 'agent' && !isPublicUrl(address)) {
+        el.stop()
+        void el.loadURL(BLANK_PAGE)
+        patchStatus({
+          url: BLANK_PAGE,
+          title: 'Đã chặn: chuyển hướng tới địa chỉ nội bộ',
+          loading: false,
+        })
+        return
+      }
+
       // Điều hướng mới cắt bỏ nhánh "tiến" phía trước, đúng như trình duyệt.
       tab.historyIndex += 1
       tab.historyLength = tab.historyIndex + 1
@@ -417,9 +446,10 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
   }
 
   return {
-    ensure: (id, url) => {
+    ensure: (id, url, owner) => {
       const existing = tabs.get(id)
-      if (existing === undefined) { create(id, url); return }
+      if (existing === undefined) { create(id, url, owner); return }
+      if (owner !== undefined) existing.owner = owner
       if (url !== undefined && existing.status.url === '') void existing.el.loadURL(url)
     },
 

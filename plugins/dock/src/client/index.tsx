@@ -12,6 +12,7 @@
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import xtermStyles from '@xterm/xterm/css/xterm.css'
+import { AgentControlRow } from './AgentControlRow.tsx'
 import { openBridge } from './bus.ts'
 import { DockPanel } from './DockPanel.tsx'
 import { DockToggle } from './DockToggle.tsx'
@@ -24,6 +25,7 @@ import styles from './styles.css'
 // mặt kiểu.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
 export const name = 'harness-desktop-dock'
 
@@ -72,7 +74,7 @@ export function apply(ctx: ClientContext): void {
   // Cầu nối với nửa Node. Đặt ở ĐÂY chứ không trong `DockPanel`: slot có thể
   // remount component bất cứ lúc nào, và cầu remount là cầu chết — im lặng, chỉ
   // biểu hiện ở chỗ nửa Node nhờ gì cũng hết giờ.
-  ctx.effect(() => openBridge(dock.actions, stageHolder), 'hdw-dock: cầu nối nửa Node')
+  ctx.effect(() => openBridge(dock.actions, stageHolder, dock.store), 'hdw-dock: cầu nối nửa Node')
 
   // `ctx.slots.inject` là bắt buộc, không phải cẩn thận thừa: đăng ký thẳng vào
   // một slot chưa được khai báo sẽ ném. `inject` chờ tới khi chủ slot mount,
@@ -92,4 +94,14 @@ export function apply(ctx: ClientContext): void {
     order: 100,
     inject: share,
   }, DockToggle))
+
+  // Công tắc quyền của agent, trong mục General. Đặt sau các dòng của upstream
+  // (ngôn ngữ order 0, giao diện 10, phím Enter 20): đây là tuỳ chọn của một
+  // tính năng thêm vào, không phải tuỳ chọn cốt lõi của app.
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'hdw-agent-control',
+    order: 50,
+    inject: share,
+  }, AgentControlRow))
 }

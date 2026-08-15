@@ -12,8 +12,10 @@
  * @module
  */
 
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { isPublicUrl } from '../net-policy.ts'
 import type { StageHolder } from './stage-holder.ts'
-import type { DockActions } from './store.ts'
+import type { DockActions, DockState } from './store.ts'
 
 /** Phải khớp `BUS_VERSION` ở `bus-routes.ts`. */
 const BUS_VERSION = 2
@@ -60,6 +62,33 @@ function pickTab(holder: StageHolder, params: unknown): string {
 }
 
 /**
+ * Chọn tab, rồi từ chối nếu trang đang mở không phải địa chỉ công cộng.
+ *
+ * Đây là chốt **mạnh nhất** trong cả bộ rào, và nó mạnh vì chặn *lợi ích* chứ
+ * không chỉ chặn *lối vào*: bất kể tab tới địa chỉ nội bộ bằng đường nào — lệnh
+ * mở, chuyển hướng của máy chủ, script của trang, hay người dùng tự gõ rồi agent
+ * mượn tab đó — agent cũng không đọc và không thao tác được trên nó.
+ *
+ * Áp cho MỌI tab, không chỉ tab agent mở. Người dùng tự mở trang quản trị router
+ * rồi để đó là chuyện thường; agent không có việc gì ở trong đấy.
+ */
+function pickPublicTab(holder: StageHolder, params: unknown): string {
+  const id = pickTab(holder, params)
+  const tab = holder.require().list().find((t) => t.id === id)
+  const url = tab?.url ?? ''
+  // Trang trắng và tab vừa tạo chưa có địa chỉ: cho qua, chưa có gì để đọc mà
+  // cũng chưa có gì để rò.
+  if (url === '' || url === 'about:blank') return id
+  if (!isPublicUrl(url)) {
+    throw new Error(
+      `tab "${id}" đang mở một địa chỉ nội bộ (${url}). `
+      + 'Agent không được đọc hay thao tác trên địa chỉ nội bộ.',
+    )
+  }
+  return id
+}
+
+/**
  * Dựng bảng lệnh.
  * @param actions - bộ hành động của kho panel.
  * @param holder - ô chứa sân khấu webview.
@@ -81,7 +110,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
     page_eval: async (params) => {
       const code = (params as { code?: unknown } | null)?.code
       if (typeof code !== 'string' || code === '') throw new Error('thiếu tham số code')
-      const id = pickTab(holder, params)
+      const id = pickPublicTab(holder, params)
       return { tab_id: id, value: await holder.require().evaluate(id, code) }
     },
 
@@ -100,7 +129,10 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
     open_tab: (params) => {
       const url = (params as { url?: unknown } | null)?.url
       if (typeof url !== 'string' || url === '') throw new Error('thiếu tham số url')
-      return { tab_id: actions.openPane('browser', url) }
+      // Đánh dấu là tab của AGENT. Nhãn này theo tab suốt đời nó, và nó là thứ
+      // quyết định rào chuyển hướng có kéo tab về khi trang tự nhảy sang địa chỉ
+      // nội bộ hay không.
+      return { tab_id: actions.openPane('browser', url, 'agent') }
     },
   }
 }
@@ -111,7 +143,11 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
  * @param holder - ô chứa sân khấu webview, đường duy nhất chạm tới trang web.
  * @returns hàm đóng cầu, gọi khi plugin gỡ.
  */
-export function openBridge(actions: DockActions, holder: StageHolder): () => void {
+export function openBridge(
+  actions: DockActions,
+  holder: StageHolder,
+  store: SnapshotStore<DockState>,
+): () => void {
   const commands = buildCommands(actions, holder)
   let socket: WebSocket | undefined
   let retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -126,7 +162,15 @@ export function openBridge(actions: DockActions, holder: StageHolder): () => voi
     const ws = new WebSocket(url)
     socket = ws
 
-    ws.onopen = () => { ws.send(JSON.stringify({ t: 'hello', version: BUS_VERSION })) }
+    // Khung chào mang theo trạng thái công tắc mà người dùng đã lưu. Nửa Node
+    // khởi động không biết gì về nó — nó chỉ tồn tại ở chỗ người dùng bấm.
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        t: 'hello',
+        version: BUS_VERSION,
+        agentControl: store.getSnapshot().agentControl,
+      }))
+    }
 
     ws.onmessage = (event: MessageEvent<unknown>) => {
       let frame: { t?: unknown, id?: unknown, cmd?: unknown, params?: unknown }
@@ -184,8 +228,23 @@ export function openBridge(actions: DockActions, holder: StageHolder): () => voi
 
   connect()
 
+  // Người dùng gạt công tắc thì báo NGAY, không chờ lần nối lại: tắt quyền là
+  // muốn nó có hiệu lực lập tức, không phải sau lần tải trang tới.
+  //
+  // Cầu chưa nối thì bỏ qua — khung chào của lần nối sau đã mang giá trị mới.
+  let lastSent = store.getSnapshot().agentControl
+  const unsubscribe = store.subscribe(() => {
+    const now = store.getSnapshot().agentControl
+    if (now === lastSent) return
+    lastSent = now
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ t: 'agent-control', agentControl: now }))
+    }
+  })
+
   return () => {
     stopped = true
+    unsubscribe()
     if (retryTimer !== undefined) clearTimeout(retryTimer)
     socket?.close()
     socket = undefined

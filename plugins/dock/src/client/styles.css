@@ -508,3 +508,64 @@
   display: inline-flex;
   transform: scaleX(-1);
 }
+
+/* --------------------------------------------------- dòng trong Cài đặt */
+
+/*
+ * Một dòng trong Cài đặt → General. Hình dạng chép theo dòng của upstream
+ * (`EnterBehaviorRow`): chữ bên trái co giãn, nút chọn bên phải cố định.
+ * Không viết cứng màu nào — tất cả đi qua biến `--dsw-alias-*` nên chế độ
+ * sáng/tối tự theo.
+ */
+.hdw-setting {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.hdw-setting-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hdw-setting-title {
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-setting-desc {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Icon cảnh báo không được co lại khi chữ dài xuống dòng. */
+.hdw-setting-warn {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hdw-setting-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hdw-setting-pick:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}

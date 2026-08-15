@@ -27,6 +27,8 @@
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { isPublicUrl } from '../net-policy.ts'
+import type { TabOwner } from './browser-stage.ts'
 
 /** Loại của một pane. */
 export type PaneKind = 'files' | 'terminal' | 'browser'
@@ -50,6 +52,12 @@ export interface Pane {
   title: string
   /** Chỉ với `kind: 'browser'` — địa chỉ đang mở. */
   url?: string
+  /**
+   * Ai mở tab này. Thiếu thì coi như người dùng — mọi tab từ bản trước đều là
+   * tab người dùng, và đó cũng là hướng đoán an toàn: nó chỉ NỚI cho tab thật
+   * của người dùng, không nới cho tab của agent.
+   */
+  openedBy?: TabOwner
 }
 
 /** Trạng thái panel, cùng một hình dạng cho cả panel lẫn nút bật/tắt. */
@@ -59,6 +67,16 @@ export interface DockState {
   panes: Pane[]
   /** Pane đang hiện. `undefined` khi dải rỗng. */
   activeId: string | undefined
+  /**
+   * Cho agent bấm, gõ, cuộn, điền form trong trình duyệt của panel.
+   *
+   * Bật sẵn. Tắt thì agent vẫn **đọc** được trang: bịt mắt nó không ngăn được
+   * nó hành động, chỉ làm nó hành động mù.
+   *
+   * Kho này chỉ là chỗ LƯU và chỗ người dùng bấm. Nguồn sự thật lúc thi hành
+   * nằm ở nửa Node — một rào mà bên bị chặn tự gỡ được thì không phải rào.
+   */
+  agentControl: boolean
 }
 
 /** Bộ ghi của panel. Component chỉ được đổi trạng thái qua đây. */
@@ -74,9 +92,11 @@ export interface DockActions {
    * dài ra vô ích.
    * @returns id của pane đang hiện sau lời gọi.
    */
-  openPane: (kind: PaneKind, url?: string) => string
+  openPane: (kind: PaneKind, url?: string, openedBy?: TabOwner) => string
   closePane: (id: string) => void
   setActive: (id: string) => void
+  /** Bật/tắt quyền agent thao tác trên trang. */
+  setAgentControl: (allowed: boolean) => void
   /** Cập nhật chữ trên pill và địa chỉ, khi trang đổi tiêu đề hoặc điều hướng. */
   describePane: (id: string, patch: { title?: string | undefined, url?: string | undefined }) => void
 }
@@ -122,7 +142,7 @@ function nextAfterClose(panes: readonly Pane[], index: number): string | undefin
 export function createDock(): Dock {
   const first: Pane = { id: newId('files'), kind: 'files', title: LABELS.files }
   const store = createSnapshotStore<DockState>(
-    { open: false, width: 320, panes: [first], activeId: first.id },
+    { open: false, width: 320, panes: [first], activeId: first.id, agentControl: true },
     { persist: { name: 'hdw.dock' } },
   )
 
@@ -135,6 +155,24 @@ export function createDock(): Dock {
       d.panes = [files]
     }
     if (!d.panes.some((p) => p.id === d.activeId)) d.activeId = d.panes[0]?.id
+    if (typeof d.agentControl !== 'boolean') d.agentControl = true
+
+    // Địa chỉ do AGENT mở không được sống lại sau khi tắt app.
+    //
+    // Kho panel có `persist`, nên một địa chỉ agent mở hôm nay sẽ tự mở lại ở
+    // lần chạy sau — và ở lượt đó nó KHÔNG đi qua phép kiểm nào, vì phép kiểm
+    // chỉ chạy lúc agent gọi lệnh mở. Kiểm lại ngay lúc đọc là chỗ duy nhất bịt
+    // được.
+    //
+    // Tab người dùng tự mở thì không đụng tới: gõ tay địa chỉ router hay NAS là
+    // việc chính đáng, và nó phải sống qua các lần mở app như mọi tab khác.
+    for (const pane of d.panes) {
+      if (pane.openedBy !== 'agent') continue
+      if (pane.url !== undefined && !isPublicUrl(pane.url)) {
+        delete pane.url
+        pane.title = 'Đã chặn: địa chỉ nội bộ'
+      }
+    }
   })
 
   return {
@@ -146,7 +184,7 @@ export function createDock(): Dock {
         store.update((d) => { d.width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(px))) })
       },
 
-      openPane: (kind, url) => {
+      openPane: (kind, url, openedBy = 'user') => {
         let result = ''
         store.update((d) => {
           if (kind === 'files') {
@@ -158,8 +196,8 @@ export function createDock(): Dock {
             }
           }
           const pane: Pane = url === undefined
-            ? { id: newId(kind), kind, title: LABELS[kind] }
-            : { id: newId(kind), kind, title: LABELS[kind], url }
+            ? { id: newId(kind), kind, title: LABELS[kind], openedBy }
+            : { id: newId(kind), kind, title: LABELS[kind], url, openedBy }
           d.panes.push(pane)
           d.activeId = pane.id
           d.open = true
@@ -181,6 +219,10 @@ export function createDock(): Dock {
         store.update((d) => {
           if (d.panes.some((p) => p.id === id)) d.activeId = id
         })
+      },
+
+      setAgentControl: (allowed) => {
+        store.update((d) => { d.agentControl = allowed })
       },
 
       describePane: (id, patch) => {

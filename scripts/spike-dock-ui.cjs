@@ -132,24 +132,20 @@ function moEngine() {
 
 // ------------------------------------------------------------------ cửa sổ
 
-/** Đúng ba chốt an toàn của `src/main/window.ts`. Lệch là spike vô nghĩa. */
-function guardWebviews(win) {
-  win.webContents.on('will-attach-webview', (_e, prefs, params) => {
-    delete prefs.preload
-    prefs.nodeIntegration = false
-    prefs.contextIsolation = true
-    prefs.sandbox = true
-    prefs.backgroundThrottling = false
-    params.partition = PARTITION
-    delete params.allowpopups
-  })
-  win.webContents.on('did-attach-webview', (_e, guest) => {
-    guest.setWindowOpenHandler(({ url }) => {
-      if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url)
-      return { action: 'deny' }
-    })
-  })
-  session.fromPartition(PARTITION).setPermissionRequestHandler((_wc, _q, cb) => { cb(false) })
+/**
+ * Bốn chốt an toàn cho `<webview>` — lấy CHÍNH hàm của app, không chép lại.
+ *
+ * Bản trước chép tay bốn chốt vào đây kèm chú thích *"lệch là spike vô nghĩa"*,
+ * và nó đã lệch thật: chốt chặn địa chỉ engine thêm vào `src/main/window.ts`
+ * không có trong bản chép, nên mục kiểm nó đỏ trong khi app thì đúng. Một chốt
+ * an toàn được kiểm bằng bản sao của chính nó thì không kiểm được gì.
+ *
+ * Nạp từ bản đã dựng (`dist/`), nên bài kiểm cũng đồng thời xác nhận bản dựng
+ * còn chạy được — thứ mà đọc thẳng mã nguồn không nói cho biết.
+ */
+async function napChotThat() {
+  const url = pathToFileURL(join(root, 'dist', 'main', 'window.js')).href
+  return import(url)
 }
 
 // ------------------------------------------------------------------- chính
@@ -185,7 +181,12 @@ async function main() {
     show: process.env['HDW_HIEN'] === '1',
     webPreferences: { webviewTag: true },
   })
-  guardWebviews(win)
+  // Chốt an toàn: dùng CHÍNH hàm của app trong `dist/`, không chép lại.
+  const chot = await napChotThat()
+  chot.guardWebviews(win)
+  // Chốt chặn địa chỉ engine cần biết engine đang ở đâu. Trong app thật,
+  // `showEngine` đặt giá trị này; ở đây spike tự dựng cửa sổ nên phải tự đặt.
+  chot.setEngineOrigin(baseUrl)
 
   // Giữ webContents của từng guest — để hỏi thẳng trang khách xem nó có được
   // cấp khung hình không (`doKhungHinh`).
@@ -1060,6 +1061,65 @@ async function main() {
     record('16c. lệnh trả về đúng tab đang hiện',
       tabs.body.ok === true && typeof tabs.body.result?.tab_id === 'string' && tabs.body.result.tab_id.length > 0,
       JSON.stringify(tabs.body.result ?? tabs.body))
+  }
+
+  // --- 17. HAI CHỐT CỦA GIAI ĐOẠN 2
+  //
+  // 14d đã canh cửa trước (lệnh mở của agent). Hai mục này canh hai đường vòng
+  // mà cửa trước không thấy.
+  {
+    // --- 17a. không tab web nào vào được giao diện của chính engine
+    //
+    // Đây là lỗ leo thang nguy hiểm nhất: agent đưa một địa chỉ công cộng hợp
+    // lệ, trang đó trả về lệnh chuyển hướng sang cổng engine, và agent có một
+    // tab điều khiển được đứng ngay trong giao diện engine.
+    //
+    // Chốt nằm ở lớp vỏ, tầng request, áp cho MỌI tab — nên mục này thử đường
+    // thẳng nhất: bảo tab đi thẳng vào đó. Chặn được đường thẳng thì cũng chặn
+    // được đường chuyển hướng, vì cùng một chốt.
+    const truocDia = await win.webContents.executeJavaScript(
+      `(() => { const wv = document.querySelector('.hdw-webview'); return wv ? wv.getURL() : null })()`)
+    await win.webContents.executeJavaScript(`(() => {
+      const wv = document.querySelector('.hdw-webview')
+      if (wv) wv.loadURL(${JSON.stringify(baseUrl)})
+      return 1
+    })()`)
+    await cho(3000)
+    const sauDia = await win.webContents.executeJavaScript(
+      `(() => { const wv = document.querySelector('.hdw-webview'); return wv ? wv.getURL() : null })()`)
+    record('17a. tab web KHÔNG vào được giao diện engine',
+      typeof sauDia === 'string' && !sauDia.startsWith(baseUrl),
+      `trước "${String(truocDia)}" → sau "${String(sauDia)}"`)
+
+    // --- 17b. agent không đọc được trang đang mở địa chỉ nội bộ
+    //
+    // Chốt MẠNH NHẤT của cả bộ rào, vì nó chặn *lợi ích* chứ không chỉ chặn
+    // *lối vào*: tab tới địa chỉ nội bộ bằng đường nào cũng vậy — lệnh mở, máy
+    // chủ chuyển hướng, script của trang, hay chính người dùng gõ tay rồi agent
+    // mượn tab đó.
+    //
+    // Gieo một tab người dùng trỏ tới địa chỉ nội bộ (đường hợp lệ: người dùng
+    // được phép), rồi bảo agent đọc nó.
+    await win.webContents.executeJavaScript(`(() => {
+      const kho = JSON.parse(localStorage.getItem('hdw.dock') || '{}')
+      kho.panes = [...(kho.panes || []), {
+        id: 'p-noibo', kind: 'browser', title: 'Nội bộ',
+        url: 'http://192.168.1.1/', openedBy: 'user',
+      }]
+      localStorage.setItem('hdw.dock', JSON.stringify(kho))
+      return 1
+    })()`)
+    await win.webContents.reload()
+    await doiDenKhi(win, `!!document.querySelector('.hdw-dock')`, 30_000)
+    for (let i = 0; i < 20; i += 1) {
+      if ((await hoiThu(baseUrl)).body.connected === true) break
+      await cho(500)
+    }
+
+    const cam = await hoiThu(baseUrl, `?eval=${encodeURIComponent('document.title')}&tab_id=p-noibo`)
+    record('17b. agent KHÔNG đọc được trang đang mở địa chỉ nội bộ',
+      cam.status === 503 && String(cam.body.reason ?? '').includes('nội bộ'),
+      `mã ${String(cam.status)} — ${String(cam.body.reason ?? JSON.stringify(cam.body))}`)
   }
 
   // Ảnh chụp để nhìn bằng mắt, kể cả khi mọi mục đều đạt.

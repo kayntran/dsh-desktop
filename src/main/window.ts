@@ -10,6 +10,7 @@
  */
 
 import { app, BrowserWindow, Menu, nativeTheme, session, shell } from 'electron'
+import { logShell } from './log.js'
 import { resourcePath } from './paths.js'
 import { restoreState, trackState } from './window-state.js'
 
@@ -35,6 +36,14 @@ export interface EngineErrorPayload {
 
 let window: BrowserWindow | undefined
 let quitting = false
+
+/**
+ * Gốc của engine (`http://127.0.0.1:<cổng>`), khi engine đã lên.
+ *
+ * Giữ lại để chốt ở {@link blockEngineOrigin} biết phải chặn cái gì. Cổng do
+ * engine tự chọn lúc chạy nên không viết cứng được.
+ */
+let engineOrigin: string | undefined
 
 /** Cửa sổ chính, nếu đang tồn tại. */
 export function mainWindow(): BrowserWindow | undefined {
@@ -73,7 +82,24 @@ export interface WindowHandlers {
 }
 
 /**
- * Ba chốt an toàn cho mọi thẻ `<webview>` mà plugin gắn vào trang.
+ * Ghi lại gốc của engine để chốt 4 biết phải chặn cái gì.
+ *
+ * Tách khỏi {@link showEngine} để bài kiểm gọi được: `scripts/spike-dock-ui.cjs`
+ * dựng cửa sổ của riêng nó và dùng **chính** hàm chốt ở dưới, chứ không chép
+ * lại. Bản chép là thứ trôi khỏi bản gốc mà không ai biết, và một chốt an toàn
+ * được kiểm bằng bản sao của chính nó thì không kiểm gì cả.
+ * @param url - địa chỉ engine đang chạy.
+ */
+export function setEngineOrigin(url: string): void {
+  try {
+    engineOrigin = new URL(url).origin
+  } catch {
+    engineOrigin = undefined
+  }
+}
+
+/**
+ * Bốn chốt an toàn cho mọi thẻ `<webview>` mà plugin gắn vào trang.
  *
  * Chốt phải nằm ở đây, ngoài tầm với của plugin — một chốt mà bên bị chặn tự
  * đặt được thì không phải chốt. Trang web mở trong tab Browser là nội dung
@@ -84,7 +110,7 @@ export interface WindowHandlers {
  * thật (mục 2 đọc lại `getLastWebPreferences()` của guest để xác nhận).
  * @param win - cửa sổ chính.
  */
-function guardWebviews(win: BrowserWindow): void {
+export function guardWebviews(win: BrowserWindow): void {
   // Chốt 1 — ép cấu hình guest, bỏ qua mọi thuộc tính trang tự khai.
   win.webContents.on('will-attach-webview', (_event, prefs, params) => {
     delete prefs.preload
@@ -115,8 +141,39 @@ function guardWebviews(win: BrowserWindow): void {
   // Chốt 3 — từ chối thẳng camera, micro, vị trí và các quyền nhạy cảm khác
   // trên phiên duyệt web. Người dùng không có cách nào bật nhầm, vì không có
   // hộp thoại nào để bấm.
-  session.fromPartition(BROWSER_PARTITION).setPermissionRequestHandler((_wc, _quyen, callback) => {
+  const browserSession = session.fromPartition(BROWSER_PARTITION)
+  browserSession.setPermissionRequestHandler((_wc, _quyen, callback) => {
     callback(false)
+  })
+
+  // Chốt 4 — không tab web nào được mở giao diện của chính engine.
+  //
+  // Lỗ này là lỗ leo thang nguy hiểm nhất, và nó không đi qua đường mà rào địa
+  // chỉ canh: agent đưa một địa chỉ công cộng hợp lệ, trang đó trả về lệnh
+  // chuyển hướng sang `http://127.0.0.1:<cổng engine>/`. Phép kiểm lúc mở đã
+  // chạy xong và đã cho qua; cú chuyển hướng xảy ra sau đó. Kết quả: agent có
+  // một tab điều khiển được đứng ngay TRONG giao diện engine, và nó tự bấm nút
+  // thay người dùng được.
+  //
+  // Chặn ở tầng request nên bắt được cả ba đường — mở thẳng, chuyển hướng của
+  // máy chủ, và trang tự đổi địa chỉ bằng script.
+  //
+  // Chốt này nằm ở lớp vỏ chứ không ở plugin, và đó là chủ ý: một chốt mà bên
+  // bị chặn tự đặt được thì bên đó cũng tự gỡ được. Lớp vỏ bảo vệ engine mà
+  // chính nó khởi động.
+  //
+  // Cái giá cho người dùng bằng không: không ai có lý do mở giao diện engine
+  // bên trong tab Browser của chính engine đó.
+  browserSession.webRequest.onBeforeRequest((details, callback) => {
+    if (engineOrigin === undefined) { callback({}); return }
+    try {
+      if (new URL(details.url).origin === engineOrigin) {
+        logShell(`chặn tab web đi vào giao diện engine: ${details.url}`)
+        callback({ cancel: true })
+        return
+      }
+    } catch { /* URL lạ (data:, blob:) — không phải gốc engine */ }
+    callback({})
   })
 }
 
@@ -214,6 +271,7 @@ export async function showSplash(): Promise<void> {
 
 /** Chuyển cửa sổ sang UI dsh. */
 export async function showEngine(url: string): Promise<void> {
+  setEngineOrigin(url)
   await window?.loadURL(url)
 }
 

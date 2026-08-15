@@ -22,7 +22,7 @@ import {
   Input,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { normalizeUrl, type Stage, type TabStatus } from './browser-stage.ts'
+import { normalizeUrl, type Stage, type TabOwner, type TabStatus } from './browser-stage.ts'
 
 const EMPTY_STATUS: TabStatus = {
   url: '', title: '', loading: false, canBack: false, canForward: false,
@@ -35,6 +35,8 @@ export interface BrowserPaneProps {
   isHidden: boolean
   /** Địa chỉ mở sẵn, khi tab được tạo kèm URL (agent mở, hoặc đọc lại từ lần trước). */
   startUrl: string | undefined
+  /** Ai mở tab này — quyết định rào chuyển hướng có áp cho nó không. */
+  openedBy: TabOwner
 }
 
 /**
@@ -42,7 +44,7 @@ export interface BrowserPaneProps {
  * @param props - xem {@link BrowserPaneProps}.
  * @returns phần tử tab.
  */
-export function BrowserPane({ paneId, stage, isHidden, startUrl }: BrowserPaneProps): React.JSX.Element {
+export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: BrowserPaneProps): React.JSX.Element {
   const slotRef = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<TabStatus>(() => stage.status(paneId) ?? initialStatus(startUrl))
   const [input, setInput] = useState(startUrl ?? '')
@@ -51,10 +53,10 @@ export function BrowserPane({ paneId, stage, isHidden, startUrl }: BrowserPanePr
   // Tạo webview một lần. Không phụ thuộc `startUrl` để lần đổi địa chỉ sau đó
   // không dựng lại thẻ — dựng lại là mất sạch trạng thái trang.
   useEffect(() => {
-    stage.ensure(paneId, startUrl)
+    stage.ensure(paneId, startUrl, openedBy)
     // Cố ý bỏ `startUrl` khỏi danh sách phụ thuộc: nó chỉ là địa chỉ khởi đầu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, paneId])
+  }, [stage, paneId, openedBy])
 
   // Nghe trạng thái tab. Sân khấu báo cho cả panel, nên lọc lấy đúng tab mình.
   useEffect(() => {

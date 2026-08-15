@@ -82,6 +82,20 @@ export interface Bus {
   call: (cmd: string, params: unknown, timeoutMs?: number) => Promise<unknown>
   /** Có cửa sổ nào đang cầm vô lăng không. */
   hasDriver: () => boolean
+  /**
+   * Người dùng có cho agent THAO TÁC trên trang không (bấm, gõ, cuộn, điền form).
+   *
+   * Đọc là luôn được, kể cả khi tắt: bịt mắt agent không ngăn được nó hành
+   * động, chỉ làm nó hành động mù.
+   *
+   * Giá trị sống ở ĐÂY, nửa Node — nơi tool thật sự chạy. Giao diện chỉ là chỗ
+   * người dùng bấm và chỗ lưu giữa các lần mở app; nó đẩy giá trị sang mỗi lần
+   * nối cầu và mỗi lần người dùng đổi. Một rào mà bên bị chặn tự gỡ được thì
+   * không phải rào.
+   *
+   * Mặc định `true`, theo lựa chọn của chủ dự án.
+   */
+  agentControl: () => boolean
 }
 
 interface Pending {
@@ -119,6 +133,7 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
   const driverWaiters: Array<() => void> = []
   let driver: WebSocket | undefined
   let nextId = 0
+  let agentControl = true
 
   /** Ai lái: cái đầu tiên còn sống. Xem chú thích đầu file. */
   const pickDriver = (): void => {
@@ -163,13 +178,26 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
       return false
     }
     if (typeof msg !== 'object' || msg === null) return false
-    const frame = msg as { t?: unknown, id?: unknown, result?: unknown, reason?: unknown, version?: unknown }
+    const frame = msg as {
+      t?: unknown, id?: unknown, result?: unknown, reason?: unknown
+      version?: unknown, agentControl?: unknown
+    }
 
     if (frame.t === 'hello') {
       if (frame.version !== BUS_VERSION) {
         ws.close(CLOSE_FINAL, `bus phiên bản ${String(BUS_VERSION)}, cửa sổ đang chạy bản khác — hãy tải lại trang`)
         return true
       }
+      // Cửa sổ mang theo trạng thái công tắc mà người dùng đã lưu.
+      if (typeof frame.agentControl === 'boolean') agentControl = frame.agentControl
+      return true
+    }
+
+    // Người dùng vừa gạt công tắc trong Cài đặt. Khung này đi ngược chiều thông
+    // thường của cầu (giao diện → Node, không phải trả lời một lời gọi), nên nó
+    // không có `id`.
+    if (frame.t === 'agent-control') {
+      if (typeof frame.agentControl === 'boolean') agentControl = frame.agentControl
       return true
     }
     if (typeof frame.id !== 'number') return false
@@ -225,6 +253,7 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
 
   const bus: Bus = {
     hasDriver: () => driver !== undefined && driver.readyState === driver.OPEN,
+    agentControl: () => agentControl,
 
     call: async (cmd, params, timeoutMs = 20_000) => {
       if (pending.size >= MAX_PENDING) {
@@ -312,8 +341,9 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
       // nhận cả chuỗi đó còn thông, thay vì chỉ biết cầu còn sống.
       const code = url.searchParams.get('eval')
       if (code !== null) {
+        const tabId = url.searchParams.get('tab_id') ?? undefined
         try {
-          const result = await bus.call('page_eval', { code }, 10_000)
+          const result = await bus.call('page_eval', { code, tab_id: tabId }, 10_000)
           json(res, 200, { ok: true, result })
         } catch (error) {
           json(res, 503, { reason: error instanceof Error ? error.message : String(error) })

@@ -140,6 +140,7 @@ export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorks
               stage={stage}
               isHidden={isHidden}
               startUrl={pane.url}
+              openedBy={pane.openedBy ?? 'user'}
             />
           )
         })}
