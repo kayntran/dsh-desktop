@@ -9,12 +9,21 @@
  * @module
  */
 
-import { app, BrowserWindow, Menu, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme, session, shell } from 'electron'
 import { resourcePath } from './paths.js'
 import { restoreState, trackState } from './window-state.js'
 
 /** Tiền tố điều hướng mà các nút trên trang nội bộ dùng để gọi về tiến trình chính. */
 const ACTION_SCHEME = 'harness-action:'
+
+/**
+ * Phiên riêng cho mọi trang mở trong tab Browser.
+ *
+ * `persist:` để cookie sống qua các lần mở app — đăng nhập một lần rồi thôi.
+ * Tách khỏi phiên của app để trang web không đọc được gì thuộc về UI dsh, và
+ * để nút "xoá dữ liệu duyệt web" sau này không đụng tới phần còn lại.
+ */
+const BROWSER_PARTITION = 'persist:hdw-browser'
 
 /** Nội dung trang lỗi. */
 export interface EngineErrorPayload {
@@ -63,6 +72,54 @@ export interface WindowHandlers {
   onHiddenToTray: () => void
 }
 
+/**
+ * Ba chốt an toàn cho mọi thẻ `<webview>` mà plugin gắn vào trang.
+ *
+ * Chốt phải nằm ở đây, ngoài tầm với của plugin — một chốt mà bên bị chặn tự
+ * đặt được thì không phải chốt. Trang web mở trong tab Browser là nội dung
+ * không tin được: nó có thể là trang bất kỳ, và agent có thể được chính nó dụ
+ * đi tới đó.
+ *
+ * Mọi giá trị dưới đây đã được `scripts/spike-webview.cjs` đo là có hiệu lực
+ * thật (mục 2 đọc lại `getLastWebPreferences()` của guest để xác nhận).
+ * @param win - cửa sổ chính.
+ */
+function guardWebviews(win: BrowserWindow): void {
+  // Chốt 1 — ép cấu hình guest, bỏ qua mọi thuộc tính trang tự khai.
+  win.webContents.on('will-attach-webview', (_event, prefs, params) => {
+    delete prefs.preload
+    prefs.nodeIntegration = false
+    prefs.contextIsolation = true
+    prefs.sandbox = true
+    // Trang nền vẫn chạy đúng nhịp. Không có dòng này thì Chromium bóp timer
+    // của tab không hiện, và lệnh "chờ tới khi phần tử xuất hiện" của agent sẽ
+    // hết giờ oan trên chính những tab nó vừa mở.
+    prefs.backgroundThrottling = false
+    // Ép phiên: quyết định trang web dùng chung kho cookie nào là quyết định
+    // của lớp vỏ, không phải của thẻ HTML.
+    params.partition = BROWSER_PARTITION
+    // Không cho trang nhúng mở popup. Bỏ thuộc tính này là chặn từ sớm, trước
+    // cả khi handler ở chốt 2 kịp chạy.
+    delete params.allowpopups
+  })
+
+  // Chốt 2 — trang nhúng không đẻ được cửa sổ mới. `target=_blank` và
+  // `window.open` đều về đây; link ngoài mở bằng trình duyệt mặc định.
+  win.webContents.on('did-attach-webview', (_event, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
+  })
+
+  // Chốt 3 — từ chối thẳng camera, micro, vị trí và các quyền nhạy cảm khác
+  // trên phiên duyệt web. Người dùng không có cách nào bật nhầm, vì không có
+  // hộp thoại nào để bấm.
+  session.fromPartition(BROWSER_PARTITION).setPermissionRequestHandler((_wc, _quyen, callback) => {
+    callback(false)
+  })
+}
+
 /** Tạo cửa sổ và hiện màn hình chờ ngay lập tức. */
 export function createWindow({ onAction, onHiddenToTray }: WindowHandlers): BrowserWindow {
   // Menu mặc định của Electron (File/Edit/View/Window/Help) không thuộc về app
@@ -80,7 +137,18 @@ export function createWindow({ onAction, onHiddenToTray }: WindowHandlers): Brow
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#16161a' : '#fbfbfd',
     title: app.getName(),
     icon: resourcePath('icon.ico'),
+    webPreferences: {
+      // Cho phép plugin dùng thẻ `<webview>` — nền tảng của tab Browser.
+      //
+      // Đây KHÔNG phải nới lỏng bảo mật của trang chủ: `webviewTag` chỉ mở ra
+      // khả năng *nhúng* một trang khác, và mọi quyền của trang nhúng đó do
+      // `will-attach-webview` bên dưới quyết định, không do trang nhúng tự khai.
+      // Không API nào cho phép trang tự bật cờ này.
+      webviewTag: true,
+    },
   })
+
+  guardWebviews(created)
 
   // Link ngoài (tài liệu, GitHub…) mở bằng trình duyệt mặc định chứ không đẻ
   // thêm một cửa sổ Electron trần không có thanh địa chỉ.

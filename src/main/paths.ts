@@ -6,7 +6,22 @@
 import { app } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
+
+/**
+ * Thư mục dữ liệu dsh dùng — mặc định `~/.dsh`, đổi được bằng biến môi trường.
+ *
+ * Cách xử lý biến môi trường phải khớp `resolveDshHome` của upstream
+ * (`_upstream_dsh/packages/util/home-paths/src/index.ts:87`): giá trị rỗng hay
+ * toàn khoảng trắng coi như chưa đặt, và `~` được khai triển. Lệch ở đây thì
+ * app và engine sẽ trỏ vào hai thư mục khác nhau mà không báo gì.
+ */
+export function dshHome(): string {
+  const fromEnv = process.env['DSH_HOME']
+  const selected = fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : join(homedir(), '.dsh')
+  return resolve(selected.startsWith('~') ? join(homedir(), selected.slice(1)) : selected)
+}
 
 /**
  * Thư mục chứa cây phụ thuộc của engine.
@@ -72,6 +87,29 @@ export function nodeVersion(): string {
   } catch {
     return 'không rõ'
   }
+}
+
+/**
+ * Thư mục chứa các plugin riêng của app.
+ *
+ * Cùng lý do với `engineRoot`: engine chạy trong một tiến trình Node riêng nên
+ * phải đọc plugin bằng đường dẫn thật trên đĩa, không nhìn được vào asar. Khi
+ * đóng gói, `electron-builder.yml` chép `plugins/` vào `resources/plugins`.
+ */
+export function pluginsRoot(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'plugins')
+    : join(app.getAppPath(), 'plugins')
+}
+
+/** Thư mục plugin panel phải (Files / Terminal / Browser). */
+export function dockPluginDir(): string {
+  return join(pluginsRoot(), 'dock')
+}
+
+/** File cấu hình bật plugin panel phải, truyền cho engine qua `--patch`. */
+export function dockPatchPath(): string {
+  return join(dockPluginDir(), 'cordis.patch.yml')
 }
 
 /** Tài nguyên tĩnh (splash, trang lỗi, icon) đi kèm app. */

@@ -12,7 +12,7 @@
 import { spawn, execFile, execFileSync, type ChildProcess } from 'node:child_process'
 import { existsSync, createWriteStream, readFileSync, rmSync, writeFileSync, type WriteStream } from 'node:fs'
 import { logShell } from './log.js'
-import { dshBinPath, engineLogPath, enginePidPath, nodeExePath } from './paths.js'
+import { dockPatchPath, dshBinPath, engineLogPath, enginePidPath, nodeExePath } from './paths.js'
 
 /**
  * Dòng dsh in ra stdout sau khi cây plugin đã settle. Upstream coi đây là tín
@@ -160,7 +160,10 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   // Engine tự spawn thêm tiến trình con — dialog chọn thư mục của Windows là
   // một — bằng `process.execPath` của chính nó, nên cả cây con cũng chạy trên
   // node.exe này chứ không quay lại binary Electron.
-  child = spawn(node, [bin, '--profile', 'web', '--port', '0'], {
+  //
+  // `--profile` và `--patch` là cờ của trình khởi động và phải đứng TRƯỚC
+  // `--port`, thứ được chuyển tiếp cho app. `--patch` bật plugin panel phải.
+  child = spawn(node, [bin, '--profile', 'web', '--patch', dockPatchPath(), '--port', '0'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })

@@ -6,10 +6,11 @@
 import { app, shell } from 'electron'
 import { EngineStartError, reapOrphanEngine, startEngine, stopEngine } from './engine.js'
 import { logShell, shellLogPath } from './log.js'
-import { dshVersion, engineLogPath, nodeVersion } from './paths.js'
+import { dshHome, dshVersion, engineLogPath, nodeVersion } from './paths.js'
 import { startNotifier, stopNotifier } from './notifier.js'
+import { linkPlugins } from './plugin-link.js'
 import {
-  createTray, destroyTray, dshHome, hintHiddenToTray, setTrayStatus, setTrayUpdate,
+  createTray, destroyTray, hintHiddenToTray, setTrayStatus, setTrayUpdate,
 } from './tray.js'
 import { openReleasePage, startUpdateChecks, stopUpdateChecks } from './updates.js'
 import {
@@ -24,6 +25,23 @@ import {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  /**
+   * Tắt phép dò che khuất cửa sổ của Chromium trên Windows.
+   *
+   * Phép dò này đánh dấu cửa sổ "bị che hoàn toàn" là ẩn để tiết kiệm pin, và
+   * nó có một lỗi đã thành kinh điển: trạng thái ẩn KẸT lại kể cả khi cửa sổ đã
+   * lên tiền cảnh. Đo được trên chính app này: cửa sổ đang bày trên màn hình mà
+   * trang chính báo `document.visibilityState === 'hidden'` và
+   * `requestAnimationFrame` không bao giờ nổ — trong khi cả bốn webview con
+   * đều tự thấy mình "visible". Hậu quả người dùng nhìn thấy: vùng trang web
+   * trong panel trắng trơn dù trang đã nạp xong và tự vẽ được trong bộ nhớ
+   * (ảnh chụp qua CDP vẫn đầy đủ), vì trang chủ ngừng phát khung hình nên bề
+   * mặt của guest không bao giờ được ghép lên màn.
+   *
+   * Phải đặt TRƯỚC `app.whenReady()` — sau đó Chromium đã đọc xong cờ.
+   */
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+
   app.setName('Harness Desktop')
   // Windows gắn thông báo vào một AppUserModelID; không đặt thì toast hiện
   // dưới tên tiến trình Electron thay vì tên app.
@@ -34,6 +52,8 @@ if (!app.requestSingleInstanceLock()) {
     logShell(`app: khởi động ${app.getName()} ${app.getVersion()} (đã đóng gói: ${String(app.isPackaged)})`)
     // Lần chạy trước có thể bị tắt cứng và để lại engine giữ cổng.
     reapOrphanEngine()
+    // Phải xong TRƯỚC khi engine lên: engine quét cây plugin lúc khởi động.
+    linkPlugins()
     createTray({
       open: revealWindow,
       openDataDir: () => { void shell.openPath(dshHome()) },

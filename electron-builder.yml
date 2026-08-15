@@ -21,11 +21,29 @@ files:
 # N-API không tạo được external ArrayBuffer, và koffi — đường upstream gọi
 # dialog chọn thư mục của Windows — cần đúng khả năng đó. Thiếu nó thì tiến
 # trình chết hẳn giữa chừng. Lấy về bằng `npm run runtime:install`.
+#
+# plugins/ cũng phải ra ngoài asar, cùng lý do với engine: engine đọc plugin
+# bằng đường dẫn thật trên đĩa từ một tiến trình Node riêng, không nhìn được vào
+# asar. Dùng danh sách cho-phép chứ không phải danh sách loại-trừ, để một lần
+# `npm install` trong plugin không lỡ kéo cả cây devDependencies vào installer.
+# Bỏ file .pdb (ký hiệu gỡ lỗi của node-pty) cắt khoảng 22 MB.
 extraResources:
   - from: engine/node_modules
     to: engine/node_modules
   - from: runtime/node.exe
     to: runtime/node.exe
+  - from: plugins/dock
+    to: plugins/dock
+    filter:
+      - package.json
+      - cordis.patch.yml
+      - lib/**/*
+      - node_modules/ws/**/*
+      - node_modules/node-pty/**/*
+      - '!node_modules/node-pty/prebuilds/darwin-*/**'
+      - '!node_modules/node-pty/prebuilds/win32-arm64/**'
+      - '!**/*.pdb'
+      - '!**/*.map'
 
 # Không biên dịch lại native addon cho ABI của Electron — chúng không chạy
 # trong Electron mà trong node.exe ở trên. Cả hai addon trong cây phụ thuộc

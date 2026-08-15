@@ -8,6 +8,10 @@ engine/node_modules/
 dist/
 release/
 
+# Bản dựng của plugin, sinh ra bởi `npm run plugins:build`. Mã nguồn ở
+# plugins/*/src/ mới là thứ được commit.
+plugins/*/lib/
+
 # Node runtime tải từ nodejs.org, ~88 MB — không nhét binary đó vào git. Lấy
 # về bằng `npm run runtime:install`; script đối chiếu SHA256 với bản phát hành
 # chính thức nên mọi máy dựng ra cùng một thứ.

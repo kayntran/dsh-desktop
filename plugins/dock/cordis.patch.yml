@@ -1,0 +1,10 @@
+# Bật panel bên phải của Harness Desktop.
+#
+# `name` phải là TÊN GÓI, không phải đường dẫn file. Engine phân giải nửa giao
+# diện bằng `createRequire(<thư mục profile>).resolve('<name>/package.json')`;
+# một đường dẫn tuyệt đối vẫn nạp được nửa Node nhưng nửa giao diện sẽ không bao
+# giờ được phục vụ, và không có lỗi nào báo ra. Junction trong cây phân giải của
+# profile do `src/main/plugin-link.ts` dựng.
+- insert:
+    - id: hdw-dock
+      name: harness-desktop-dock

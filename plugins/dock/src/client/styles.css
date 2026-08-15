@@ -1,0 +1,473 @@
+/*
+ * Mọi màu, khoảng cách, bo góc đều lấy từ biến `--dsw-*` của upstream, không
+ * có một mã màu cứng nào — nhờ vậy panel tự theo chế độ sáng/tối và tự đi theo
+ * mỗi lần DeepSeek tinh chỉnh bảng màu.
+ *
+ * Tiền tố `hdw-` cho mọi class: bundle này chèn vào cùng một document với CSS
+ * của upstream, nên tên chung chung là va chạm.
+ */
+
+/*
+ * Quy tắc duy nhất chạm tới phần tử của upstream, và nó chỉ CỘNG THÊM một
+ * thuộc tính chưa ai đặt. `#root` chỉ khai `height: 100%`, không position,
+ * không transform — nên chèn padding vào đây làm khung ba cột của app co lại
+ * đúng bằng bề rộng panel. Panel không đè lên gì cả; nhìn ra là bốn cột nằm
+ * cạnh nhau. Đóng panel thì biến về `0px` và app trở lại y nguyên.
+ */
+#root {
+  box-sizing: border-box;
+  padding-right: var(--hdw-dock-w, 0px);
+  transition: padding-right var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Lúc đang kéo thì tắt chuyển động, nếu không panel sẽ chạy sau con trỏ. Đúng
+   cách `.frame[data-dragging]` của upstream làm với các cột của họ. */
+#root[data-hdw-dragging] {
+  transition: none;
+}
+
+/*
+ * `position: fixed` để thoát khỏi `overflow: hidden` của khung app. An toàn vì
+ * không tổ tiên nào tạo containing block (không transform/filter/contain) —
+ * chính Tooltip của upstream đã dựa vào đúng tính chất này trong cùng cây DOM.
+ */
+/*
+ * KHÔNG ĐẶT NỀN ĐỤC Ở ĐÂY. Nền của panel phải nằm ở từng phần con, không nằm ở
+ * cả cột.
+ *
+ * Lý do: panel này sống trong lớp `overlayLayer` của upstream, và lớp đó khai
+ * `z-index: 20`. Sân khấu webview thì gắn thẳng vào `document.body` và khai
+ * `z-index: 5`. Hai con số đó tranh nhau trong cùng một bối cảnh xếp lớp, nên
+ * 20 thắng: cả cột panel được sơn ĐÈ LÊN trang web.
+ *
+ * Hậu quả là một lỗi không hề báo gì: pill đổi tên theo tiêu đề trang, thanh
+ * địa chỉ đúng, trang web vẫn chạy và vẫn được cấp khung hình đều đặn — chỉ có
+ * điều thứ người dùng nhìn thấy là nền panel, một khoảng trắng.
+ *
+ * Vì sao không nâng sân khấu lên trên 20 cho xong: mọi menu, tooltip, hộp thoại
+ * của upstream cũng nằm trong đúng lớp 20 đó. Nâng sân khấu lên trên là mỗi lần
+ * mở menu "+" nó lại chui xuống dưới trang web.
+ */
+.hdw-dock {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--hdw-dock-w, 0px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+  border-left: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ------------------------------------------------------------- thanh tab */
+
+/* Nền nằm ở đây chứ không ở `.hdw-dock` — xem chú thích ở đó. */
+.hdw-tabbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  flex: 0 0 auto;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* Dải pill cuộn ngang khi mở nhiều tab; nút đóng panel luôn ở lại bên phải. */
+.hdw-pills {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.hdw-pills::-webkit-scrollbar {
+  display: none;
+}
+
+/* Nút đóng nằm NGOÀI `Pill` (một <button> lồng trong <button> là HTML không
+   hợp lệ), rồi đặt chồng lên mép phải để nhìn ra vẫn là một pill duy nhất. */
+.hdw-pillwrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.hdw-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 168px;
+}
+
+/* Chừa chỗ cho nút đóng, để chữ không chui xuống dưới nó. */
+.hdw-pillwrap:has(.hdw-pill-x) .hdw-pill {
+  padding-right: 22px;
+}
+
+.hdw-pill-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+}
+
+.hdw-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hdw-pill-x {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-caption);
+  cursor: pointer;
+  /* Chỉ hiện khi rê chuột tới pill hoặc khi chính nó có tiêu điểm bàn phím —
+     ẩn hẳn thì người dùng bàn phím không bao giờ tới được. */
+  opacity: 0;
+  transition: opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.hdw-pillwrap:hover .hdw-pill-x,
+.hdw-pill-x:focus-visible {
+  opacity: 1;
+}
+
+.hdw-pill-x:hover {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* --------------------------------------------------------------- thân tab */
+
+/* Cột dọc chứ không phải khối cuộn: tab Files và tab Terminal đều tự lo phần
+   cuộn bên trong, và terminal cần một ô có chiều cao xác định để đo ra số dòng.
+   Một khối `overflow: auto` bọc ngoài thì chiều cao là do nội dung quyết định,
+   và xterm sẽ không bao giờ dừng ở đúng kích thước nào. */
+.hdw-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* `flex: 1 1 auto` để nó phủ kín phần thân: `.hdw-dock` không còn nền, nên chỗ
+   nào không có phần con nào phủ thì thủng ra giao diện app phía sau. */
+.hdw-empty {
+  flex: 1 1 auto;
+  padding: 24px 16px;
+  color: var(--dsw-alias-label-caption);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/*
+ * Panel đóng, và pane không được xem: ẩn bằng `display: none` chứ KHÔNG tháo
+ * khỏi cây React. Tháo là đóng WebSocket, mà đóng WebSocket là giết shell.
+ *
+ * Ba dòng này bắt buộc: mỗi phần tử dưới đây đều có `display: flex` riêng, và
+ * `display` trong stylesheet mạnh hơn `display: none` mà thuộc tính `hidden`
+ * mang sẵn. Thiếu chúng thì `hidden` không có tác dụng gì cả.
+ */
+.hdw-dock[hidden],
+.hdw-files[hidden],
+.hdw-browser[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------- trình duyệt */
+
+.hdw-browser {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Có nền riêng vì `.hdw-dock` không còn nền — xem chú thích ở đó. Thanh này
+   nằm ngay trên ô trang web, nên thiếu nền là chữ đè lên trang. */
+.hdw-navbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.hdw-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 4px;
+}
+
+/*
+ * Ô trống mà trang web được vẽ đè lên. Nó phải rỗng và không bắt chuột: thứ
+ * người dùng thấy ở đây là sân khấu webview nằm bên trên, không phải phần tử
+ * này.
+ */
+.hdw-slot {
+  flex: 1 1 auto;
+  min-height: 0;
+  pointer-events: none;
+}
+
+/*
+ * Sân khấu webview — gắn thẳng vào `document.body`, ngoài cây React.
+ *
+ * KHÔNG BAO GIỜ có quy tắc `display: none` cho nó. Webview gắn vào lúc ô chứa
+ * đang display:none thì bề mặt hiển thị không bao giờ được cấp — trang tự vẽ
+ * trong bộ nhớ nhưng màn hình trắng trơn, và không lỗi nào báo. Khi cần giấu,
+ * `browser-stage.ts` dìm nó xuống `z-index: -1` để thứ khác che đi — phần tử
+ * vẫn được vẽ, bề mặt guest vẫn sống.
+ *
+ * Thứ che nó là gì: panel đóng thì giao diện app che, bấm sang tab khác thì
+ * chính tab Files hoặc Terminal che. KHÔNG còn là nền của `.hdw-dock` — cột đó
+ * nay trong suốt, vì nền của nó từng sơn đè lên trang web (xem `.hdw-dock`).
+ * Nên mỗi tab phải tự có nền đục; thiếu là tab nền lộ ra dưới tab đang xem.
+ */
+.hdw-stage {
+  position: fixed;
+  z-index: 5;
+  overflow: hidden;
+}
+
+/*
+ * Mọi tab xếp chồng đúng một chỗ. Tab đang xem có `z-index: 1`, tab nền có 0 —
+ * tức tab nền BỊ CHE chứ không bị ẩn.
+ *
+ * Đây không phải chuyện thẩm mỹ. `scripts/spike-webview.cjs` đo được:
+ * `capturePage()` treo vĩnh viễn trên một webview bị `visibility: hidden` hoặc
+ * bị đẩy ra ngoài khung nhìn — Promise không bao giờ giải quyết. Bị che kín là
+ * cách ẩn duy nhất còn chụp ảnh được.
+ */
+.hdw-webview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* ---------------------------------------------------------------- tay kéo */
+
+/*
+ * Chép đúng cách upstream làm tay kéo cho cột phải của họ
+ * (`ui-layout/src/client/AppFrame.module.css`): một dải bắt chuột rộng 8px
+ * KHÔNG sơn màu, cưỡi lên đường viền cột, cộng một viên thuốc 12×32 ở giữa
+ * chiều cao chỉ hiện ra khi rê chuột tới hoặc đang kéo.
+ *
+ * Bản trước tô cả một vạch chạy suốt chiều cao bằng `--dsw-alias-brand-primary`
+ * — biến đó ở chế độ sáng quy về gần như đen tuyền, nên panel có một vệt đen
+ * dọc mà không chỗ nào khác trong app có. Sai tông, đã bỏ.
+ *
+ * `position: fixed` chứ không `absolute`: panel có `overflow: hidden` nên một
+ * phần tử con cưỡi lên mép sẽ bị cắt mất nửa ngoài. `fixed` thoát khỏi vùng cắt
+ * của tổ tiên, đúng tính chất panel đang dựa vào.
+ */
+.hdw-resizer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: calc(var(--hdw-dock-w, 0px) - 4px);
+  width: 8px;
+  cursor: col-resize;
+  /* Trên sân khấu webview (z-index 5). Thấp hơn thì kéo đổi bề rộng sẽ bị
+     trang web nuốt mất cú bấm ngay khi con trỏ chạm mép. */
+  z-index: 6;
+  touch-action: none;
+  transition: right var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.hdw-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 32px;
+  border-radius: 10px;
+  box-sizing: border-box;
+  background: var(--dsw-alias-button-floating-fill);
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  opacity: 0;
+  transition:
+    opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    background var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Lúc đang kéo thì tắt chuyển động, nếu không dải kéo bò theo sau con trỏ. */
+#root[data-hdw-dragging] .hdw-resizer {
+  transition: none;
+}
+
+/* Hiện viên thuốc khi con trỏ ở trong panel, ở trên chính dải kéo, hoặc đang
+   kéo — đúng ba điều kiện upstream dùng. Dải kéo là con của panel nên đây là
+   quan hệ cha–con, không phải anh em như bên upstream. */
+.hdw-dock:hover .hdw-resizer::after,
+.hdw-resizer:hover::after,
+.hdw-resizer[data-dragging]::after {
+  opacity: 1;
+}
+
+.hdw-resizer:hover::after,
+.hdw-resizer[data-dragging]::after {
+  background: var(--dsw-alias-button-floating-hover);
+  border-color: var(--dsw-alias-border-l3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hdw-resizer,
+  .hdw-resizer::after {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------------ Files */
+
+/* Nền đục ở đây là BẮT BUỘC, không phải trang trí: `.hdw-dock` không còn nền,
+   và chính tab này là thứ che sân khấu webview khi người dùng bấm sang Files. */
+.hdw-files {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.hdw-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 12px;
+}
+
+.hdw-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hdw-row:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-row[data-current='true'] {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hdw-row-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--dsw-alias-label-caption);
+}
+
+.hdw-viewer {
+  flex: 0 0 auto;
+  max-height: 55%;
+  overflow: auto;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding: 8px;
+}
+
+.hdw-note {
+  padding: 8px 12px;
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------------- Terminal */
+
+/*
+ * Ba biến này cố ý lấy từ nhóm `--dsw-static-*` chứ không phải `--dsw-alias-*`:
+ * nhóm static KHÔNG đổi theo sáng/tối, và ở đây đó chính là điều mong muốn.
+ *
+ * Lý do đầy đủ nằm ở đầu `TerminalTab.tsx`, tóm tắt: bảng 16 màu ANSI mà `npm`,
+ * `git`, `dir` dùng không có trong hệ token của DeepSeek (thiếu hẳn cyan và
+ * magenta). Nên hoặc tự bịa một bảng màu, hoặc dùng bảng mặc định của xterm —
+ * vốn được vẽ cho nền tối. Chọn cách không bịa màu nào, và giữ mặt terminal tối
+ * để bảng đó đọc được. Khung viền, thanh trạng thái quanh nó vẫn theo chủ đề.
+ */
+.hdw-termwrap {
+  --hdw-term-bg: var(--dsw-static-neutral-bluish-875);
+  --hdw-term-fg: var(--dsw-static-neutral-bluish-100);
+  --hdw-term-sel: var(--dsw-static-neutral-bluish-600);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--hdw-term-bg);
+}
+
+/* `display: flex` ở trên mạnh hơn `display: none` mà thuộc tính `hidden` mang
+   sẵn, nên phải nói lại — thiếu dòng này thì terminal vẫn hiện đè lên tab khác. */
+.hdw-termwrap[hidden] {
+  display: none;
+}
+
+.hdw-term {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px 0 6px 8px;
+}
+
+/* Dải báo khi shell đã thoát, kèm nút mở lại. */
+.hdw-termbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 2px 6px 2px 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.hdw-termbar .hdw-note {
+  flex: 1 1 auto;
+  padding: 0;
+}
+
+/* Lật ngang một icon có sẵn của upstream. Bộ icon chỉ có `IconPanelLeftOutline16`
+   mà panel nay nằm bên phải; lật lại vẫn là dùng vật liệu của hệ thống, đúng
+   nét và đúng cỡ, thay vì tự vẽ một icon mới. */
+.hdw-flip {
+  display: inline-flex;
+  transform: scaleX(-1);
+}

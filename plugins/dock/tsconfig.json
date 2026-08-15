@@ -1,0 +1,41 @@
+{
+  "// ": [
+    "Chỉ để kiểm lỗi kiểu — bản dựng thật do build.mjs (esbuild) sinh ra.",
+    "",
+    "`paths` là cách duy nhất cho TypeScript thấy được type của upstream: plugin",
+    "phân giải module từ chính thư mục của nó, và ở đó không có, cũng không được",
+    "có, một bản sao nào của @deepseek-ai/*. Trỏ thẳng vào cây type trong engine",
+    "đã cài thì luôn khớp đúng phiên bản engine đang chạy.",
+    "",
+    "Mục có `*` lo các tên gói trần; ba mục tường minh lo các subpath `/client`,",
+    "và mục tường minh luôn thắng mẫu có `*` nên không có chỗ nhập nhằng."
+  ],
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    // Upstream viết import kèm đuôi `.ts`/`.tsx` và esbuild cũng hiểu, nên giữ
+    // cùng lối viết thay vì bỏ đuôi.
+    "allowImportingTsExtensions": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@deepseek-ai/dsh-client-runtime/client": ["../../engine/node_modules/@deepseek-ai/dsh-client-runtime/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-layout/client": ["../../engine/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-conversation/client": ["../../engine/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/types/client/index.d.ts"],
+      "@deepseek-ai/*": ["../../engine/node_modules/@deepseek-ai/*/lib/types/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

@@ -8,9 +8,8 @@
 
 import { app, Menu, Tray } from 'electron'
 import { existsSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { resourcePath } from './paths.js'
+import { dshHome, resourcePath } from './paths.js'
 
 /** Những việc menu khay gọi ngược về tiến trình chính. */
 export interface TrayHandlers {
@@ -34,11 +33,6 @@ let tray: Tray | undefined
 let handlers: TrayHandlers | undefined
 let status = 'Đang khởi động…'
 let updateVersion: string | undefined
-
-/** Thư mục dữ liệu dsh dùng — mặc định `~/.dsh`, đổi được bằng biến môi trường. */
-export function dshHome(): string {
-  return process.env['DSH_HOME'] ?? join(homedir(), '.dsh')
-}
 
 function buildMenu(): Menu {
   const bound = handlers
