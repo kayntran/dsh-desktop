@@ -31,6 +31,17 @@
             "statusMessage": "Kiểm tra vùng bảo vệ..."
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-d:/AI/DeepSeek Harness Desktop}/.claude/hooks/guard-naming.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Kiểm tên tiếng Anh..."
+          }
+        ]
       }
     ],
     "PostToolUse": [

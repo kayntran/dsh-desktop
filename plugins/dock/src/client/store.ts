@@ -88,17 +88,17 @@ export interface Dock {
 }
 
 /** Chữ mặc định trên pill của từng loại. */
-const NHAN: Record<PaneKind, string> = {
+const LABELS: Record<PaneKind, string> = {
   files: 'Files',
   terminal: 'Terminal',
   browser: 'Trang mới',
 }
 
 /** Id ngắn, duy nhất trong một phiên chạy. */
-let dem = 0
-function idMoi(kind: PaneKind): string {
-  dem += 1
-  return `${kind}-${String(dem)}-${Date.now().toString(36)}`
+let counter = 0
+function newId(kind: PaneKind): string {
+  counter += 1
+  return `${kind}-${String(counter)}-${Date.now().toString(36)}`
 }
 
 /**
@@ -107,8 +107,8 @@ function idMoi(kind: PaneKind): string {
  * Lấy cái bên phải, không có thì lấy cái bên trái — đúng thói quen của mọi
  * trình duyệt. Trả `undefined` khi vừa đóng cái cuối cùng.
  */
-function keTiep(panes: readonly Pane[], viTri: number): string | undefined {
-  return panes[viTri]?.id ?? panes[viTri - 1]?.id
+function nextAfterClose(panes: readonly Pane[], index: number): string | undefined {
+  return panes[index]?.id ?? panes[index - 1]?.id
 }
 
 /**
@@ -120,9 +120,9 @@ function keTiep(panes: readonly Pane[], viTri: number): string | undefined {
  * @returns kho và bộ ghi đã buộc vào nó.
  */
 export function createDock(): Dock {
-  const dauTien: Pane = { id: idMoi('files'), kind: 'files', title: NHAN.files }
+  const first: Pane = { id: newId('files'), kind: 'files', title: LABELS.files }
   const store = createSnapshotStore<DockState>(
-    { open: false, width: 320, panes: [dauTien], activeId: dauTien.id },
+    { open: false, width: 320, panes: [first], activeId: first.id },
     { persist: { name: 'hdw.dock' } },
   )
 
@@ -131,7 +131,7 @@ export function createDock(): Dock {
   // của code không phải phòng thủ ở mọi chỗ đọc.
   store.update((d) => {
     if (!Array.isArray(d.panes) || d.panes.length === 0) {
-      const files: Pane = { id: idMoi('files'), kind: 'files', title: NHAN.files }
+      const files: Pane = { id: newId('files'), kind: 'files', title: LABELS.files }
       d.panes = [files]
     }
     if (!d.panes.some((p) => p.id === d.activeId)) d.activeId = d.panes[0]?.id
@@ -147,33 +147,33 @@ export function createDock(): Dock {
       },
 
       openPane: (kind, url) => {
-        let ket_qua = ''
+        let result = ''
         store.update((d) => {
           if (kind === 'files') {
-            const co_san = d.panes.find((p) => p.kind === 'files')
-            if (co_san !== undefined) {
-              d.activeId = co_san.id
-              ket_qua = co_san.id
+            const existing = d.panes.find((p) => p.kind === 'files')
+            if (existing !== undefined) {
+              d.activeId = existing.id
+              result = existing.id
               return
             }
           }
           const pane: Pane = url === undefined
-            ? { id: idMoi(kind), kind, title: NHAN[kind] }
-            : { id: idMoi(kind), kind, title: NHAN[kind], url }
+            ? { id: newId(kind), kind, title: LABELS[kind] }
+            : { id: newId(kind), kind, title: LABELS[kind], url }
           d.panes.push(pane)
           d.activeId = pane.id
           d.open = true
-          ket_qua = pane.id
+          result = pane.id
         })
-        return ket_qua
+        return result
       },
 
       closePane: (id) => {
         store.update((d) => {
-          const viTri = d.panes.findIndex((p) => p.id === id)
-          if (viTri === -1) return
-          d.panes.splice(viTri, 1)
-          if (d.activeId === id) d.activeId = keTiep(d.panes, viTri)
+          const index = d.panes.findIndex((p) => p.id === id)
+          if (index === -1) return
+          d.panes.splice(index, 1)
+          if (d.activeId === id) d.activeId = nextAfterClose(d.panes, index)
         })
       },
 

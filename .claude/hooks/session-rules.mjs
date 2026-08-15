@@ -6,7 +6,10 @@
  */
 const RULES = `LUẬT DỰ ÁN HARNESS DESKTOP (bản rút gọn — bản đầy đủ ở CLAUDE.md):
 
-1. Trả lời bằng tiếng Việt.
+1. Trả lời bằng tiếng Việt — nhưng ĐẶT TÊN bằng tiếng Anh.
+   Tiếng Việt: chú thích, tài liệu, câu trả lời, chữ hiện trên màn hình.
+   Tiếng Anh: tên hàm, kiểu, biến, hằng, file, trường JSON, đường dẫn HTTP, class CSS.
+   Hệ thống đã chặn cứng bằng hook; bị chặn thì đổi tên, đừng dịch chú thích.
 2. KHÔNG ghi vào _upstream_dsh/, node_modules/, engine/node_modules/, runtime/.
    Hệ thống đã chặn cứng. Bị chặn thì dừng lại và hỏi, không tìm đường đi vòng.
 3. Tính năng riêng đặt trong plugins/<tên>/, không rải vào src/main/.

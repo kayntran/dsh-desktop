@@ -66,7 +66,7 @@ export interface FilesTabProps {
   root: string | undefined
   /** Đang bị che vì pane khác đang hiện. Không tháo, chỉ ẩn — giữ nguyên cây
       đang mở và vị trí cuộn khi người dùng quay lại. */
-  an: boolean
+  isHidden: boolean
 }
 
 /**
@@ -74,27 +74,27 @@ export interface FilesTabProps {
  * @param props - xem {@link FilesTabProps}.
  * @returns phần tử tab.
  */
-export function FilesTab({ root, an }: FilesTabProps): React.JSX.Element {
+export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
   const [children, setChildren] = useState<Record<string, DirEntry[]>>({})
   const [expanded, setExpanded] = useState<readonly string[]>([])
-  const [dangTai, setDangTai] = useState<readonly string[]>([])
+  const [loading, setLoading] = useState<readonly string[]>([])
   const [current, setCurrent] = useState<string | undefined>(undefined)
   const [content, setContent] = useState<FileContent | undefined>(undefined)
-  const [loi, setLoi] = useState<string | undefined>(undefined)
+  const [errorText, setErrorText] = useState<string | undefined>(undefined)
 
   const load = useCallback(async (path: string): Promise<void> => {
     if (root === undefined) return
-    setDangTai((cu) => [...cu, path])
+    setLoading((prev) => [...prev, path])
     try {
       const res = await fetch(`/hdw/fs/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`)
-      const body = await res.json() as { entries?: DirEntry[], ly_do?: string }
-      if (!res.ok) { setLoi(body.ly_do ?? `lỗi ${String(res.status)}`); return }
-      setLoi(undefined)
-      setChildren((cu) => ({ ...cu, [path]: sortEntries(body.entries ?? []) }))
+      const body = await res.json() as { entries?: DirEntry[], reason?: string }
+      if (!res.ok) { setErrorText(body.reason ?? `lỗi ${String(res.status)}`); return }
+      setErrorText(undefined)
+      setChildren((prev) => ({ ...prev, [path]: sortEntries(body.entries ?? []) }))
     } catch (error) {
-      setLoi(error instanceof Error ? error.message : 'không gọi được engine')
+      setErrorText(error instanceof Error ? error.message : 'không gọi được engine')
     } finally {
-      setDangTai((cu) => cu.filter((p) => p !== path))
+      setLoading((prev) => prev.filter((p) => p !== path))
     }
   }, [root])
 
@@ -105,15 +105,15 @@ export function FilesTab({ root, an }: FilesTabProps): React.JSX.Element {
     setExpanded([])
     setCurrent(undefined)
     setContent(undefined)
-    setLoi(undefined)
+    setErrorText(undefined)
     if (root !== undefined) void load(root)
   }, [root, load])
 
   const toggleDir = useCallback((path: string): void => {
-    setExpanded((cu) => {
-      if (cu.includes(path)) return cu.filter((p) => p !== path)
+    setExpanded((prev) => {
+      if (prev.includes(path)) return prev.filter((p) => p !== path)
       if (children[path] === undefined) void load(path)
-      return [...cu, path]
+      return [...prev, path]
     })
   }, [children, load])
 
@@ -123,12 +123,12 @@ export function FilesTab({ root, an }: FilesTabProps): React.JSX.Element {
     setContent(undefined)
     try {
       const res = await fetch(`/hdw/fs/read?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`)
-      const body = await res.json() as FileContent & { ly_do?: string }
-      if (!res.ok) { setLoi(body.ly_do ?? `lỗi ${String(res.status)}`); return }
-      setLoi(undefined)
+      const body = await res.json() as FileContent & { reason?: string }
+      if (!res.ok) { setErrorText(body.reason ?? `lỗi ${String(res.status)}`); return }
+      setErrorText(undefined)
       setContent(body)
     } catch (error) {
-      setLoi(error instanceof Error ? error.message : 'không gọi được engine')
+      setErrorText(error instanceof Error ? error.message : 'không gọi được engine')
     }
   }, [root])
 
@@ -148,11 +148,11 @@ export function FilesTab({ root, an }: FilesTabProps): React.JSX.Element {
   }, [root, children, expanded])
 
   if (root === undefined) {
-    return <div className="hdw-empty" hidden={an}>Chưa có phiên nào đang mở, nên chưa biết lấy thư mục nào. Mở một phiên rồi quay lại.</div>
+    return <div className="hdw-empty" hidden={isHidden}>Chưa có phiên nào đang mở, nên chưa biết lấy thư mục nào. Mở một phiên rồi quay lại.</div>
   }
 
   return (
-    <div className="hdw-files" hidden={an}>
+    <div className="hdw-files" hidden={isHidden}>
       <div className="hdw-tabbar">
         <span className="hdw-note" style={{ flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {root}
@@ -172,7 +172,7 @@ export function FilesTab({ root, an }: FilesTabProps): React.JSX.Element {
         </Tooltip>
       </div>
 
-      {loi !== undefined && <div className="hdw-note">Không đọc được: {loi}</div>}
+      {errorText !== undefined && <div className="hdw-note">Không đọc được: {errorText}</div>}
 
       <div className="hdw-tree">
         {rows.map((row) => (
@@ -188,7 +188,7 @@ export function FilesTab({ root, an }: FilesTabProps): React.JSX.Element {
             }}
           >
             <span className="hdw-row-icon">
-              {dangTai.includes(row.path)
+              {loading.includes(row.path)
                 ? <IconLoadingOutline16 />
                 : row.type === 'directory'
                   ? (expanded.includes(row.path) ? <IconFolderOpen16 /> : <IconFolderClose16 />)
@@ -197,7 +197,7 @@ export function FilesTab({ root, an }: FilesTabProps): React.JSX.Element {
             <span className="hdw-row-name">{row.name}</span>
           </button>
         ))}
-        {rows.length === 0 && dangTai.length === 0 && <div className="hdw-note">Thư mục trống.</div>}
+        {rows.length === 0 && loading.length === 0 && <div className="hdw-note">Thư mục trống.</div>}
       </div>
 
       {current !== undefined && (

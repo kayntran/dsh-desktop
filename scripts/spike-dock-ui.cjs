@@ -161,7 +161,7 @@ function guardWebviews(win) {
  * @returns {Promise<{status: number, body: any}>} mã HTTP và thân JSON.
  */
 async function hoiThu(baseUrl, qs = '') {
-  const res = await fetch(`${baseUrl}/hdw/bus/thu${qs}`)
+  const res = await fetch(`${baseUrl}/hdw/bus/probe${qs}`)
   return { status: res.status, body: await res.json() }
 }
 
@@ -843,13 +843,13 @@ async function main() {
   // thì mọi lệnh của agent chỉ im lặng hết giờ — nên nó phải có mục kiểm riêng
   // ngay từ khi chưa có tool nào.
   record('14a. chưa mở cửa sổ thì cầu trả lời "chưa ai nối" (không treo)',
-    truocKhiMoCuaSo?.noi_ket === false,
+    truocKhiMoCuaSo?.connected === false,
     JSON.stringify(truocKhiMoCuaSo))
 
   {
     const kq = await hoiThu(baseUrl)
     record('14b. cửa sổ đã dựng thì cầu nối được và trả lời nhanh',
-      kq.body.noi_ket === true && typeof kq.body.tre_ms === 'number' && kq.body.tre_ms < 2000,
+      kq.body.connected === true && typeof kq.body.latency_ms === 'number' && kq.body.latency_ms < 2000,
       JSON.stringify(kq.body))
   }
 
@@ -859,13 +859,13 @@ async function main() {
   // agent mất trình duyệt mà không có gì báo.
   await win.webContents.reload()
   await doiDenKhi(win, `!!document.querySelector('.hdw-dock')`, 30_000)
-  let noiLai = { noi_ket: false }
+  let noiLai = { connected: false }
   for (let i = 0; i < 20; i += 1) {
     noiLai = (await hoiThu(baseUrl)).body
-    if (noiLai.noi_ket === true) break
+    if (noiLai.connected === true) break
     await cho(500)
   }
-  record('14c. tải lại trang thì cầu tự nối lại', noiLai.noi_ket === true, JSON.stringify(noiLai))
+  record('14c. tải lại trang thì cầu tự nối lại', noiLai.connected === true, JSON.stringify(noiLai))
 
   // --- 14d. RÀO ĐỊA CHỈ: agent không mở được địa chỉ nội bộ
   //
@@ -875,7 +875,7 @@ async function main() {
   {
     const thu = async (url) => {
       try {
-        return (await hoiThu(baseUrl, `?mo=${encodeURIComponent(url)}`)).status
+        return (await hoiThu(baseUrl, `?open=${encodeURIComponent(url)}`)).status
       } catch (e) {
         return `lỗi: ${e.message}`
       }

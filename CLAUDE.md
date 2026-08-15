@@ -1,6 +1,6 @@
 # Luật của dự án này
 
-Trả lời bằng **tiếng Việt**. Tên file, tên hàm, tên vị trí giao diện giữ nguyên tiếng Anh.
+Trả lời bằng **tiếng Việt**. Nhưng **đặt tên bằng tiếng Anh** — xem Luật 7.
 
 Chủ dự án **không đọc code**. Giải thích mọi quyết định theo hướng *người dùng app sẽ thấy gì*, và
 hỏi trước khi làm những việc không hoàn tác được.
@@ -22,7 +22,7 @@ hình, không đặc quyền gì hơn plugin của chúng ta.
 
 Nên: **mọi thứ chúng ta thêm vào đều là plugin.** Không có lý do chính đáng nào để sửa mã gốc.
 
-## Sáu điều luật
+## Bảy điều luật
 
 1. **Mã gốc bất khả xâm phạm.** Không ghi vào `_upstream_dsh/`, `node_modules/` (mọi độ sâu, kể cả
    `engine/node_modules/`), `runtime/`. Hệ thống đã chặn cứng. Bị chặn thì **dừng lại và hỏi**,
@@ -38,6 +38,11 @@ Nên: **mọi thứ chúng ta thêm vào đều là plugin.** Không có lý do 
 5. **Khai báo mức trước khi viết code giao diện**: mức 1 (cộng thêm), mức 2 (chen có chọn lọc),
    mức 3 (thay thế — cấm).
 6. **Ghi sổ.** Việc đáng nhớ ghi một dòng vào [MY-CHANGES.md](MY-CHANGES.md).
+7. **Tên bằng tiếng Anh, chú thích bằng tiếng Việt.** Tiếng Việt cho chú thích, tài liệu, chữ hiện
+   trên màn hình, câu lỗi. Tiếng Anh cho tên hàm, kiểu, biến, hằng, file, trường JSON, đường dẫn
+   HTTP, class CSS. Hệ thống đã chặn cứng bằng hook; bị chặn thì **đổi tên**, đừng dịch chú thích —
+   chú thích tiếng Việt là phần đúng luật và có giá trị nhất trong repo này. Chi tiết:
+   `.claude/rules/naming.md`.
 
 ## Định tuyến rule
 
@@ -50,6 +55,7 @@ cho việc chính.
 | Dựng giao diện: component, icon, màu, CSS | `rules/ui-toolkit.md` |
 | Bị chặn ghi file, hoặc định đụng vào `_upstream_dsh/`, `node_modules/`, `runtime/` | `rules/upstream-boundary.md` |
 | Viết plugin mới | [plugins/README.md](plugins/README.md) |
+| Bị chặn vì đặt tên, hoặc phân vân tiếng Việt hay tiếng Anh | `rules/naming.md` |
 
 ## Quy trình gọi theo tên
 

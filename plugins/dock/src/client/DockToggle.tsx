@@ -26,10 +26,10 @@ export interface DockToggleProps {
  */
 export function DockToggle({ useDock, actions }: DockToggleProps): React.JSX.Element {
   const open = useDock((s) => s.open)
-  const nhan = open ? 'Đóng panel công cụ' : 'Mở panel công cụ'
+  const label = open ? 'Đóng panel công cụ' : 'Mở panel công cụ'
 
   return (
-    <Tooltip label={nhan} side="bottom">
+    <Tooltip label={label} side="bottom">
       <Button
         variant="ghost"
         size="sm"
@@ -37,7 +37,7 @@ export function DockToggle({ useDock, actions }: DockToggleProps): React.JSX.Ele
         // phải nên lật ngang bằng CSS. Vẫn là icon của hệ thống, đúng nét đúng
         // cỡ — không tự vẽ thêm một icon mới.
         icon={<span className="hdw-flip"><IconPanelLeftOutline16 /></span>}
-        aria-label={nhan}
+        aria-label={label}
         aria-pressed={open}
         onClick={actions.toggle}
       />

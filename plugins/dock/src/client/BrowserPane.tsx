@@ -22,9 +22,9 @@ import {
   Input,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { chuanHoaUrl, type Stage, type TabStatus } from './browser-stage.ts'
+import { normalizeUrl, type Stage, type TabStatus } from './browser-stage.ts'
 
-const TRANG_THAI_RONG: TabStatus = {
+const EMPTY_STATUS: TabStatus = {
   url: '', title: '', loading: false, canBack: false, canForward: false,
 }
 
@@ -32,9 +32,9 @@ export interface BrowserPaneProps {
   paneId: string
   stage: Stage
   /** Đang bị che vì pane khác đang hiện. Không tháo, chỉ ẩn. */
-  an: boolean
+  isHidden: boolean
   /** Địa chỉ mở sẵn, khi tab được tạo kèm URL (agent mở, hoặc đọc lại từ lần trước). */
-  batDau: string | undefined
+  startUrl: string | undefined
 }
 
 /**
@@ -42,47 +42,47 @@ export interface BrowserPaneProps {
  * @param props - xem {@link BrowserPaneProps}.
  * @returns phần tử tab.
  */
-export function BrowserPane({ paneId, stage, an, batDau }: BrowserPaneProps): React.JSX.Element {
-  const oRef = useRef<HTMLDivElement>(null)
-  const [status, setStatus] = useState<TabStatus>(() => stage.status(paneId) ?? TRANG_TRONG_HOAC(batDau))
-  const [nhap, setNhap] = useState(batDau ?? '')
-  const [dangGo, setDangGo] = useState(false)
+export function BrowserPane({ paneId, stage, isHidden, startUrl }: BrowserPaneProps): React.JSX.Element {
+  const slotRef = useRef<HTMLDivElement>(null)
+  const [status, setStatus] = useState<TabStatus>(() => stage.status(paneId) ?? initialStatus(startUrl))
+  const [input, setInput] = useState(startUrl ?? '')
+  const [typing, setTyping] = useState(false)
 
-  // Tạo webview một lần. Không phụ thuộc `batDau` để lần đổi địa chỉ sau đó
+  // Tạo webview một lần. Không phụ thuộc `startUrl` để lần đổi địa chỉ sau đó
   // không dựng lại thẻ — dựng lại là mất sạch trạng thái trang.
   useEffect(() => {
-    stage.ensure(paneId, batDau)
-    // Cố ý bỏ `batDau` khỏi danh sách phụ thuộc: nó chỉ là địa chỉ khởi đầu.
+    stage.ensure(paneId, startUrl)
+    // Cố ý bỏ `startUrl` khỏi danh sách phụ thuộc: nó chỉ là địa chỉ khởi đầu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, paneId])
 
   // Nghe trạng thái tab. Sân khấu báo cho cả panel, nên lọc lấy đúng tab mình.
   useEffect(() => {
-    const doc = (): void => {
-      const s = stage.status(paneId)
-      if (s === undefined) return
+    const readStatus = (): void => {
+      const next = stage.status(paneId)
+      if (next === undefined) return
       // So từng trường rồi mới ghi. `stage.status()` trả về một object MỚI mỗi
       // lần gọi, nên ghi thẳng là bắt cả pane vẽ lại 4 lần mỗi giây cho tới khi
       // đóng tab — kể cả khi không có gì đổi.
-      setStatus((cu) => (
-        cu.url === s.url && cu.title === s.title && cu.loading === s.loading
-        && cu.canBack === s.canBack && cu.canForward === s.canForward
-      ) ? cu : s)
+      setStatus((prev) => (
+        prev.url === next.url && prev.title === next.title && prev.loading === next.loading
+        && prev.canBack === next.canBack && prev.canForward === next.canForward
+      ) ? prev : next)
     }
-    doc()
+    readStatus()
     // Sân khấu không có bộ phát sự kiện riêng; nó gọi `onChange` của panel, mà
     // panel dùng để cập nhật kho. Kho đổi thì component này vẽ lại và đọc lại
     // trạng thái ở đây. Một nhịp hỏi lại theo khung hình lo nốt những thay đổi
     // không đi qua kho (nút back/forward sáng hay mờ).
-    const id = setInterval(doc, 250)
-    return () => { clearInterval(id) }
+    const timer = setInterval(readStatus, 250)
+    return () => { clearInterval(timer) }
   }, [stage, paneId])
 
   // Theo địa chỉ thật, TRỪ lúc người dùng đang gõ — nếu không, một lần trang tự
   // chuyển hướng giữa chừng sẽ xoá mất thứ họ đang nhập dở.
   useEffect(() => {
-    if (!dangGo && status.url !== '') setNhap(status.url)
-  }, [status.url, dangGo])
+    if (!typing && status.url !== '') setInput(status.url)
+  }, [status.url, typing])
 
   /**
    * Đo ô trống rồi báo toạ độ sang sân khấu.
@@ -90,9 +90,9 @@ export function BrowserPane({ paneId, stage, an, batDau }: BrowserPaneProps): Re
    * Gộp vào một khung hình và bỏ qua khi hình chữ nhật không đổi — hai điều
    * này là bài học chép từ app tham chiếu, không phải tối ưu sớm.
    */
-  const doVaBao = useCallback((): void => {
-    const el = oRef.current
-    if (el === null || an) return
+  const publishRect = useCallback((): void => {
+    const el = slotRef.current
+    if (el === null || isHidden) return
     const r = el.getBoundingClientRect()
     stage.setRect({
       x: Math.round(r.left),
@@ -100,21 +100,21 @@ export function BrowserPane({ paneId, stage, an, batDau }: BrowserPaneProps): Re
       width: Math.round(r.width),
       height: Math.round(r.height),
     })
-  }, [stage, an])
+  }, [stage, isHidden])
 
   useEffect(() => {
-    const el = oRef.current
-    if (el === null || an) return undefined
+    const el = slotRef.current
+    if (el === null || isHidden) return undefined
 
-    let cuoi = ''
-    const hen = (): void => {
+    let last = ''
+    const sync = (): void => {
       const r = el.getBoundingClientRect()
-      const khoa = `${String(Math.round(r.left))},${String(Math.round(r.top))},${String(Math.round(r.width))},${String(Math.round(r.height))}`
+      const key = `${String(Math.round(r.left))},${String(Math.round(r.top))},${String(Math.round(r.width))},${String(Math.round(r.height))}`
       // Bỏ qua khi hình chữ nhật không đổi: việc phía bên kia là bố trí lại một
       // trang web sống, không hề rẻ.
-      if (khoa === cuoi) return
-      cuoi = khoa
-      doVaBao()
+      if (key === last) return
+      last = key
+      publishRect()
     }
 
     // KHÔNG bọc trong `requestAnimationFrame`. Bản trước bọc, và cái giá là
@@ -125,25 +125,25 @@ export function BrowserPane({ paneId, stage, an, batDau }: BrowserPaneProps): Re
     //
     // Và không cần nó: `ResizeObserver` vốn đã phát tối đa một lần mỗi khung
     // hình, còn phép so hình chữ nhật ở trên đã chặn mọi lần gửi thừa.
-    hen()
-    const quanSat = new ResizeObserver(hen)
-    quanSat.observe(el)
-    window.addEventListener('resize', hen)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(el)
+    window.addEventListener('resize', sync)
     // Cửa sổ app cuộn thì toạ độ khung nhìn đổi theo.
-    window.addEventListener('scroll', hen, true)
+    window.addEventListener('scroll', sync, true)
     return () => {
-      quanSat.disconnect()
-      window.removeEventListener('resize', hen)
-      window.removeEventListener('scroll', hen, true)
+      observer.disconnect()
+      window.removeEventListener('resize', sync)
+      window.removeEventListener('scroll', sync, true)
     }
-  }, [an, doVaBao])
+  }, [isHidden, publishRect])
 
-  const di = (event: React.FormEvent): void => {
+  const submit = (event: React.FormEvent): void => {
     event.preventDefault()
-    const url = chuanHoaUrl(nhap)
+    const url = normalizeUrl(input)
     if (url === undefined) return
     stage.navigate(paneId, url)
-    setDangGo(false)
+    setTyping(false)
     // Trả bàn phím cho trang. Không có dòng này thì trang mới nạp xong nhưng
     // tiêu điểm vẫn nằm ở ô địa chỉ, và phím đầu tiên người dùng gõ — thường là
     // để cuộn hoặc để tìm trong trang — lại chui vào ô nhập.
@@ -151,8 +151,8 @@ export function BrowserPane({ paneId, stage, an, batDau }: BrowserPaneProps): Re
   }
 
   return (
-    <div className="hdw-browser" hidden={an}>
-      <form className="hdw-navbar" onSubmit={di}>
+    <div className="hdw-browser" hidden={isHidden}>
+      <form className="hdw-navbar" onSubmit={submit}>
         <Tooltip label="Lùi" side="bottom">
           <Button
             variant="ghost" size="sm" type="button"
@@ -182,21 +182,21 @@ export function BrowserPane({ paneId, stage, an, batDau }: BrowserPaneProps): Re
         <Input
           className="hdw-address"
           aria-label="Địa chỉ"
-          value={nhap}
+          value={input}
           spellCheck={false}
           placeholder="Nhập địa chỉ trang web"
-          onChange={(event: React.ChangeEvent<HTMLInputElement>) => { setNhap(event.target.value) }}
-          onFocus={() => { setDangGo(true) }}
-          onBlur={() => { setDangGo(false) }}
+          onChange={(event: React.ChangeEvent<HTMLInputElement>) => { setInput(event.target.value) }}
+          onFocus={() => { setTyping(true) }}
+          onBlur={() => { setTyping(false) }}
         />
       </form>
       {/* Trang web được vẽ đè lên ô này. Nó rỗng, và phải rỗng. */}
-      <div className="hdw-slot" ref={oRef} aria-hidden />
+      <div className="hdw-slot" ref={slotRef} aria-hidden />
     </div>
   )
 }
 
 /** Trạng thái ban đầu, có kể tới địa chỉ mở sẵn. */
-function TRANG_TRONG_HOAC(url: string | undefined): TabStatus {
-  return url === undefined ? TRANG_THAI_RONG : { ...TRANG_THAI_RONG, url, loading: true }
+function initialStatus(url: string | undefined): TabStatus {
+  return url === undefined ? EMPTY_STATUS : { ...EMPTY_STATUS, url, loading: true }
 }

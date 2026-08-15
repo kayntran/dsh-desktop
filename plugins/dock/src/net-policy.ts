@@ -4,7 +4,7 @@
  *
  * **Rào này chỉ áp cho AGENT.** Người dùng gõ tay vào thanh địa chỉ thì vẫn vào
  * được router, NAS, hay server đang chạy trên máy — đó là việc chính đáng, và
- * đường đó đi qua `chuanHoaUrl` trong `client/browser-stage.ts`, không đi qua
+ * đường đó đi qua `normalizeUrl` trong `client/browser-stage.ts`, không đi qua
  * đây. Thứ rào này chặn là một trang web độc dụ agent đi dò mạng nhà người dùng
  * rồi đọc kết quả về.
  *
@@ -37,56 +37,56 @@
  */
 
 /** Các nhóm 16-bit của một địa chỉ IPv6, hoặc undefined nếu không phân tích được. */
-function phanTichIpv6(text: string): number[] | undefined {
-  const nua = text.split('::')
-  if (nua.length > 2) return undefined
+function parseIpv6(text: string): number[] | undefined {
+  const halves = text.split('::')
+  if (halves.length > 2) return undefined
 
-  const thanhNhom = (phan: string): number[] | undefined => {
-    if (phan === '') return []
-    const ra: number[] = []
-    for (const manh of phan.split(':')) {
+  const toGroups = (part: string): number[] | undefined => {
+    if (part === '') return []
+    const out: number[] = []
+    for (const piece of part.split(':')) {
       // Đuôi IPv4 nhúng, ví dụ `::ffff:127.0.0.1`.
-      if (manh.includes('.')) {
-        const o = phanTichIpv4(manh)
-        if (o === undefined) return undefined
-        const [a = 0, b = 0, c = 0, d = 0] = o
-        ra.push((a << 8) | b, (c << 8) | d)
+      if (piece.includes('.')) {
+        const embedded = parseIpv4(piece)
+        if (embedded === undefined) return undefined
+        const [a = 0, b = 0, c = 0, d = 0] = embedded
+        out.push((a << 8) | b, (c << 8) | d)
         continue
       }
-      if (!/^[0-9a-f]{1,4}$/.test(manh)) return undefined
-      ra.push(Number.parseInt(manh, 16))
+      if (!/^[0-9a-f]{1,4}$/.test(piece)) return undefined
+      out.push(Number.parseInt(piece, 16))
     }
-    return ra
+    return out
   }
 
-  const dau = thanhNhom(nua[0] ?? '')
-  const duoi = nua.length === 2 ? thanhNhom(nua[1] ?? '') : []
-  if (dau === undefined || duoi === undefined) return undefined
+  const head = toGroups(halves[0] ?? '')
+  const tail = halves.length === 2 ? toGroups(halves[1] ?? '') : []
+  if (head === undefined || tail === undefined) return undefined
 
-  if (nua.length === 1) return dau.length === 8 ? dau : undefined
-  const trong = 8 - dau.length - duoi.length
-  if (trong < 1) return undefined
-  return [...dau, ...Array<number>(trong).fill(0), ...duoi]
+  if (halves.length === 1) return head.length === 8 ? head : undefined
+  const gap = 8 - head.length - tail.length
+  if (gap < 1) return undefined
+  return [...head, ...Array<number>(gap).fill(0), ...tail]
 }
 
 /** Bốn octet của một địa chỉ IPv4 dạng chấm, hoặc undefined. */
-function phanTichIpv4(text: string): number[] | undefined {
-  const phan = text.split('.')
-  if (phan.length !== 4) return undefined
-  const octet: number[] = []
-  for (const p of phan) {
+function parseIpv4(text: string): number[] | undefined {
+  const parts = text.split('.')
+  if (parts.length !== 4) return undefined
+  const octets: number[] = []
+  for (const p of parts) {
     if (!/^\d{1,3}$/.test(p)) return undefined
     const n = Number(p)
     if (n > 255) return undefined
-    octet.push(n)
+    octets.push(n)
   }
-  return octet
+  return octets
 }
 
 /** Những dải nghĩa là chính máy này, đường mạng này, hoặc mạng nội bộ này. */
-function laIpv4NoiBo(o: number[]): boolean {
-  const a = o[0] ?? -1
-  const b = o[1] ?? -1
+function isPrivateIpv4(octets: number[]): boolean {
+  const a = octets[0] ?? -1
+  const b = octets[1] ?? -1
   if (a === 0) return true // 0.0.0.0/8 — "chính máy này"
   if (a === 10) return true // RFC1918
   if (a === 127) return true // loopback, CẢ dải /8
@@ -99,19 +99,19 @@ function laIpv4NoiBo(o: number[]): boolean {
   return false
 }
 
-function laIpv6NoiBo(g: number[]): boolean {
-  const chiKhac = (n: number): boolean => g.slice(0, 7).every((x) => x === 0) && g[7] === n
-  if (chiKhac(1)) return true // ::1 loopback
-  if (g.every((x) => x === 0)) return true // :: chưa xác định
+function isPrivateIpv6(groups: number[]): boolean {
+  const onlyLast = (n: number): boolean => groups.slice(0, 7).every((x) => x === 0) && groups[7] === n
+  if (onlyLast(1)) return true // ::1 loopback
+  if (groups.every((x) => x === 0)) return true // :: chưa xác định
   // So bằng MẶT NẠ BIT, không bằng tiền tố chuỗi — xem lỗ hổng 3 ở đầu file.
-  if (((g[0] ?? 0) & 0xfe00) === 0xfc00) return true // fc00::/7 unique-local
-  if (((g[0] ?? 0) & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
+  if (((groups[0] ?? 0) & 0xfe00) === 0xfc00) return true // fc00::/7 unique-local
+  if (((groups[0] ?? 0) & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
   // IPv4 nhúng (`::ffff:a.b.c.d` và dạng tương thích): xét theo phần v4 bên trong.
-  const nhung = g.slice(0, 5).every((x) => x === 0)
-  if (nhung && (g[5] === 0xffff || g[5] === 0)) {
-    const g6 = g[6] ?? 0
-    const g7 = g[7] ?? 0
-    return laIpv4NoiBo([g6 >> 8, g6 & 0xff, g7 >> 8, g7 & 0xff])
+  const embedded = groups.slice(0, 5).every((x) => x === 0)
+  if (embedded && (groups[5] === 0xffff || groups[5] === 0)) {
+    const g6 = groups[6] ?? 0
+    const g7 = groups[7] ?? 0
+    return isPrivateIpv4([g6 >> 8, g6 & 0xff, g7 >> 8, g7 & 0xff])
   }
   return false
 }
@@ -130,18 +130,18 @@ function laIpv6NoiBo(g: number[]): boolean {
  * @param hostname - `URL.hostname` đã chuẩn hoá.
  * @returns true khi địa chỉ thuộc về máy này hoặc mạng nội bộ.
  */
-export function laHostNoiBo(hostname: string): boolean {
+export function isPrivateHost(hostname: string): boolean {
   const host = hostname.trim().toLowerCase()
   if (host === '') return true
 
   // IPv6 trong `URL.hostname` LUÔN còn ngoặc vuông — xem lỗ hổng 1 ở đầu file.
   if (host.startsWith('[') && host.endsWith(']')) {
-    const nhom = phanTichIpv6(host.slice(1, -1))
-    return nhom === undefined ? true : laIpv6NoiBo(nhom)
+    const groups = parseIpv6(host.slice(1, -1))
+    return groups === undefined ? true : isPrivateIpv6(groups)
   }
 
-  const octet = phanTichIpv4(host)
-  if (octet !== undefined) return laIpv4NoiBo(octet)
+  const octets = parseIpv4(host)
+  if (octets !== undefined) return isPrivateIpv4(octets)
 
   if (host === 'localhost' || host.endsWith('.localhost')) return true
   if (host.endsWith('.local') || host.endsWith('.internal')) return true
@@ -154,11 +154,11 @@ export function laHostNoiBo(hostname: string): boolean {
 }
 
 /** http(s) trỏ tới một nơi không phải máy này và không phải mạng nội bộ. */
-export function laUrlCongCong(url: string): boolean {
+export function isPublicUrl(url: string): boolean {
   try {
-    const p = new URL(url)
-    if (p.protocol !== 'http:' && p.protocol !== 'https:') return false
-    return !laHostNoiBo(p.hostname)
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    return !isPrivateHost(parsed.hostname)
   } catch {
     return false
   }
@@ -170,21 +170,21 @@ export function laUrlCongCong(url: string): boolean {
  * @returns URL đã phân tích, dùng lại được.
  * @throws khi URL không hợp lệ, sai scheme, hoặc trỏ vào mạng nội bộ.
  */
-export function batBuocUrlCongCong(url: string): URL {
-  let p: URL
+export function assertPublicUrl(url: string): URL {
+  let parsed: URL
   try {
-    p = new URL(url)
+    parsed = new URL(url)
   } catch {
     throw new Error('Không phải một URL hợp lệ.')
   }
-  if (p.protocol !== 'http:' && p.protocol !== 'https:') {
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Chỉ cho phép http và https.')
   }
-  if (laHostNoiBo(p.hostname)) {
+  if (isPrivateHost(parsed.hostname)) {
     throw new Error(
       'Không được mở địa chỉ nội bộ (localhost, *.local, dải RFC1918, link-local, loopback). '
       + 'Người dùng vẫn tự gõ được địa chỉ đó vào thanh địa chỉ.',
     )
   }
-  return p
+  return parsed
 }

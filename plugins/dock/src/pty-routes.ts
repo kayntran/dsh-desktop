@@ -47,13 +47,13 @@ const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 
 /** Đọc một số nguyên dương trong khoảng cho phép từ query string. */
-function soNguyen(value: string | null, mac_dinh: number): number {
+function positiveInt(value: string | null, fallback: number): number {
   const n = Number(value)
-  return Number.isInteger(n) && n >= 1 && n <= 1000 ? n : mac_dinh
+  return Number.isInteger(n) && n >= 1 && n <= 1000 ? n : fallback
 }
 
 /** Shell mặc định của hệ điều hành đang chạy. */
-function shellMacDinh(): string {
+function defaultShell(): string {
   return process.platform === 'win32'
     ? process.env['ComSpec'] ?? 'cmd.exe'
     : process.env['SHELL'] ?? '/bin/bash'
@@ -63,7 +63,7 @@ function shellMacDinh(): string {
  * Biến môi trường truyền cho shell: đúng môi trường của engine, đã lọc bỏ khoá
  * không có giá trị (node-pty đòi map toàn chuỗi).
  */
-function moiTruong(): Record<string, string> {
+function shellEnv(): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) out[key] = value
@@ -72,8 +72,8 @@ function moiTruong(): Record<string, string> {
 }
 
 /** Trả lời một lời nâng cấp bị từ chối rồi đóng socket. */
-function tuChoi(socket: Duplex, status: number, ly_do: string): void {
-  socket.write(`HTTP/1.1 ${String(status)} ${ly_do}\r\nConnection: close\r\n\r\n`)
+function refuse(socket: Duplex, status: number, reason: string): void {
+  socket.write(`HTTP/1.1 ${String(status)} ${reason}\r\nConnection: close\r\n\r\n`)
   socket.destroy()
 }
 
@@ -88,8 +88,8 @@ export function registerPtyRoutes(ctx: Context): () => void {
   const wss = new WebSocketServer({ noServer: true })
   const live = new Set<IPty>()
 
-  const moPhien = (ws: WebSocket, cwd: string, cols: number, rows: number): void => {
-    const shell = shellMacDinh()
+  const openSession = (ws: WebSocket, cwd: string, cols: number, rows: number): void => {
+    const shell = defaultShell()
     let term: IPty
     try {
       const options: IWindowsPtyForkOptions = {
@@ -97,7 +97,7 @@ export function registerPtyRoutes(ctx: Context): () => void {
         cols,
         rows,
         cwd,
-        env: moiTruong(),
+        env: shellEnv(),
         // Dùng conpty.dll kèm sẵn trong gói thay vì bản của Windows. Đường
         // `kill` của nhánh mặc định fork một tiến trình phụ để liệt kê console,
         // và tiến trình phụ đó ném "AttachConsole failed" ra stderr mỗi lần
@@ -108,7 +108,7 @@ export function registerPtyRoutes(ctx: Context): () => void {
       }
       term = spawn(shell, [], options)
     } catch (error) {
-      ws.send(JSON.stringify({ t: 'error', ly_do: error instanceof Error ? error.message : 'không mở được shell' }))
+      ws.send(JSON.stringify({ t: 'error', reason: error instanceof Error ? error.message : 'không mở được shell' }))
       ws.close()
       return
     }
@@ -134,14 +134,14 @@ export function registerPtyRoutes(ctx: Context): () => void {
         term.write(Buffer.isBuffer(data) ? data.toString('utf8') : String(data))
         return
       }
-      let lenh: unknown
+      let msg: unknown
       try {
-        lenh = JSON.parse(data.toString())
+        msg = JSON.parse(data.toString())
       } catch {
         return
       }
-      if (typeof lenh === 'object' && lenh !== null && (lenh as { t?: unknown }).t === 'resize') {
-        const { cols: c, rows: r } = lenh as { cols?: unknown, rows?: unknown }
+      if (typeof msg === 'object' && msg !== null && (msg as { t?: unknown }).t === 'resize') {
+        const { cols: c, rows: r } = msg as { cols?: unknown, rows?: unknown }
         if (Number.isInteger(c) && Number.isInteger(r) && (c as number) >= 1 && (r as number) >= 1) {
           // `resize` ném khi PTY đã chết mà onExit chưa kịp chạy tới — một cuộc
           // đua bình thường khi người dùng kéo panel đúng lúc shell thoát.
@@ -161,26 +161,26 @@ export function registerPtyRoutes(ctx: Context): () => void {
   const off = ctx.webServer.registerUpgrade({
     path: '/hdw/pty',
     handler: async (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-      if (!isTrustedRequest(req)) { tuChoi(socket, 403, 'Forbidden'); return }
-      if (live.size >= MAX_TERMINALS) { tuChoi(socket, 429, 'Too Many Terminals'); return }
+      if (!isTrustedRequest(req)) { refuse(socket, 403, 'Forbidden'); return }
+      if (live.size >= MAX_TERMINALS) { refuse(socket, 429, 'Too Many Terminals'); return }
 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
       const cwd = url.searchParams.get('cwd')
-      if (cwd === null) { tuChoi(socket, 400, 'Missing cwd'); return }
+      if (cwd === null) { refuse(socket, 400, 'Missing cwd'); return }
 
       // Thư mục làm việc do server xác thực lại, không tin client. Sai thì TỪ
       // CHỐI hẳn, không âm thầm rơi về `process.cwd()` — chỗ đó là thư mục cài
       // app, và một terminal mở im lặng ở đấy là thứ không ai ngờ tới.
       const target = await resolveWorkspaceRoot(ctx, cwd)
-      if (target === undefined) { tuChoi(socket, 403, 'Not a registered workspace'); return }
+      if (target === undefined) { refuse(socket, 403, 'Not a registered workspace'); return }
 
       // Socket có thể đã đứt trong lúc chờ phân giải ở trên.
       if (socket.destroyed) return
 
-      const cols = soNguyen(url.searchParams.get('cols'), DEFAULT_COLS)
-      const rows = soNguyen(url.searchParams.get('rows'), DEFAULT_ROWS)
+      const cols = positiveInt(url.searchParams.get('cols'), DEFAULT_COLS)
+      const rows = positiveInt(url.searchParams.get('rows'), DEFAULT_ROWS)
       wss.handleUpgrade(req, socket, head, (ws) => {
-        moPhien(ws, target.displayPath, cols, rows)
+        openSession(ws, target.displayPath, cols, rows)
       })
     },
   })

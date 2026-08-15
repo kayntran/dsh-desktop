@@ -531,3 +531,45 @@ sổ này là đang hiện không", **không** trả lời câu "Chromium có v�
 một câu trả lời đúng và vô dụng.
 
 Bộ kiểm nay **26/26 đạt**.
+
+## 2026-08-15 — Trả tên về tiếng Anh, và chốt luật bằng hook
+
+Luật dòng đầu CLAUDE.md vẫn luôn ghi "tên hàm giữ nguyên tiếng Anh", nhưng mã trong `plugins/dock/`
+đã trôi khỏi nó qua nhiều phiên: **179 cái tên** tiếng Việt, tính cả tên hàm, tên kiểu, hằng số, và
+— nặng nhất — **tên trường trong giao thức giữa hai nửa app** (`tham_so`, `ket_qua`, `ly_do`,
+`phien_ban`) cùng đường dẫn HTTP `/hdw/bus/thu?mo=`. Đó là thứ một người khác đọc đầu tiên khi mở
+dự án. `src/main/` thì sạch.
+
+Đã đổi hết: `moCau` → `openBridge`, `xepChong` → `restack`, `laUrlCongCong` → `isPublicUrl`,
+`chonTaiXe` → `pickDriver`, `MAX_DANG_CHO` → `MAX_PENDING`, khung tin `{ t: 'goi', lenh, tham_so }`
+→ `{ t: 'call', cmd, params }`, route → `/hdw/bus/probe?open=`. **Chú thích tiếng Việt giữ nguyên
+toàn bộ** — chúng là phần đúng luật và có giá trị nhất trong repo.
+
+Bus lên phiên bản 2 vì hình dạng thông điệp đổi. Nếu bản cũ còn chạy đâu đó, nó bị từ chối kèm câu
+"hãy tải lại trang" thay vì im lặng nói chuyện lệch nhau.
+
+### Vì sao một dòng luật không đủ, và hook thì đủ
+
+Vùng mã gốc DeepSeek không ai đụng suốt mấy tháng. Khác biệt duy nhất so với luật đặt tên: ở đó có
+`guard-upstream.mjs` **chặn cứng**. Nên làm ba lớp cho luật đặt tên, đúng khuôn đó — Luật 7 trong
+CLAUDE.md, `.claude/rules/naming.md`, và `.claude/hooks/guard-naming.mjs` chạy ở `PreToolUse`.
+
+Hook chỉ soi **tên khai báo mới** trong nội dung sắp ghi, nên sửa một file cũ còn tên tiếng Việt vẫn
+qua được — nó gác dòng mới chứ không bắt dọn cả file.
+
+**Bài học nằm ở chính lần thử hook.** Bản đầu so chuỗi con, và khi chạy thử lên toàn bộ mã hiện có
+thì chặn oan `handler`, `NotifierHandlers`, `reapOrphanEngine` — vì `han` nằm trong cả ba. Sửa thành
+cắt tên ra từng đoạn theo camelCase rồi so bằng nhau. Phép thử "chạy rào lên chính mã đã đúng, phải
+không ra dòng nào" đáng giữ lại cho mọi rào sau này: **một rào chặn oan là một rào sẽ bị tắt.**
+
+Giới hạn đã ghi thẳng trong file rule: hook dò theo danh sách tiếng, không phải từ điển; bỏ lọt thì
+thêm vào danh sách.
+
+### Chỗ cố ý để lại
+
+`scripts/spike-*` vẫn còn tên tiếng Việt. Đó là 900 dòng mã kiểm không có typecheck nào bắt lỗi, nên
+đổi tên hàng loạt bằng regex ở đó là cách chắc chắn nhất để làm hỏng chính cái lưới an toàn dùng để
+nghiệm thu mọi thay đổi khác. Dọn dần trong lúc thêm mục kiểm ở các giai đoạn sau.
+
+Nghiệm thu: `npm run typecheck` sạch, `npm run spike:dock` **tất cả đạt**, và hook được thử cả hai
+chiều — chặn tên tiếng Việt, không chặn mã tiếng Anh hiện có.

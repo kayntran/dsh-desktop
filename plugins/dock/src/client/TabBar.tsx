@@ -51,7 +51,7 @@ export interface TabBarProps {
  * @returns phần tử dải pill.
  */
 export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose }: TabBarProps): React.JSX.Element {
-  const [moMenu, setMoMenu] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // Đóng menu khi một trang web giành lấy bàn phím.
   //
@@ -63,16 +63,16 @@ export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose
   // Thứ vẫn tới được: thẻ `<webview>` nhận tiêu điểm DOM, và sự kiện đó nổi lên
   // `document` dưới dạng `focusin`.
   useEffect(() => {
-    if (!moMenu) return undefined
-    const khiTrangGiuBanPhim = (event: FocusEvent): void => {
-      const dich = event.target
-      if (dich instanceof HTMLElement && dich.tagName.toLowerCase() === 'webview') setMoMenu(false)
+    if (!menuOpen) return undefined
+    const onPageTakesFocus = (event: FocusEvent): void => {
+      const target = event.target
+      if (target instanceof HTMLElement && target.tagName.toLowerCase() === 'webview') setMenuOpen(false)
     }
-    document.addEventListener('focusin', khiTrangGiuBanPhim)
-    return () => { document.removeEventListener('focusin', khiTrangGiuBanPhim) }
-  }, [moMenu])
+    document.addEventListener('focusin', onPageTakesFocus)
+    return () => { document.removeEventListener('focusin', onPageTakesFocus) }
+  }, [menuOpen])
 
-  const muc: MenuEntry[] = [
+  const items: MenuEntry[] = [
     { id: 'browser', label: 'Trang web mới', icon: <IconGlobeOutline14 /> },
     { id: 'terminal', label: 'Terminal mới', icon: <IconApiOutline14 /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen16 size={14} /> },
@@ -110,10 +110,10 @@ export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose
         ))}
 
         <Menu
-          open={moMenu}
-          items={muc}
+          open={menuOpen}
+          items={items}
           // `portal` KHÔNG phải tuỳ chọn ở đây. Dải pill có `overflow-x: auto`
-          // để cuộn ngang khi mở nhiều tab, và theo chuẩn CSS, đặt overflow cho
+          // để prevộn ngang khi mở nhiều tab, và theo chuẩn CSS, đặt overflow cho
           // một trục sẽ biến trục kia từ `visible` thành `auto` — nên hộp menu
           // bị cắt cả chiều dọc. Triệu chứng đúng như chủ dự án gặp: bấm `+`
           // không thấy gì. Menu vẫn nằm trong DOM, đủ kích thước, đúng chỗ —
@@ -123,15 +123,15 @@ export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose
           // neo. Đây là đường upstream chừa sẵn cho đúng tình huống này; chú
           // thích của họ ghi: *"for anchors inside overflow-clipping containers"*.
           portal
-          onSelect={(id) => { setMoMenu(false); onOpen(id as PaneKind) }}
-          onClose={() => { setMoMenu(false) }}
+          onSelect={(id) => { setMenuOpen(false); onOpen(id as PaneKind) }}
+          onClose={() => { setMenuOpen(false) }}
           anchor={(
             <Button
               variant="ghost"
               size="sm"
               icon={<IconPlusOutline16 />}
               aria-label="Mở thêm"
-              onClick={() => { setMoMenu((cu) => !cu) }}
+              onClick={() => { setMenuOpen((prev) => !prev) }}
             />
           )}
         />

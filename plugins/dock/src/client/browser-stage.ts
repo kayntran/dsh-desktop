@@ -57,7 +57,7 @@ export interface TabStatus {
   canForward: boolean
 }
 
-const TRANG_TRONG = 'about:blank'
+const BLANK_PAGE = 'about:blank'
 
 interface Tab {
   el: WebviewTag
@@ -69,8 +69,8 @@ interface Tab {
    * `webContents` và đường thay thế (`navigationHistory`) không lộ ra trên thẻ
    * `<webview>`. Đếm theo sự kiện điều hướng là thứ chắc chắn có.
    */
-  lichSu: number
-  viTri: number
+  historyLength: number
+  historyIndex: number
 }
 
 /** Ô mà sân khấu phải bám theo, tính theo toạ độ khung nhìn. */
@@ -87,11 +87,11 @@ export interface Stage {
   remove: (id: string) => void
   /**
    * Tab nào nằm trên. `undefined` là không tab nào (dải rỗng).
-   * @param traoBanPhim - true khi chính người dùng vừa chọn tab này, để trao
+   * @param giveKeyboard - true khi chính người dùng vừa chọn tab này, để trao
    * luôn bàn phím cho trang. Mặc định false: lúc app tự dựng lại panel mà giành
    * bàn phím là cướp nó khỏi ô nhập hội thoại.
    */
-  setActive: (id: string | undefined, traoBanPhim?: boolean) => void
+  setActive: (id: string | undefined, giveKeyboard?: boolean) => void
   /** Đặt vị trí sân khấu; `undefined` là ẩn hẳn. */
   setRect: (rect: StageRect | undefined) => void
   status: (id: string) => TabStatus | undefined
@@ -107,13 +107,13 @@ export interface Stage {
 }
 
 /** Thêm `https://` khi người dùng gõ thiếu, và từ chối thứ không thành URL. */
-export function chuanHoaUrl(raw: string): string | undefined {
+export function normalizeUrl(raw: string): string | undefined {
   const text = raw.trim()
   if (text === '') return undefined
-  const co_scheme = /^[a-z][a-z0-9+.-]*:/i.test(text)
-  const thu = co_scheme ? text : `https://${text}`
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(text)
+  const candidate = hasScheme ? text : `https://${text}`
   try {
-    const url = new URL(thu)
+    const url = new URL(candidate)
     // Chỉ http/https. `javascript:` gõ vào thanh địa chỉ là một cách kinh điển
     // để tự bắn script vào trang mình đang mở.
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined
@@ -128,9 +128,9 @@ export function chuanHoaUrl(raw: string): string | undefined {
  * @returns tay điều khiển sân khấu.
  */
 export function createStage(onChange: (id: string, status: TabStatus) => void): Stage {
-  const goc = document.createElement('div')
-  goc.className = 'hdw-stage'
-  goc.dataset['plugin'] = 'harness-desktop-dock'
+  const root = document.createElement('div')
+  root.className = 'hdw-stage'
+  root.dataset['plugin'] = 'harness-desktop-dock'
 
   /**
    * Giấu sân khấu bằng cách DÌM NÓ XUỐNG DƯỚI giao diện app — tuyệt đối không
@@ -149,31 +149,31 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
    * `spike-webview.cjs` mục 6b đo được từ đầu: *"bị che kín"* là cách ẩn duy
    * nhất mà webview vẫn hoạt động đầy đủ.
    */
-  const dim = (): void => {
-    goc.style.zIndex = '-1'
-    goc.style.pointerEvents = 'none'
+  const sink = (): void => {
+    root.style.zIndex = '-1'
+    root.style.pointerEvents = 'none'
   }
   /** Nổi lên đúng tầng của nó (z-index 5, khai trong CSS). */
-  const noiLen = (): void => {
-    goc.style.zIndex = ''
-    goc.style.pointerEvents = ''
+  const raise = (): void => {
+    root.style.zIndex = ''
+    root.style.pointerEvents = ''
   }
 
-  dim()
-  document.body.append(goc)
+  sink()
+  document.body.append(root)
 
   const tabs = new Map<string, Tab>()
   let activeId: string | undefined
 
-  const bao = (id: string, tab: Tab): void => { onChange(id, { ...tab.status }) }
+  const report = (id: string, tab: Tab): void => { onChange(id, { ...tab.status }) }
 
-  const xepChong = (traoBanPhim = false): void => {
+  const restack = (giveKeyboard = false): void => {
     for (const [id, tab] of tabs) {
       // Tab đang xem nằm trên; tab nền bị nó che kín. Đây là cách ẩn DUY NHẤT
       // còn chụp ảnh được — xem chú thích đầu file.
       tab.el.style.zIndex = id === activeId ? '1' : '0'
     }
-    banGiaoTieuDiem(traoBanPhim)
+    handOffFocus(giveKeyboard)
   }
 
   /**
@@ -185,7 +185,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
    * thẳng vào một trang web vô hình đang nằm dưới. Không có gì báo; người dùng
    * chỉ thấy "gõ mà không có gì xảy ra".
    *
-   * Chỉ GIÀNH bàn phím khi CHÍNH NGƯỜI DÙNG vừa chọn tab — `traoBanPhim`. Giành
+   * Chỉ GIÀNH bàn phím khi CHÍNH NGƯỜI DÙNG vừa chọn tab — `giveKeyboard`. Giành
    * vô điều kiện thì mở app lên, panel tự dựng lại một tab web, và bàn phím bị
    * cướp khỏi ô nhập hội thoại; đó là đổi một lỗi lấy một lỗi khó chịu hơn.
    *
@@ -196,23 +196,23 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
    *
    * Chiều NHẢ thì làm vô điều kiện: một trang đang bị che mà vẫn giữ bàn phím
    * thì luôn là sai.
-   * @param traoBanPhim - người dùng vừa tự chọn tab này.
+   * @param giveKeyboard - người dùng vừa tự chọn tab này.
    */
-  const banGiaoTieuDiem = (traoBanPhim: boolean): void => {
-    const tren = activeId === undefined ? undefined : tabs.get(activeId)
-    if (tren === undefined) {
-      const dangGiu = document.activeElement
-      if (dangGiu instanceof HTMLElement && dangGiu.tagName.toLowerCase() === 'webview') dangGiu.blur()
+  const handOffFocus = (giveKeyboard: boolean): void => {
+    const top = activeId === undefined ? undefined : tabs.get(activeId)
+    if (top === undefined) {
+      const holder = document.activeElement
+      if (holder instanceof HTMLElement && holder.tagName.toLowerCase() === 'webview') holder.blur()
       return
     }
-    if (traoBanPhim) tren.el.focus()
+    if (giveKeyboard) top.el.focus()
   }
 
-  const tao = (id: string, url?: string): Tab => {
+  const create = (id: string, url?: string): Tab => {
     // `document.createElement('webview')` chứ không phải JSX: thẻ này phải nằm
     // ngoài tầm tay của React, và nó không bao giờ được dựng lại.
     const el = document.createElement('webview') as WebviewTag
-    el.setAttribute('src', url ?? TRANG_TRONG)
+    el.setAttribute('src', url ?? BLANK_PAGE)
     // `partition` bị lớp vỏ ép lại ở `will-attach-webview` bất kể ghi gì ở đây;
     // ghi ra cho người đọc thấy ý định, và để thẻ đúng ngay cả khi chốt đổi.
     el.setAttribute('partition', 'persist:hdw-browser')
@@ -237,49 +237,49 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
     const tab: Tab = {
       el,
       status: { url: url ?? '', title: '', loading: url !== undefined, canBack: false, canForward: false },
-      lichSu: 1,
-      viTri: 0,
+      historyLength: 1,
+      historyIndex: 0,
     }
 
-    const dat = (patch: Partial<TabStatus>): void => {
+    const patchStatus = (patch: Partial<TabStatus>): void => {
       tab.status = { ...tab.status, ...patch }
-      bao(id, tab)
+      report(id, tab)
     }
 
-    el.addEventListener('did-start-loading', () => { dat({ loading: true }) })
-    el.addEventListener('did-stop-loading', () => { dat({ loading: false }) })
+    el.addEventListener('did-start-loading', () => { patchStatus({ loading: true }) })
+    el.addEventListener('did-stop-loading', () => { patchStatus({ loading: false }) })
     el.addEventListener('page-title-updated', (event) => {
-      dat({ title: (event as unknown as { title: string }).title })
+      patchStatus({ title: (event as unknown as { title: string }).title })
     })
     el.addEventListener('did-navigate', (event) => {
-      const dia_chi = (event as unknown as { url: string }).url
+      const address = (event as unknown as { url: string }).url
       // Điều hướng mới cắt bỏ nhánh "tiến" phía trước, đúng như trình duyệt.
-      tab.viTri += 1
-      tab.lichSu = tab.viTri + 1
-      dat({ url: dia_chi, canBack: tab.viTri > 0, canForward: false })
+      tab.historyIndex += 1
+      tab.historyLength = tab.historyIndex + 1
+      patchStatus({ url: address, canBack: tab.historyIndex > 0, canForward: false })
     })
     el.addEventListener('did-navigate-in-page', (event) => {
       const e = event as unknown as { url: string, isMainFrame: boolean }
-      if (e.isMainFrame) dat({ url: e.url })
+      if (e.isMainFrame) patchStatus({ url: e.url })
     })
     el.addEventListener('did-fail-load', (event) => {
       const e = event as unknown as { errorCode: number, isMainFrame: boolean }
       // -3 là ERR_ABORTED: người dùng bấm dừng, hoặc trang tự chuyển hướng giữa
       // chừng. Đó không phải hỏng, và báo nó ra là báo động giả.
-      if (e.isMainFrame && e.errorCode !== -3) dat({ loading: false })
+      if (e.isMainFrame && e.errorCode !== -3) patchStatus({ loading: false })
     })
 
-    goc.append(el)
+    root.append(el)
     tabs.set(id, tab)
-    xepChong()
+    restack()
     return tab
   }
 
   return {
     ensure: (id, url) => {
-      const co_san = tabs.get(id)
-      if (co_san === undefined) { tao(id, url); return }
-      if (url !== undefined && co_san.status.url === '') void co_san.el.loadURL(url)
+      const existing = tabs.get(id)
+      if (existing === undefined) { create(id, url); return }
+      if (url !== undefined && existing.status.url === '') void existing.el.loadURL(url)
     },
 
     remove: (id) => {
@@ -288,26 +288,26 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       tab.el.remove()
       tabs.delete(id)
       if (activeId === id) activeId = undefined
-      xepChong()
+      restack()
     },
 
-    setActive: (id, traoBanPhim = false) => {
+    setActive: (id, giveKeyboard = false) => {
       activeId = id
-      xepChong(traoBanPhim)
+      restack(giveKeyboard)
     },
 
     setRect: (rect) => {
       if (rect === undefined) {
         // Giữ nguyên vị trí và kích thước — chỉ dìm xuống. Đổi kích thước lúc
         // này là bắt mọi trang nền bố trí lại vô ích.
-        dim()
+        sink()
         return
       }
-      goc.style.left = `${String(rect.x)}px`
-      goc.style.top = `${String(rect.y)}px`
-      goc.style.width = `${String(rect.width)}px`
-      goc.style.height = `${String(rect.height)}px`
-      noiLen()
+      root.style.left = `${String(rect.x)}px`
+      root.style.top = `${String(rect.y)}px`
+      root.style.width = `${String(rect.width)}px`
+      root.style.height = `${String(rect.height)}px`
+      raise()
     },
 
     status: (id) => {
@@ -319,20 +319,20 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
     goBack: (id) => {
       const tab = tabs.get(id)
-      if (tab === undefined || tab.viTri <= 0) return
-      tab.viTri -= 1
+      if (tab === undefined || tab.historyIndex <= 0) return
+      tab.historyIndex -= 1
       tab.el.goBack()
-      tab.status = { ...tab.status, canBack: tab.viTri > 0, canForward: true }
-      bao(id, tab)
+      tab.status = { ...tab.status, canBack: tab.historyIndex > 0, canForward: true }
+      report(id, tab)
     },
 
     goForward: (id) => {
       const tab = tabs.get(id)
-      if (tab === undefined || tab.viTri >= tab.lichSu - 1) return
-      tab.viTri += 1
+      if (tab === undefined || tab.historyIndex >= tab.historyLength - 1) return
+      tab.historyIndex += 1
       tab.el.goForward()
-      tab.status = { ...tab.status, canBack: true, canForward: tab.viTri < tab.lichSu - 1 }
-      bao(id, tab)
+      tab.status = { ...tab.status, canBack: true, canForward: tab.historyIndex < tab.historyLength - 1 }
+      report(id, tab)
     },
 
     reload: (id) => { tabs.get(id)?.el.reload() },
@@ -342,7 +342,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
     destroy: () => {
       tabs.clear()
-      goc.remove()
+      root.remove()
     },
   }
 }

@@ -14,34 +14,34 @@
 
 import type { DockActions } from './store.ts'
 
-/** Phải khớp `PHIEN_BAN_BUS` ở `bus-routes.ts`. */
-const PHIEN_BAN_BUS = 1
+/** Phải khớp `BUS_VERSION` ở `bus-routes.ts`. */
+const BUS_VERSION = 2
 
 /** Mã đóng nghĩa là "đừng nối lại". */
-const MA_DONG_HAN = 4001
+const CLOSE_FINAL = 4001
 
 /** Chỉ reset bậc lùi sau khi kết nối đã sống đủ lâu để coi là lành. */
-const SONG_LA_LANH_MS = 10_000
+const HEALTHY_AFTER_MS = 10_000
 
 /** Trần thời gian chờ giữa hai lần nối lại. */
-const LUI_TOI_DA_MS = 30_000
+const MAX_BACKOFF_MS = 30_000
 
 /** Bảng lệnh: tên lệnh → việc phải làm. */
-type BangLenh = Record<string, (tham_so: unknown) => unknown>
+type CommandTable = Record<string, (params: unknown) => unknown>
 
 /**
  * Dựng bảng lệnh.
  * @param actions - bộ hành động của kho panel.
  * @returns bảng lệnh cho cầu.
  */
-function dungBangLenh(actions: DockActions): BangLenh {
+function buildCommands(actions: DockActions): CommandTable {
   return {
-    ping: () => ({ luc: Date.now() }),
+    ping: () => ({ at: Date.now() }),
 
     /**
      * Mở một tab trình duyệt vào địa chỉ cho trước.
      *
-     * Trả về `pane_id` và KHÔNG hứa "trang đã tải xong". `openPane` chỉ đẩy một
+     * Trả về `tab_id` và KHÔNG hứa "trang đã tải xong". `openPane` chỉ đẩy một
      * pane vào kho; thẻ webview do `BrowserPane` tạo ở lượt render sau, và trang
      * nạp sau nữa. Hứa quá tay ở đây là tool đầu tiên xây trên cầu này sẽ báo
      * thành công cho một địa chỉ trả về 404. Lệnh "chờ tải xong" thuộc giai đoạn
@@ -50,10 +50,10 @@ function dungBangLenh(actions: DockActions): BangLenh {
      * Rào địa chỉ KHÔNG nằm ở đây mà ở nửa Node: một rào mà bên bị chặn tự đặt
      * được thì không phải rào.
      */
-    mo_trang: (tham_so) => {
-      const url = (tham_so as { url?: unknown } | null)?.url
+    open_tab: (params) => {
+      const url = (params as { url?: unknown } | null)?.url
       if (typeof url !== 'string' || url === '') throw new Error('thiếu tham số url')
-      return { pane_id: actions.openPane('browser', url) }
+      return { tab_id: actions.openPane('browser', url) }
     },
   }
 }
@@ -63,83 +63,83 @@ function dungBangLenh(actions: DockActions): BangLenh {
  * @param actions - bộ hành động của kho panel, để lệnh tác động lên các tab.
  * @returns hàm đóng cầu, gọi khi plugin gỡ.
  */
-export function moCau(actions: DockActions): () => void {
-  const bang = dungBangLenh(actions)
-  let ws: WebSocket | undefined
-  let hen: ReturnType<typeof setTimeout> | undefined
-  let bac = 0
-  let dungHan = false
+export function openBridge(actions: DockActions): () => void {
+  const commands = buildCommands(actions)
+  let socket: WebSocket | undefined
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  let step = 0
+  let stopped = false
 
-  const noi = (): void => {
-    if (dungHan) return
+  const connect = (): void => {
+    if (stopped) return
     const url = new URL('/hdw/bus', location.href)
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const luc_mo = Date.now()
-    const s = new WebSocket(url)
-    ws = s
+    const openedAt = Date.now()
+    const ws = new WebSocket(url)
+    socket = ws
 
-    s.onopen = () => { s.send(JSON.stringify({ t: 'chao', phien_ban: PHIEN_BAN_BUS })) }
+    ws.onopen = () => { ws.send(JSON.stringify({ t: 'hello', version: BUS_VERSION })) }
 
-    s.onmessage = (event: MessageEvent<unknown>) => {
-      let khung: { t?: unknown, id?: unknown, lenh?: unknown, tham_so?: unknown }
+    ws.onmessage = (event: MessageEvent<unknown>) => {
+      let frame: { t?: unknown, id?: unknown, cmd?: unknown, params?: unknown }
       try {
-        khung = JSON.parse(String(event.data)) as typeof khung
+        frame = JSON.parse(String(event.data)) as typeof frame
       } catch {
         return
       }
-      if (khung.t !== 'goi' || typeof khung.id !== 'number') return
-      const id = khung.id
-      const viec = bang[String(khung.lenh)]
-      if (viec === undefined) {
-        s.send(JSON.stringify({ t: 'loi', id, ly_do: `không có lệnh "${String(khung.lenh)}"` }))
+      if (frame.t !== 'call' || typeof frame.id !== 'number') return
+      const id = frame.id
+      const command = commands[String(frame.cmd)]
+      if (command === undefined) {
+        ws.send(JSON.stringify({ t: 'error', id, reason: `không có lệnh "${String(frame.cmd)}"` }))
         return
       }
       // `Promise.resolve` bọc ngoài để lệnh đồng bộ và lệnh bất đồng bộ đi chung
-      // một đường — và để một lệnh ném đồng bộ cũng thành `loi` chứ không làm
+      // một đường — và để một lệnh ném đồng bộ cũng thành `error` chứ không làm
       // đứt cả cầu.
       void Promise.resolve()
-        .then(() => viec(khung.tham_so))
+        .then(() => command(frame.params))
         .then(
-          (ket_qua) => { s.send(JSON.stringify({ t: 'xong', id, ket_qua })) },
-          (loi: unknown) => {
-            s.send(JSON.stringify({ t: 'loi', id, ly_do: loi instanceof Error ? loi.message : String(loi) }))
+          (result) => { ws.send(JSON.stringify({ t: 'done', id, result })) },
+          (error: unknown) => {
+            ws.send(JSON.stringify({ t: 'error', id, reason: error instanceof Error ? error.message : String(error) }))
           },
         )
     }
 
-    s.onclose = (event: CloseEvent) => {
-      ws = undefined
+    ws.onclose = (event: CloseEvent) => {
+      socket = undefined
       // Server đóng bằng mã riêng nghĩa là "đừng nối lại" (plugin đã gỡ, hoặc
       // lệch phiên bản giao thức). Nối lại vào một cầu đã tháo chính là thứ đẻ
       // ra bão kết nối.
-      if (event.code === MA_DONG_HAN) { dungHan = true; return }
+      if (event.code === CLOSE_FINAL) { stopped = true; return }
       // Chỉ coi là lành khi kết nối đã sống đủ lâu. Reset bậc ngay lúc mở thì
       // trường hợp "server nhận rồi đóng ngay vì quá trần" thành vòng lặp chặt.
-      if (Date.now() - luc_mo > SONG_LA_LANH_MS) bac = 0
-      henNoiLai()
+      if (Date.now() - openedAt > HEALTHY_AFTER_MS) step = 0
+      scheduleReconnect()
     }
 
     // Không làm gì ở `onerror`: mọi đường hỏng đều kết thúc bằng `onclose`, và
     // nối lại ở cả hai chỗ là nối lại hai lần.
-    s.onerror = () => {}
+    ws.onerror = () => {}
   }
 
   /** Lùi theo cấp số nhân, có jitter đầy đủ. */
-  const henNoiLai = (): void => {
-    if (dungHan || hen !== undefined) return
-    bac += 1
+  const scheduleReconnect = (): void => {
+    if (stopped || retryTimer !== undefined) return
+    step += 1
     // Jitter không phải trang trí: thiếu nó thì hai cửa sổ app cùng mất mạng sẽ
     // nối lại đồng pha mãi mãi.
-    const cho = Math.random() * Math.min(LUI_TOI_DA_MS, 500 * 2 ** bac)
-    hen = setTimeout(() => { hen = undefined; noi() }, cho)
+    const wait = Math.random() * Math.min(MAX_BACKOFF_MS, 500 * 2 ** step)
+    retryTimer = setTimeout(() => { retryTimer = undefined; connect() }, wait)
   }
 
-  noi()
+  connect()
 
   return () => {
-    dungHan = true
-    if (hen !== undefined) clearTimeout(hen)
-    ws?.close()
-    ws = undefined
+    stopped = true
+    if (retryTimer !== undefined) clearTimeout(retryTimer)
+    socket?.close()
+    socket = undefined
   }
 }

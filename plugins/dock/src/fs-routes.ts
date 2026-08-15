@@ -69,23 +69,23 @@ function fsCode(error: unknown): string | undefined {
 async function resolveInsideWorkspace(
   ctx: Context,
   url: URL,
-): Promise<{ ok: true, target: FsTarget } | { ok: false, status: number, ly_do: string }> {
+): Promise<{ ok: true, target: FsTarget } | { ok: false, status: number, reason: string }> {
   const root = url.searchParams.get('root')
   const path = url.searchParams.get('path')
-  if (root === null || path === null) return { ok: false, status: 400, ly_do: 'thiếu root hoặc path' }
+  if (root === null || path === null) return { ok: false, status: 400, reason: 'thiếu root hoặc path' }
 
   const rootTarget = await resolveWorkspaceRoot(ctx, root)
   if (rootTarget === undefined) {
-    return { ok: false, status: 403, ly_do: 'root không phải một workspace đã đăng ký' }
+    return { ok: false, status: 403, reason: 'root không phải một workspace đã đăng ký' }
   }
 
   const info = await ctx.fs.lstat(path)
-  if (info === undefined) return { ok: false, status: 404, ly_do: 'không có đường dẫn này' }
-  if (info.type === 'symlink') return { ok: false, status: 403, ly_do: 'không đi theo symlink' }
+  if (info === undefined) return { ok: false, status: 404, reason: 'không có đường dẫn này' }
+  if (info.type === 'symlink') return { ok: false, status: 403, reason: 'không đi theo symlink' }
 
   const target = await ctx.fs.resolve(path)
   if (rootTarget.targetKey !== target.targetKey && !ctx.fs.contains(rootTarget, target)) {
-    return { ok: false, status: 403, ly_do: 'đường dẫn nằm ngoài workspace' }
+    return { ok: false, status: 403, reason: 'đường dẫn nằm ngoài workspace' }
   }
   return { ok: true, target }
 }
@@ -98,7 +98,7 @@ async function resolveInsideWorkspace(
 export function registerFsRoutes(ctx: Context): () => void {
   const guard = (req: IncomingMessage, res: ServerResponse): URL | undefined => {
     if (!isTrustedRequest(req)) {
-      json(res, 403, { ly_do: 'request không qua được rào tin cậy' })
+      json(res, 403, { reason: 'request không qua được rào tin cậy' })
       return undefined
     }
     return new URL(req.url ?? '/', 'http://127.0.0.1')
@@ -111,10 +111,10 @@ export function registerFsRoutes(ctx: Context): () => void {
       const url = guard(req, res)
       if (url === undefined) return
       const resolved = await resolveInsideWorkspace(ctx, url)
-      if (!resolved.ok) { json(res, resolved.status, { ly_do: resolved.ly_do }); return }
+      if (!resolved.ok) { json(res, resolved.status, { reason: resolved.reason }); return }
       try {
         const info = await ctx.fs.stat(resolved.target)
-        if (info?.type !== 'directory') { json(res, 400, { ly_do: 'không phải thư mục' }); return }
+        if (info?.type !== 'directory') { json(res, 400, { reason: 'không phải thư mục' }); return }
         const children = await ctx.fs.listDir(resolved.target)
         const entries: DirEntryView[] = children
           .filter((child) => !(child.type === 'directory' && HIDDEN_DIRS.has(child.name)))
@@ -128,7 +128,7 @@ export function registerFsRoutes(ctx: Context): () => void {
           truncated: children.length > MAX_ENTRIES,
         })
       } catch (error) {
-        json(res, 500, { ly_do: fsCode(error) ?? 'không đọc được thư mục' })
+        json(res, 500, { reason: fsCode(error) ?? 'không đọc được thư mục' })
       }
     },
   })
@@ -140,10 +140,10 @@ export function registerFsRoutes(ctx: Context): () => void {
       const url = guard(req, res)
       if (url === undefined) return
       const resolved = await resolveInsideWorkspace(ctx, url)
-      if (!resolved.ok) { json(res, resolved.status, { ly_do: resolved.ly_do }); return }
+      if (!resolved.ok) { json(res, resolved.status, { reason: resolved.reason }); return }
       try {
         const info = await ctx.fs.stat(resolved.target)
-        if (info?.type !== 'file') { json(res, 400, { ly_do: 'không phải file' }); return }
+        if (info?.type !== 'file') { json(res, 400, { reason: 'không phải file' }); return }
         const size = info.size ?? 0
         // File lớn: chỉ lấy phần đầu. `readBytes` có chặn trên cứng nên đây là
         // đường duy nhất không kéo cả trăm megabyte vào bộ nhớ.
@@ -166,7 +166,7 @@ export function registerFsRoutes(ctx: Context): () => void {
           json(res, 200, { path: resolved.target.displayPath, binary: true })
           return
         }
-        json(res, 500, { ly_do: fsCode(error) ?? 'không đọc được file' })
+        json(res, 500, { reason: fsCode(error) ?? 'không đọc được file' })
       }
     },
   })

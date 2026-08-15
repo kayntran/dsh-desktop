@@ -49,8 +49,8 @@ export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: Dock
   // danh sách — registry xếp workspace mới lên đầu, nên đó là cái vừa dùng —
   // để mở app lên là đã có cái để nhìn thay vì một panel trống.
   const cwd = useSessions((s) => s.current === undefined ? undefined : s.byId[s.current]?.cwd)
-  const dauDanhSach = useWorkspaces((s) => s.items[0]?.path)
-  const root = cwd ?? dauDanhSach
+  const firstWorkspace = useWorkspaces((s) => s.items[0]?.path)
+  const root = cwd ?? firstWorkspace
 
   // Sân khấu webview: dựng một lần cho cả panel, sống ngoài React. Xem
   // `browser-stage.ts` để biết vì sao nó không thể là component.
@@ -74,17 +74,17 @@ export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: Dock
   // KHÔNG suy ra được từ trạng thái: cùng một `activeId` mới, một đằng là cú
   // bấm, một đằng là app vừa mở lên và đọc lại phiên trước. Nên ý định được ghi
   // ngay tại chỗ phát sinh rồi tiêu đi khi dùng.
-  const doNguoiDungChon = useRef(false)
-  const chonTab = useCallback((id: string) => {
-    doNguoiDungChon.current = true
+  const userPicked = useRef(false)
+  const selectTab = useCallback((id: string) => {
+    userPicked.current = true
     actions.setActive(id)
   }, [actions])
 
   // Sân khấu chỉ hiện khi panel mở VÀ pane đang xem là một trang web. Mọi lúc
   // khác nó ẩn hẳn — nếu không, trang web sẽ nổi đè lên tab Files.
   useEffect(() => {
-    stage.setActive(activeId, doNguoiDungChon.current)
-    doNguoiDungChon.current = false
+    stage.setActive(activeId, userPicked.current)
+    userPicked.current = false
     if (!open || active?.kind !== 'browser') stage.setRect(undefined)
   }, [stage, open, activeId, active?.kind])
 
@@ -97,7 +97,7 @@ export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: Dock
     return () => { el.style.removeProperty('--hdw-dock-w') }
   }, [open, width])
 
-  const dongPane = useCallback((id: string) => {
+  const closeTab = useCallback((id: string) => {
     stage.remove(id)
     actions.closePane(id)
   }, [stage, actions])
@@ -107,23 +107,23 @@ export function DockPanel({ useDock, actions, useSessions, useWorkspaces }: Dock
       <TabBar
         panes={panes}
         activeId={activeId}
-        onSelect={chonTab}
-        onClosePane={dongPane}
+        onSelect={selectTab}
+        onClosePane={closeTab}
         onOpen={(kind) => { actions.openPane(kind) }}
         onClose={actions.close}
       />
       <div className="hdw-body">
         {panes.map((pane) => {
-          const an = pane.id !== activeId
-          if (pane.kind === 'files') return <FilesTab key={pane.id} root={root} an={an} />
-          if (pane.kind === 'terminal') return <TerminalTab key={pane.id} root={root} an={an} />
+          const isHidden = pane.id !== activeId
+          if (pane.kind === 'files') return <FilesTab key={pane.id} root={root} isHidden={isHidden} />
+          if (pane.kind === 'terminal') return <TerminalTab key={pane.id} root={root} isHidden={isHidden} />
           return (
             <BrowserPane
               key={pane.id}
               paneId={pane.id}
               stage={stage}
-              an={an}
-              batDau={pane.url}
+              isHidden={isHidden}
+              startUrl={pane.url}
             />
           )
         })}

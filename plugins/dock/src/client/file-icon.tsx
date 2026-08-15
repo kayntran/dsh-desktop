@@ -29,7 +29,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** Đuôi file theo nhóm. Đuôi không nằm ở đây rơi vào nhóm "đính kèm". */
-const NHOM: readonly (readonly [React.ReactNode, readonly string[]])[] = [
+const GROUPS: readonly (readonly [React.ReactNode, readonly string[]])[] = [
   [<IconApiOutline14 key="sh" size={16} />, ['sh', 'bash', 'zsh', 'fish', 'ps1', 'psm1', 'bat', 'cmd']],
   [<IconGlobeOutline14 key="web" size={16} />, ['html', 'htm', 'xhtml']],
   [<IconDataOutline16 key="data" />, [
@@ -54,13 +54,13 @@ const NHOM: readonly (readonly [React.ReactNode, readonly string[]])[] = [
  * @returns phần tử icon 16px.
  */
 export function fileIcon(name: string): React.ReactNode {
-  const cham = name.lastIndexOf('.')
+  const dot = name.lastIndexOf('.')
   // `.gitignore` có dấu chấm ở vị trí 0: đó là file ẩn không đuôi, không phải
   // file đuôi `gitignore`.
-  if (cham <= 0) return <IconListPenOutline16 />
-  const duoi = name.slice(cham + 1).toLowerCase()
-  for (const [icon, danhSach] of NHOM) {
-    if (danhSach.includes(duoi)) return icon
+  if (dot <= 0) return <IconListPenOutline16 />
+  const ext = name.slice(dot + 1).toLowerCase()
+  for (const [icon, exts] of GROUPS) {
+    if (exts.includes(ext)) return icon
   }
   return <IconPaperclipOutline16 />
 }
