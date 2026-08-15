@@ -498,3 +498,36 @@ Mục mới đáng kể nhất là **4f/4g/4h** và **14a–14e**. Ba bài học
    agent mở với tab người dùng tự gõ.
 3. **URL sống lại qua localStorage.** Kho panel có `persist`, nên địa chỉ agent mở được lưu lại và
    mở lại ở lần chạy sau, bỏ qua mọi phép kiểm ở lượt đó.
+
+## 2026-08-15 — Truy ra mục kiểm terminal chập chờn: cửa sổ bị che
+
+Mục 9 (`terminal có chữ của shell`) lúc xanh lúc đỏ với **cùng một mã**. Truy tới cùng:
+
+Nguyên nhân: cửa sổ của spike bị cửa sổ khác **che kín**. Windows báo bị che, Chromium kết luận
+không ai nhìn và **ngừng cấp khung hình**; xterm vẽ chữ trong một lượt `requestAnimationFrame`, nên
+màn hình trống trơn. Kết quả phụ thuộc lúc chạy màn hình có bận hay không — không liên quan gì tới
+mã đang kiểm.
+
+Chuỗi bằng chứng, mỗi bước loại một nghi can:
+
+1. Kết nối WebSocket bắt tay thành công (101), shell chạy thật (có `pid`), **banner và dấu nhắc về
+   đủ** — nên không phải lỗi đường truyền.
+2. Trong toàn bộ byte shell gửi về **không có lệnh xoá màn hình** — nên không phải bị xoá.
+3. Trang nhận đủ 7 khung nhị phân đúng kiểu `ArrayBuffer`, socket vẫn mở — nên không phải tay nghe
+   bị gỡ hay dữ liệu sai kiểu.
+4. xterm dựng đủ 54 hàng, kích thước đúng, không bị ẩn — nhưng **0 hàng có chữ**.
+5. `document.visibilityState` = **`"hidden"`** trong khi `win.isVisible()` = `true` và cửa sổ không
+   thu nhỏ. Đây là chỗ duy nhất nói thật.
+6. Ép cửa sổ lên trước: chữ hiện ra **đầy đủ ngay lập tức**, không cần shell gửi thêm gì.
+
+Bước 6 trả lời câu hỏi quan trọng nhất với người dùng: **không mất dữ liệu**. Lượt vẽ chỉ nằm chờ,
+và nó chạy khi cửa sổ hiện lại. Che app trong lúc terminal đang chạy rồi quay lại thì vẫn thấy đủ.
+
+Sửa ở **bài kiểm**, không ở app: tắt phép dò bị-che (`CalculateNativeWinOcclusion`) để spike đo cái
+app làm, chứ không đo cái trình quản lý cửa sổ làm. `HDW_CHE=1` bật lại phép dò đó khi cần tái hiện.
+
+Bài học về phép đo, cùng họ với ba bài trước: `win.isVisible()` trả lời câu "hệ điều hành có coi cửa
+sổ này là đang hiện không", **không** trả lời câu "Chromium có vẽ nó không". Hỏi sai câu thì được
+một câu trả lời đúng và vô dụng.
+
+Bộ kiểm nay **26/26 đạt**.

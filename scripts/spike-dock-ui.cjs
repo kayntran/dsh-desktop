@@ -39,6 +39,23 @@ if (process.env['ELECTRON_RUN_AS_NODE'] !== undefined) {
 }
 
 const { app, BrowserWindow, session, shell } = require('electron')
+
+// Tắt phép dò "cửa sổ có bị che không" của Windows.
+//
+// BẮT BUỘC cho một bài kiểm chạy nền. Cửa sổ spike thường bị cửa sổ khác che
+// kín; Windows báo đã bị che, Chromium kết luận không ai nhìn và NGỪNG CẤP KHUNG
+// HÌNH cho trang. Từ đó xterm không vẽ được chữ nào — dù byte của shell vẫn về
+// đủ, socket vẫn mở, DOM vẫn có đủ 54 hàng. Đo được: `document.visibilityState`
+// là `"hidden"` trong khi `win.isVisible()` là `true` và cửa sổ không thu nhỏ.
+//
+// Đó chính là nguồn của mục 9 "lúc xanh lúc đỏ": kết quả phụ thuộc vào lúc chạy
+// có cửa sổ nào nằm đè lên hay không — một thứ không liên quan gì tới mã đang
+// kiểm. Người dùng thật nhìn vào app thì không gặp, vì cửa sổ họ đang xem không
+// bị che.
+// `HDW_CHE=1` để TÁI HIỆN tình trạng bị che, dùng khi cần kiểm chính cơ chế này.
+if (process.env['HDW_CHE'] !== '1') {
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+}
 const { execFileSync, spawn } = require('node:child_process')
 const { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } = require('node:fs')
 const { tmpdir } = require('node:os')
@@ -253,6 +270,7 @@ async function main() {
 
   const daDong = await dongHopThoai(win)
   console.log(`  (chuẩn bị) hộp thoại chào mừng: ${daDong}\n`)
+
 
   // --- 2. dải pill
   const pill = await win.webContents.executeJavaScript(`(() => {
@@ -632,15 +650,101 @@ async function main() {
   })()`, 25_000)
   const termChiTiet = await win.webContents.executeJavaScript(`(() => {
     const w = document.querySelector('.hdw-termwrap')
+    // Khi chưa biết thư mục gốc, TerminalTab KHÔNG dựng xterm mà hiện một dòng
+    // nhắn. Phân biệt được hai trạng thái đó là điều kiện để đọc ra nguyên nhân:
+    // "shell chưa kịp in gì" và "chưa biết mở ở đâu" nhìn từ ngoài giống hệt
+    // nhau — cùng là một ô trống.
+    const nhan = [...document.querySelectorAll('.hdw-empty')].map(e => e.textContent.trim().slice(0, 40))
+    const o = document.querySelector('.hdw-term')
+    const man = document.querySelector('.xterm-screen')
+    const hang = document.querySelector('.xterm-rows')
     return {
       co: !!w,
       daDong: !!document.querySelector('.hdw-termbar'),
-      chu: (document.querySelector('.xterm-rows')?.textContent ?? '').trim().slice(0, 60),
+      ghiChu: document.querySelector('.hdw-termbar .hdw-note')?.textContent?.trim() ?? null,
+      nhanTrong: nhan,
+      soXterm: document.querySelectorAll('.xterm').length,
+      chu: (hang?.textContent ?? '').trim().slice(0, 60),
+      // Kích thước là nghi can số một: xterm đo số dòng số cột từ ô chứa, và một
+      // ô cao 0 thì không có dòng nào để mà vẽ chữ vào.
+      oChua: o === null ? null : Math.round(o.clientWidth) + 'x' + Math.round(o.clientHeight),
+      manHinh: man === null ? null : Math.round(man.clientWidth) + 'x' + Math.round(man.clientHeight),
+      soHang: hang?.children.length ?? 0,
+      bịAn: w?.hasAttribute('hidden') ?? null,
+      // Byte đã về tới trình duyệt (đo được ở tầng mạng) mà chữ không hiện, nên
+      // câu hỏi còn lại là xterm có ghi được vào DOM không.
+      soVungHang: document.querySelectorAll('.xterm-rows').length,
+      hangDau: [...(hang?.children ?? [])].slice(0, 4).map(e => e.textContent),
+      soHangCoChu: [...(hang?.children ?? [])].filter(e => e.textContent.trim() !== '').length,
+      cuon: document.querySelector('.xterm-viewport')?.scrollHeight ?? null,
+      dungCu: document.querySelector('.xterm')?.className ?? null,
     }
   })()`)
+  // Nếu chữ không hiện: thử HÍCH một cái vào kích thước panel.
+  //
+  // Byte đã về tới trình duyệt (đo được ở tầng mạng, có cả banner lẫn dấu nhắc),
+  // nên câu hỏi còn lại là xterm có vẽ thứ nó đã nhận không. Hiện ra sau khi
+  // hích tức là nó nhận rồi mà không vẽ, và chỗ hỏng nằm ở lúc khởi tạo.
+  let sauKhiHich
+  if (term !== true) {
+    await win.webContents.executeJavaScript(`(() => {
+      const el = document.documentElement
+      const cu = getComputedStyle(el).getPropertyValue('--hdw-dock-w')
+      el.style.setProperty('--hdw-dock-w', (parseInt(cu, 10) - 40) + 'px')
+      setTimeout(() => { el.style.setProperty('--hdw-dock-w', cu) }, 300)
+      return 1
+    })()`)
+    await cho(1500)
+    sauKhiHich = await win.webContents.executeJavaScript(
+      `(document.querySelector('.xterm-rows')?.textContent ?? '').trim().slice(0, 50)`)
+
+    // Rồi ĐƯA CỬA SỔ LÊN TRƯỚC và hỏi lại.
+    //
+    // Câu hỏi thật cho người dùng: che cửa sổ trong lúc terminal đang chạy, rồi
+    // quay lại — chữ đã lỡ có hiện ra không, hay terminal trống cho tới khi có
+    // byte mới? Nếu trống, đó là lỗi đáng sửa trong app chứ không phải chuyện
+    // của bài kiểm.
+    win.setAlwaysOnTop(true)
+    win.focus()
+    await cho(2500)
+    const sauKhiHienLen = await win.webContents.executeJavaScript(
+      `({ chu: (document.querySelector('.xterm-rows')?.textContent ?? '').trim().slice(0, 50), visibility: document.visibilityState })`)
+    win.setAlwaysOnTop(false)
+
+    // Trang chủ có được cấp khung hình không. xterm vẽ chữ trong một lượt
+    // `requestAnimationFrame`; đếm được 0 nghĩa là lượt vẽ đó đang NẰM CHỜ chứ
+    // không phải đã chạy và ra kết quả rỗng — và một lượt nằm chờ sẽ chạy khi
+    // cửa sổ hiện lại, tức chữ sẽ hiện ra chứ không mất.
+    const khungHinhTrangChu = await win.webContents.executeJavaScript(`new Promise((res) => {
+      let n = 0
+      const buoc = () => { n += 1; requestAnimationFrame(buoc) }
+      requestAnimationFrame(buoc)
+      setTimeout(() => res(n), 1000)
+    })`)
+    console.log(`  (thí nghiệm) sau khi đưa cửa sổ lên trước: ${JSON.stringify(sauKhiHienLen)}`
+      + `; trang chủ được cấp ${String(khungHinhTrangChu)} khung hình/giây`)
+  }
+
+  // Trang có đang được coi là "có người nhìn" không.
+  //
+  // ĐÂY LÀ THỨ ĐẦU TIÊN PHẢI XEM nếu mục này đỏ trở lại. Chromium ngừng cấp
+  // khung hình cho trang nó tin là không ai xem, mà xterm vẽ chữ trong một lượt
+  // `requestAnimationFrame` — nên một cửa sổ bị che nhận đủ byte của shell mà
+  // màn hình vẫn trống trơn. `win.isVisible()` vẫn báo `true` trong tình huống
+  // đó; chỉ `document.visibilityState` nói thật.
+  const trangThaiCuaSo = await win.webContents.executeJavaScript(
+    `({ visibility: document.visibilityState, tieuDiem: document.hasFocus() })`)
+
   record('9. terminal mở từ + chạy thật, có chữ của shell',
     term === true && termChiTiet.daDong === false,
-    termChiTiet.daDong ? 'phiên đã đóng ngay' : JSON.stringify(termChiTiet.chu))
+    termChiTiet.daDong
+      ? `phiên đã đóng ngay — ${String(termChiTiet.ghiChu)}`
+      : `${JSON.stringify(termChiTiet.chu)} — ô chứa ${String(termChiTiet.oChua)}, `
+        + `${String(termChiTiet.soHang)} hàng trong ${String(termChiTiet.soVungHang)} vùng, `
+        + `class=${JSON.stringify(termChiTiet.dungCu)}, cuộn=${String(termChiTiet.cuon)}`
+        + `\n         ${String(termChiTiet.soHangCoChu)} hàng có chữ; bốn hàng đầu: ${JSON.stringify(termChiTiet.hangDau)}`
+        + `\n         sau khi hích kích thước: ${JSON.stringify(sauKhiHich)}`
+        + `\n         cửa sổ: ${JSON.stringify(trangThaiCuaSo)} hiện=${String(win.isVisible())} thuNhỏ=${String(win.isMinimized())}`)
 
   // --- 10. đường người dùng thật: mở tab web trống rồi GÕ địa chỉ
   //
