@@ -542,21 +542,161 @@ async function main() {
     }
   }
 
-  // CÒN TREO (chỉ với capturePage gọi TỪ TRONG TRANG) — đường tiến trình chính
-  // ở trên chạy tốt và là đường lệnh chụp của agent sẽ dùng.
+  // --- 15. BA PHÉP ĐO NỀN CHO TẦNG TOOL CỦA AGENT
   //
-  // Một mục "trang có vẽ ra pixel thật không", gọi `wv.capturePage()` từ trong
-  // trang, làm cả spike treo cứng: Promise không giải quyết, và cả
-  // `setTimeout` bọc ngoài nó cũng không nổ — tức là vòng lặp sự kiện của trang
-  // bị chặn, chứ không phải một lời hứa bị quên.
-  //
-  // Lạ ở chỗ `scripts/spike-webview.cjs` mục 6a gọi ĐÚNG API đó từ ĐÚNG vị trí
-  // đó và trả về 8058 byte. Khác biệt duy nhất tìm được: ở đó trang khách là
-  // một trang cục bộ do spike tự phục vụ, ở đây là một trang https ngoài đời.
-  //
-  // Không chặn đường: đường chụp ảnh dành cho agent vốn đã dự kiến đi qua tiến
-  // trình chính (`did-attach-webview` trao thẳng webContents của guest), chứ
-  // không đi qua trang. Ghi lại để lần sau khỏi dò lại từ đầu.
+  // Ba giả định mà nếu đoán sai thì phải viết lại cả tầng tool. Đo trước khi
+  // xây, không phải sau.
+  {
+    const guest = guests[0]
+    const alive = guest !== undefined && !guest.isDestroyed()
+
+    // --- 15a. cửa sổ app KHÔNG ở trước mặt thì input do máy gửi còn tới không?
+    //
+    // Đây là câu quyết định agent có làm việc được trong lúc người dùng đang
+    // dùng app khác hay không. Tài liệu Electron ghi `sendInputEvent` cần cửa sổ
+    // đang được focus; nếu đúng thì tool phải BÁO LỖI RÕ RÀNG chứ tuyệt đối
+    // không được báo thành công cho một cú bấm rơi vào hư không.
+    //
+    // Gửi thẳng vào guest, không qua trang chủ: đã đo được ở 4f rằng đường qua
+    // trang chủ không tới trang khách.
+    if (alive) {
+      await guest.executeJavaScript(`(() => {
+        window.__hdwClicks = 0
+        addEventListener('mousedown', () => { window.__hdwClicks += 1 }, true)
+        return 1
+      })()`)
+      const point = await guest.executeJavaScript(
+        `({ x: Math.round(innerWidth / 2), y: Math.round(innerHeight - 20) })`)
+
+      win.blur()
+      await cho(600)
+      const lostFocus = !win.isFocused()
+      guest.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      guest.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      await cho(500)
+      const whileBlurred = await guest.executeJavaScript('window.__hdwClicks')
+
+      win.focus()
+      await cho(600)
+      guest.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      guest.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      await cho(500)
+      const whileFocused = await guest.executeJavaScript('window.__hdwClicks')
+
+      // Mục này ĐẠT khi cú bấm tới nơi lúc cửa sổ đang ở trước mặt — đó là điều
+      // kiện tối thiểu. Việc lúc mất tiêu điểm có tới hay không được GHI LẠI chứ
+      // không tính đạt/không đạt: nó là một sự thật về nền tảng, và câu trả lời
+      // quyết định tool phải hứa gì với agent.
+      record('15a. input do máy gửi tới được trang khách',
+        whileFocused > 0,
+        `cửa sổ bị bỏ tiêu điểm (thành công=${lostFocus}): ${whileBlurred} cú; `
+        + `sau khi lấy lại tiêu điểm: cộng dồn ${whileFocused} cú → `
+        + (whileBlurred > 0 ? 'KHÔNG cần cửa sổ ở trước mặt' : 'CẦN cửa sổ ở trước mặt'))
+    } else {
+      record('15a. input do máy gửi tới được trang khách', false, 'không bắt được trang khách')
+    }
+
+    // --- 15b. chụp ảnh từ TIẾN TRÌNH CHÍNH có chạy không, và có giết trang không?
+    //
+    // Đã biết chắc: gọi `capturePage()` TỪ TRONG TRANG (trên thẻ `<webview>`)
+    // làm treo cứng vòng lặp sự kiện của cả trang chủ trên trang https thật —
+    // `setTimeout` bọc ngoài cũng không nổ, nên không có cách nào tự cứu. Vì vậy
+    // mục này KHÔNG thử lại đường đó (thử lại là giết cả bộ kiểm).
+    //
+    // Câu còn lại: đường tiến trình chính có lành không. Nếu lành thì lệnh chụp
+    // của agent bắt buộc phải đi qua lớp vỏ, không đi qua plugin — một kết luận
+    // về kiến trúc, không phải một chi tiết.
+    if (alive) {
+      const started = Date.now()
+      const shot = await Promise.race([
+        guest.capturePage().catch((e) => ({ error: e.message })),
+        new Promise((r) => setTimeout(() => r(null), 8000)),
+      ])
+      const took = Date.now() - started
+      await cho(300)
+      const stillAlive = !guest.isDestroyed()
+      const bytes = shot !== null && shot !== undefined && typeof shot.toPNG === 'function'
+        ? shot.toPNG().length
+        : 0
+      record('15b. chụp ảnh trang từ tiến trình chính chạy được',
+        bytes > 1000 && stillAlive && took < 8000,
+        shot === null ? `TREO — không trả lời sau 8s (trang ${stillAlive ? 'còn sống' : 'ĐÃ CHẾT'})`
+          : `${bytes} byte trong ${took}ms, trang ${stillAlive ? 'còn sống' : 'ĐÃ CHẾT'}`)
+    } else {
+      record('15b. chụp ảnh trang từ tiến trình chính chạy được', false, 'không bắt được trang khách')
+    }
+
+    // --- 15c. chạy mã trong trang https thật, có nhận lại giá trị không?
+    //
+    // Nền của mọi lệnh đọc: đọc trang, lấy chữ, tìm phần tử, đo vị trí để bấm.
+    // Không có đường này thì cả tầng tool không có gì để đứng lên.
+    if (alive) {
+      const probe = await Promise.race([
+        guest.executeJavaScript(`(() => ({
+          sum: 1 + 1,
+          title: document.title.slice(0, 40),
+          nodes: document.querySelectorAll('*').length,
+          controls: document.querySelectorAll('a,button,input,select,textarea').length,
+        }))()`).catch((e) => ({ error: e.message })),
+        new Promise((r) => setTimeout(() => r(null), 6000)),
+      ])
+      record('15c. chạy được mã trong trang https thật và nhận lại giá trị',
+        probe !== null && probe.sum === 2 && typeof probe.nodes === 'number' && probe.nodes > 0,
+        probe === null ? 'TREO — không trả lời sau 6s'
+          : probe.error ?? `"${probe.title}", ${probe.nodes} phần tử, ${probe.controls} phần tử tương tác được`)
+    } else {
+      record('15c. chạy được mã trong trang https thật và nhận lại giá trị', false, 'không bắt được trang khách')
+    }
+
+    // --- 15d, 15e. ĐÚNG ĐƯỜNG MÀ PLUGIN SẼ ĐI
+    //
+    // 15a–15c đo từ TIẾN TRÌNH CHÍNH. Plugin thì không sống ở đó: nó chạy trong
+    // trang, và gọi các phương thức trên chính thẻ `<webview>`. Hai đường đó
+    // KHÔNG tương đương — `capturePage` chạy 7ms ở đường tiến trình chính nhưng
+    // làm treo cứng cả trang khi gọi từ trong trang. Nên không được suy ra, phải
+    // đo riêng.
+    //
+    // Đây là phép đo quyết định kiến trúc: đường này thông thì cả bộ lệnh nằm
+    // gọn trong plugin; không thông thì phải mở một đường từ plugin sang lớp vỏ.
+    if (alive) {
+      const fromPage = await Promise.race([
+        win.webContents.executeJavaScript(`(async () => {
+          const wv = document.querySelector('.hdw-webview')
+          if (!wv) return { error: 'không thấy thẻ webview' }
+          try {
+            const r = await wv.executeJavaScript('({ sum: 1 + 1, nodes: document.querySelectorAll("*").length })')
+            return { sum: r.sum, nodes: r.nodes }
+          } catch (e) { return { error: String(e && e.message || e) } }
+        })()`).catch((e) => ({ error: e.message })),
+        new Promise((r) => setTimeout(() => r(null), 8000)),
+      ])
+      record('15d. plugin chạy được mã trong trang khách (từ trong trang chủ)',
+        fromPage !== null && fromPage.sum === 2,
+        fromPage === null ? 'TREO — trang chủ không trả lời sau 8s (giống hệt bệnh của capturePage)'
+          : fromPage.error ?? `nhận lại ${fromPage.nodes} phần tử`)
+
+      const before = await guest.executeJavaScript('window.__hdwClicks')
+      const sent = await Promise.race([
+        win.webContents.executeJavaScript(`(() => {
+          const wv = document.querySelector('.hdw-webview')
+          if (!wv) return 'không thấy thẻ webview'
+          if (typeof wv.sendInputEvent !== 'function') return 'thẻ webview không có sendInputEvent'
+          const b = wv.getBoundingClientRect()
+          const x = Math.round(b.width / 2), y = Math.round(b.height - 20)
+          wv.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+          wv.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+          return 'ok'
+        })()`).catch((e) => e.message),
+        new Promise((r) => setTimeout(() => r(null), 8000)),
+      ])
+      await cho(700)
+      const after = alive && !guest.isDestroyed() ? await guest.executeJavaScript('window.__hdwClicks') : -1
+      record('15e. plugin gửi được cú bấm vào trang khách (từ trong trang chủ)',
+        sent === 'ok' && after > before,
+        sent === null ? 'TREO — trang chủ không trả lời sau 8s'
+          : sent !== 'ok' ? String(sent) : `${before} → ${after} cú bấm`)
+    }
+  }
 
   // Ảnh lúc trang web đang hiện. Chụp CỬA SỔ (không phải guest) là có chủ ý:
   // câu hỏi cần trả lời là "trang có vẽ ra đúng ô của nó trong panel không",
