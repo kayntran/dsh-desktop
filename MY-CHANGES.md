@@ -1272,8 +1272,7 @@ Và hai mục kiểm vốn đã **nói dối từ trước**, cùng lộ ra khi 
 đã dịch, `spike:plugin` mục 2 dò một dòng log không còn tồn tại — mục sau còn báo sai theo chiều nguy
 hiểm hơn (nửa Node vẫn luôn chạy, nó bảo là KHÔNG). Nay đo bằng dấu vết thật.
 
-`scripts/` mới dọn được 4 trong 20 file; hai file khó nhất và lý do để lại ghi ở
-`.claude/rules/naming.md`, mục "Chỗ còn lệch".
+`scripts/` dọn được 4 file rồi chủ dự án chốt DỪNG — xem mục dưới.
 
 ## 2026-08-17 — Lượt chạy model thật sau khi dịch: 14/16, và phép đo A/B cho mục đỏ
 
@@ -1293,3 +1292,18 @@ Hai mục đỏ, và **cả hai đều không phải do việc dịch**:
 Bài học về cách kết luận: một mục đỏ ngay sau một thay đổi lớn *trông* như hậu quả của thay đổi đó.
 Cách duy nhất biết được là hoàn nguyên đúng một thứ rồi đo lại — tốn một lượt gọi model, và đổi lại là
 một câu trả lời chắc chắn thay vì một lời phỏng đoán ghi vào sổ.
+
+## 2026-08-17 — Chốt: bộ kiểm trong `scripts/` để nguyên tiếng Việt
+
+Chủ dự án quyết không đổi tên trong các file bộ kiểm. Ghi lại vì đây là **một quyết định, không phải
+việc còn tồn** — người đọc sổ sau này đừng "dọn nốt cho đủ bộ".
+
+Lý do đứng vững: `scripts/` là mã kiểm, không có bộ kiểm nào bắt lỗi cho chính nó, nên đổi tên ở đó là
+nhận rủi ro mà không đổi lấy được gì. Nặng nhất là `spike-dock-ui.cjs` — vừa mang ~120 tên tiếng Việt,
+vừa chính là cái lưới dùng nghiệm thu mọi thay đổi khác.
+
+Bốn file đã dọn trước khi có quyết định thì để vậy, đã chạy lại và đạt. Không hoàn nguyên: hoàn nguyên
+cũng là một lần sửa có rủi ro, mà không được gì.
+
+Luật cập nhật theo ở `.claude/rules/naming.md`: trong `scripts/`, tiếng Việt là hợp lệ — chú thích, tên
+hàm, chữ in ra terminal. Mã của app thì không có ngoại lệ nào.

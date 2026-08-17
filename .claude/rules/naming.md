@@ -115,19 +115,23 @@ Kiểm hook không chặn oan — chạy nó lên chính mã hiện có, phải 
 for f in $(ls plugins/dock/src/*.ts plugins/dock/src/client/* src/main/*.ts); do node -e "const fs=require('fs');process.stdout.write(JSON.stringify({tool_name:'Write',tool_input:{file_path:process.argv[1],content:fs.readFileSync(process.argv[1],'utf8')}}))" "$f" | node .claude/hooks/guard-naming.mjs; done
 ```
 
-## Chỗ còn lệch
+## Bộ kiểm trong `scripts/`: chốt ngày 2026-08-17 là ĐỂ NGUYÊN
 
-`scripts/` đang dọn dần. Xong: `spike-pty.mjs`, `spike-pty-route.mjs`, `spike-stage-order.cjs`,
-`spike-surface.cjs`; `spike-switch-ui.cjs` sinh ra đã là tiếng Anh. Còn lại 15 file.
+**Chủ dự án đã quyết: không đổi tên trong các file bộ kiểm.** Đây là một quyết định, không phải việc
+còn tồn — đừng "dọn nốt" cho đủ bộ.
 
-Hai file khó nhất, cố ý để sau cùng:
+Lý do đứng vững: `scripts/` là mã kiểm, không có bộ kiểm nào bắt lỗi cho chính nó, nên đổi tên ở đó là
+rủi ro không đổi lấy được gì. Riêng `spike-dock-ui.cjs` mang khoảng 120 tên tiếng Việt **và** là cái
+lưới dùng nghiệm thu mọi thay đổi khác; `spike-webview.cjs` thì có tên tiếng Việt nằm cả trong chuỗi
+HTML của trang thử (`nut`, `san`, `con-nguyen`) mà chính các mục kiểm dò đúng những chuỗi đó — đổi một
+bên mà quên bên kia thì mục kiểm đỏ và không nói được vì sao.
 
-- **`spike-dock-ui.cjs`** — khoảng 120 tên tiếng Việt, và nó chính là cái lưới dùng để nghiệm thu mọi
-  thay đổi khác. Đổi tên ở đó phải chạy lại `npm run spike:dock` (62 mục) ngay sau, theo từng đợt nhỏ.
-- **`spike-webview.cjs`** — tên tiếng Việt nằm cả trong chuỗi HTML của trang thử (`nut`, `san`,
-  `con-nguyen`), và chính các mục kiểm dò đúng những chuỗi đó. Đổi một bên mà quên bên kia thì mục
-  kiểm đỏ mà không nói được vì sao.
+Bốn file đã dọn trước khi có quyết định này (`spike-pty.mjs`, `spike-pty-route.mjs`,
+`spike-stage-order.cjs`, `spike-surface.cjs`) thì để vậy, đã chạy lại và đạt. Không hoàn nguyên: hoàn
+nguyên cũng là một lần sửa có rủi ro, mà không được gì.
 
-Nguyên tắc khi dọn: **chữ in ra terminal giữ tiếng Việt** (xem mục ngoại lệ ở trên), biến môi trường
-`HDW_*` giữ nguyên tên vì chủ dự án gõ tay chúng, và mỗi file dọn xong thì chạy lại đúng bộ kiểm của
-nó trước khi sang file sau. Hook vẫn gác mọi tên mới thêm vào.
+Nên trong `scripts/`, **tiếng Việt là hợp lệ** — cả chú thích, tên hàm, lẫn chữ in ra terminal. Hook
+`guard-naming.mjs` vẫn gác tên mới thêm vào; bị chặn ở đó thì đặt tên tiếng Anh cho phần mới, không
+phải đi dọn cả file.
+
+**Mã của app thì không có ngoại lệ nào:** `src/main/`, `plugins/*/src/` là tiếng Anh, hết.
