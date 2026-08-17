@@ -122,6 +122,24 @@ export interface Bus {
   agentControl: () => boolean
 }
 
+/**
+ * Cửa để route chẩn đoán chạy thẳng MỘT tool, đúng như engine sẽ chạy nó.
+ *
+ * Là một object rỗng lúc đầu rồi mới điền, chứ không phải tham số thường: cầu
+ * phải dựng xong thì tool mới dựng được (tool giữ tham chiếu tới cầu), nên lúc
+ * đăng ký route thì chưa có tool nào tồn tại. Cùng lý do và cùng cách làm với ô
+ * chứa sân khấu bên nửa giao diện.
+ */
+export interface ToolProbe {
+  /**
+   * Chạy một tool theo tên.
+   * @param name - tên tool, ví dụ `browser_read_page`.
+   * @param args - tham số y như model sẽ đưa.
+   * @returns giá trị thô, câu chữ model nhận, và phần dữ liệu thẻ giao diện đọc.
+   */
+  run?: (name: string, args: unknown) => Promise<{ value: unknown, text: string, meta: unknown }>
+}
+
 interface Pending {
   resolve: (result: unknown) => void
   reject: (error: Error) => void
@@ -153,6 +171,7 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 export function registerBusRoutes(
   ctx: Context,
   captureShot?: (webContentsId: number) => Promise<{ width: number, height: number, data: string }>,
+  toolProbe?: ToolProbe,
 ): { bus: Bus, dispose: () => void } {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   const clients = new Set<WebSocket>()
@@ -396,6 +415,30 @@ export function registerBusRoutes(
         }
         try {
           json(res, 200, { ok: true, result: await bus.call(cmd, params, 40_000) })
+        } catch (error) {
+          json(res, 503, { reason: error instanceof Error ? error.message : String(error) })
+        }
+        return
+      }
+
+      // `?tool=<tên>&args=<json>` chạy thẳng MỘT tool, đúng mã mà model chạy.
+      //
+      // Khác `?cmd=` một bậc và bậc đó là cả tầng tool: kiểm tham số, rào địa
+      // chỉ ở tầng tool, câu chữ trả cho model, dữ liệu cho thẻ giao diện. Bài
+      // kiểm không có model để nhờ gọi, nên không có đường nào khác để chạy
+      // đúng đoạn mã đó với một cầu thật và một trang thật.
+      const toolName = url.searchParams.get('tool')
+      if (toolName !== null) {
+        if (toolProbe?.run === undefined) { json(res, 503, { reason: 'chưa có bộ lệnh nào dựng xong' }); return }
+        let args: unknown
+        try {
+          args = JSON.parse(url.searchParams.get('args') ?? '{}')
+        } catch {
+          json(res, 400, { reason: 'args không phải JSON hợp lệ' })
+          return
+        }
+        try {
+          json(res, 200, { ok: true, ...await toolProbe.run(toolName, args) })
         } catch (error) {
           json(res, 503, { reason: error instanceof Error ? error.message : String(error) })
         }

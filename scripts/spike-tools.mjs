@@ -121,7 +121,7 @@ const ctx = {
   },
 }
 
-const dispose = registerBrowserTools(ctx, bus, shots)
+const { dispose } = registerBrowserTools(ctx, bus, shots)
 const byName = new Map(registered.map((tool) => [tool.name, tool]))
 const exec = { signal: undefined, agent: undefined }
 
@@ -271,12 +271,19 @@ record('1. đăng ký đủ và đúng tên các tool',
     && modelBlocks[0].text.includes('không đọc được ảnh'),
     `seen_by_model=${String(value.seen_by_model)}; khối ảnh cho model=${String(hasImageForModel)}`)
 
+  // 7d. Dữ liệu đi kèm kết quả phải ĐỦ cho thẻ giao diện dựng lại tấm ảnh.
+  //
+  // Bản trước mục này hỏi `presentResult` trả về gì, và nó trả về đúng — trong
+  // khi người dùng không thấy tấm ảnh nào. Hoá ra giao diện web của upstream
+  // không đọc loại thẻ `generic`; đường ra màn hình là `presentationMeta`, và
+  // `ScreenshotCard` đọc nó. Nên mục này hỏi đúng ba trường mà thẻ đó cần.
+  //
+  // Ảnh có thật sự HIỆN RA hay không thì bộ kiểm này không trả lời được — nó
+  // không có màn hình. Câu đó thuộc về `scripts/spike-card.cjs`.
   const meta = tool.output.presentationMeta({}, value)
-  const view = tool.presentResult({}, { meta })
-  const userImage = view?.content?.find((b) => b.type === 'image')
-  record('7d. NGƯỜI DÙNG vẫn luôn thấy ảnh trong thẻ kết quả',
-    userImage !== undefined && userImage.attachment.attachmentId === 'att-1',
-    JSON.stringify(view?.content ?? view))
+  record('7d. kết quả mang đủ dữ liệu để thẻ giao diện dựng lại tấm ảnh',
+    meta?.attachment_id === 'att-1' && meta.width > 0 && meta.height > 0,
+    JSON.stringify(meta))
 }
 
 // --- 8. hai hàm dựng thẻ phải THUẦN và không được ném

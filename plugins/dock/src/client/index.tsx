@@ -10,12 +10,15 @@
  * @module
  */
 
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import xtermStyles from '@xterm/xterm/css/xterm.css'
 import { AgentControlRow } from './AgentControlRow.tsx'
 import { openBridge } from './bus.ts'
 import { DockPanel } from './DockPanel.tsx'
 import { DockToggle } from './DockToggle.tsx'
+import { ScreenshotCard, SCREENSHOT_TOOL } from './ScreenshotCard.tsx'
+import { createShotLoader } from './shot-loader.ts'
 import { createStageHolder } from './stage-holder.ts'
 import { createDock } from './store.ts'
 import styles from './styles.css'
@@ -26,6 +29,7 @@ import styles from './styles.css'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 
 export const name = 'harness-desktop-dock'
 
@@ -104,4 +108,18 @@ export function apply(ctx: ClientContext): void {
     order: 50,
     inject: share,
   }, AgentControlRow))
+
+  // Thẻ kết quả của lệnh chụp ảnh.
+  //
+  // **Mức 1.** Slot này khoá theo tên tool, và khoá ở đây là tool của chính
+  // chúng ta — upstream ghi rõ đó là cộng thêm. Mười một tool còn lại cố ý
+  // KHÔNG nhận: hàng mặc định của họ vẽ chúng đủ dùng, và nhận thêm là tự gánh
+  // việc bảo trì một cái hàng mà không đổi lại được gì.
+  const shots = createShotLoader(ctx)
+  ctx.effect(() => () => { shots.dispose() }, 'hdw-dock: thu hồi ảnh đã tải')
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview',
+    key: SCREENSHOT_TOOL,
+    inject: () => ({ loadShot: (id: string, ref: ImageAttachmentRef) => shots.load(id, ref) }),
+  }, ScreenshotCard))
 }

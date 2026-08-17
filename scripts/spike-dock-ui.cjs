@@ -1300,6 +1300,134 @@ async function main() {
     record('19d. id lạ bị từ chối, không chụp bừa',
       refused.includes('không có trang web nào'), refused)
 
+    // --- 20. CẢ 12 TOOL, CHẠY QUA ĐÚNG TẦNG MÀ MODEL GỌI
+    //
+    // Mục 18 gọi thẳng vào cầu, nên nó bỏ qua trọn tầng tool: kiểm tham số, rào
+    // địa chỉ ở tầng tool, câu chữ trả cho model, dữ liệu cho thẻ giao diện.
+    // `spike-tools.mjs` có kiểm tầng đó nhưng bằng cầu GIẢ. Chỗ này là chỗ duy
+    // nhất cả hai gặp nhau: tool thật, cầu thật, trang thật.
+    //
+    // Vì sao cần: lượt chạy với model thật chỉ chạm tới 7 trong 12 tool — model
+    // gọi cái nó thấy cần, không gọi cho đủ danh sách. "Model không gọi tới" và
+    // "gọi tới thì hỏng" là hai chuyện khác nhau, và chỉ chỗ này phân biệt được.
+    {
+      const runTool = async (name, args) => {
+        const qs = `?tool=${encodeURIComponent(name)}&args=${encodeURIComponent(JSON.stringify(args ?? {}))}`
+        return hoiThu(baseUrl, qs)
+      }
+      /** Rút gọn thân trả về cho dòng chi tiết. */
+      const brief = (r) => (r.body.ok === true
+        ? String(r.body.text ?? '').replace(/\s+/g, ' ').slice(0, 80)
+        : `${String(r.status)} — ${String(r.body.reason ?? '')}`.slice(0, 110))
+
+      const opened = await runTool('browser_tabs', { action: 'open', url: 'example.com' })
+      record('20a. browser_tabs mở được tab (địa chỉ trần, không scheme)',
+        opened.body.ok === true, brief(opened))
+      await cho(3000)
+
+      const listed = await runTool('browser_tabs', { action: 'list' })
+      record('20b. browser_tabs liệt kê được tab đang có',
+        listed.body.ok === true && Array.isArray(listed.body.value?.tabs)
+        && listed.body.value.tabs.length > 0,
+        brief(listed))
+
+      const navigated = await runTool('browser_navigate', { url: 'https://duckduckgo.com/' })
+      record('20c. browser_navigate đi tới trang khác và chờ tải xong',
+        navigated.body.ok === true, brief(navigated))
+      await cho(4000)
+
+      const scanned = await runTool('browser_read_page', { filter: 'interactive' })
+      const refs = scanned.body.value?.refs ?? 0
+      record('20d. browser_read_page trả bản phác kèm mã tham chiếu',
+        scanned.body.ok === true && refs > 0 && String(scanned.body.text ?? '').includes('[ref_'),
+        scanned.body.ok === true ? `${String(refs)} mã` : brief(scanned))
+
+      const searched = await runTool('browser_find', { query: 'search' })
+      const TEXT_ROLES = ['textbox', 'searchbox', 'combobox']
+      const target = (searched.body.value?.matches ?? []).find((m) => TEXT_ROLES.includes(m.role))
+      record('20e. browser_find tìm được ô nhập trong kết quả vừa đọc',
+        searched.body.ok === true && target !== undefined,
+        target === undefined ? brief(searched) : `${target.ref} — ${target.role}`)
+
+      const text = await runTool('browser_get_page_text', { max_chars: 1500 })
+      record('20f. browser_get_page_text lấy được chữ của trang',
+        text.body.ok === true && String(text.body.text ?? '').length > 40, brief(text))
+
+      // Thiếu tham số bắt buộc phải bị TỪ CHỐI ở tầng tool, kèm câu chỉ đường —
+      // đây là phần upstream nói thẳng là ta tự lo khi dùng JSON Schema thô.
+      const missing = await runTool('browser_form_input', { value: 'x' })
+      record('20g. browser_form_input từ chối lời gọi thiếu mã phần tử',
+        missing.status === 503 && String(missing.body.reason ?? '').includes('ref'), brief(missing))
+
+      if (target !== undefined) {
+        const filled = await runTool('browser_form_input', { ref: target.ref, value: 'harness desktop' })
+        const pressed = await runTool('browser_computer', { action: 'key', text: 'Enter' })
+        await cho(5000)
+        const where = await runTool('browser_javascript', { code: 'location.href' })
+        const href = String(where.body.value?.value ?? '')
+        record('20h. browser_form_input + browser_computer + browser_javascript đi trọn một vòng',
+          filled.body.ok === true && pressed.body.ok === true && href.includes('harness'),
+          `điền=${brief(filled)} | enter=${brief(pressed)} | → ${href.slice(0, 60)}`)
+      } else {
+        record('20h. browser_form_input + browser_computer + browser_javascript đi trọn một vòng',
+          false, 'không có ô nhập từ mục 20e')
+      }
+
+      const consoleLog = await runTool('browser_console', { limit: 20 })
+      record('20i. browser_console trả về được vòng đệm console',
+        consoleLog.body.ok === true && Array.isArray(consoleLog.body.value?.messages), brief(consoleLog))
+
+      const network = await runTool('browser_network', { limit: 20 })
+      record('20j. browser_network liệt kê được request của trang',
+        network.body.ok === true && (network.body.value?.requests ?? []).length > 0, brief(network))
+
+      // --- 20k. MỤC QUYẾT ĐỊNH của vòng này
+      //
+      // Không chỉ hỏi "chụp được không" — hỏi cả "thẻ giao diện có đủ dữ liệu để
+      // vẽ ảnh ra không". Đúng chỗ mà bản trước hỏng: ảnh lưu thành công, lệnh
+      // báo xong, và người dùng không thấy gì. Ba trường dưới đây là toàn bộ thứ
+      // `ScreenshotCard` cần; thiếu một cái là thẻ lại hiện chữ suông.
+      const shotTool = await runTool('browser_screenshot', {})
+      const meta = shotTool.body.meta ?? {}
+      record('20k. browser_screenshot lưu ảnh VÀ giao đủ dữ liệu cho thẻ giao diện',
+        shotTool.body.ok === true
+        && typeof meta.attachment_id === 'string' && meta.attachment_id !== ''
+        && typeof meta.width === 'number' && meta.width > 0
+        && typeof meta.height === 'number' && meta.height > 0,
+        shotTool.body.ok === true
+          ? `ảnh ${String(meta.width)}x${String(meta.height)}, mã ${String(meta.attachment_id).slice(0, 24)}…`
+          : brief(shotTool))
+
+      // Model DeepSeek không đọc được ảnh — nhánh chạy hằng ngày, và là nhánh
+      // duy nhất khiến thẻ giao diện trở thành đường DUY NHẤT ảnh ra màn hình.
+      record('20l. model không đọc được ảnh thì lệnh nói rõ, không im lặng',
+        shotTool.body.ok === true && meta.seen_by_model === false
+        && String(shotTool.body.text ?? '').includes('không đọc được ảnh'),
+        `seen_by_model=${String(meta.seen_by_model)}`)
+
+      // Đổi khung nhìn ĐỂ SAU CÙNG, và chụp lại ngay sau đó: hai lệnh này phải
+      // ghép được với nhau, vì "xem trang này ở cỡ điện thoại trông thế nào" là
+      // lý do gần như duy nhất người ta gọi lệnh đổi khung nhìn.
+      const resized = await runTool('browser_resize', { preset: 'mobile' })
+      record('20m. browser_resize đổi được khung nhìn trang tin là mình đang có',
+        resized.body.ok === true, brief(resized))
+      await cho(2000)
+
+      const shotMobile = await runTool('browser_screenshot', {})
+      const seen = await runTool('browser_javascript', {
+        code: 'JSON.stringify({v: document.visibilityState, w: innerWidth})',
+      })
+      record('20n. đổi khung nhìn xong vẫn chụp được ảnh',
+        shotMobile.body.ok === true && (shotMobile.body.meta?.width ?? 0) > 0,
+        shotMobile.body.ok === true
+          ? `ảnh ${String(shotMobile.body.meta.width)}x${String(shotMobile.body.meta.height)}`
+          : `${brief(shotMobile)} | trang: ${String(seen.body.value?.value ?? seen.body.reason)}`)
+
+      const closed = await runTool('browser_tabs', { action: 'close' })
+      record('20o. browser_tabs đóng được tab',
+        closed.body.ok === true, brief(closed))
+    }
+
     shotLink.stopShotLink()
   }
 

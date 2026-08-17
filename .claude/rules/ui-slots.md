@@ -51,6 +51,13 @@ Nếu một yêu cầu có vẻ bắt buộc phải thay cả vùng: **dừng l�
 | Slot | Ghi chú |
 |---|---|
 | `tool.call.toolview` | Khai tên tool. Tool **của ta** → mức 1. Tool có sẵn của họ → là mức 3 cho riêng tool đó, cấm |
+
+**Thẻ kết quả tool: `presentCall`/`presentResult` loại `generic` KHÔNG hiện ra gì.** Giao diện web
+của upstream chỉ đọc năm loại thẻ có cấu trúc riêng — `terminal`, `read`, `diff`, `search`, `web`;
+loại `generic` rơi xuống hàng mặc định dựng từ tên tool và JSON tham số thô. Muốn tool của mình hiện
+ra khác đi thì **phải** nhận `tool.call.toolview` theo tên tool đó, và đọc dữ liệu qua
+`output.presentationMeta` (nó về tới thẻ dưới dạng `block.meta`). Đã trả giá một vòng vì tin vào
+`presentResult`.
 | `conversation.chat.commandview` | Khai tên lệnh gạch chéo. Lệnh chưa ai nhận vẫn có bản mặc định |
 
 ## Được phép — mức 2

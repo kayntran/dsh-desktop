@@ -569,3 +569,50 @@
 .hdw-setting-pick:hover {
   background: var(--dsw-alias-bg-layer-2);
 }
+
+/* --------------------------------------------------- thẻ kết quả chụp ảnh */
+
+/* Khung hàng tự dựng: gói `dsh-client-ui-tool` không xuất `ToolRow` ra ngoài,
+   nên phần khung buộc phải tự viết. Mọi màu vẫn là biến của hệ thống, để thẻ
+   này đổi theo sáng/tối y như các hàng bên cạnh. */
+.hdw-shot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.hdw-shot-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-shot-title {
+  font-weight: 500;
+}
+
+.hdw-shot-note {
+  font-size: 12px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.hdw-shot-card[data-state='error'] .hdw-shot-note {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hdw-shot-image {
+  display: flex;
+}
+
+/* Lưới an toàn, KHÔNG phải phần tạo dáng: khi CSS riêng của `MessageImage` có
+   mặt, ảnh đã nằm gọn trong ô 240px của nó và dòng này là vô hiệu. Khi vì lý do
+   nào đó nó vắng, dòng này giữ tấm ảnh 800px khỏi phá vỡ cả khung hội thoại. */
+.hdw-shot-image img {
+  max-width: 100%;
+}

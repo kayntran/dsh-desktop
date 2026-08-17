@@ -566,13 +566,21 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       const tab = tabs.get(id)
       if (tab === undefined) return false
       try {
-        // Hai câu hỏi, và phải hỏi cả hai. `visibilityState` bắt trường hợp tab
-        // bị ẩn; một lượt `requestAnimationFrame` bắt trường hợp nặng hơn — bề
-        // mặt hiển thị chưa từng được cấp, lúc đó trang chạy đủ script và trả
-        // lời đủ mọi câu hỏi khác, chỉ là không có khung hình nào.
+        // Hỏi ĐÚNG MỘT câu: `requestAnimationFrame` có chạy không.
+        //
+        // Bản trước hỏi thêm `document.visibilityState`, và từ chối ngay nếu nó
+        // không phải `visible`. Đó là một phép kiểm SAI, và chính bộ kiểm này đã
+        // đo ra: mục 13 thấy một tab báo `visibility=hidden` trong khi vẫn được
+        // cấp 167 khung hình mỗi giây. Hậu quả cho người dùng: agent mở một tab,
+        // trang hiện ra rành rành trước mắt, mà mọi lệnh bấm và mọi lệnh chụp
+        // ảnh đều bị từ chối với câu "trang này đang không được vẽ".
+        //
+        // Vòng `requestAnimationFrame` trả lời thẳng câu hỏi thật: Chromium
+        // ngừng gọi nó khi ngừng vẽ trang. Trang có được vẽ thì nó chạy trong
+        // khoảng một phần sáu mươi giây; trang không được vẽ thì nó không bao
+        // giờ chạy, và hết giờ chính là câu trả lời "không".
         const drawn = await Promise.race([
           tab.el.executeJavaScript(`new Promise((res) => {
-            if (document.visibilityState !== 'visible') { res(false); return }
             requestAnimationFrame(() => { res(true) })
           })`),
           new Promise((r) => { setTimeout(() => { r(false) }, 1500) }),

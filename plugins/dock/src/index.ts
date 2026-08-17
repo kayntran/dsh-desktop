@@ -10,7 +10,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { registerBusRoutes } from './bus-routes.ts'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { registerBusRoutes, type ToolProbe } from './bus-routes.ts'
 import { registerFsRoutes } from './fs-routes.ts'
 import { registerPtyRoutes } from './pty-routes.ts'
 import { registerShotRoutes } from './shot-routes.ts'
@@ -38,8 +39,31 @@ export function apply(ctx: Context): void {
   // cũng hết giờ, không có lỗi nào báo. Cùng vòng đời thì cùng sống, cùng chết.
   ctx.effect(() => {
     const shot = registerShotRoutes(ctx)
-    const { bus, dispose } = registerBusRoutes(ctx, async (id) => shot.link.capture(id))
-    const offTools = registerBrowserTools(ctx, bus, shot.link)
+    // Ô rỗng, điền ngay dưới. Cầu phải có trước vì tool giữ tham chiếu tới nó.
+    const probe: ToolProbe = {}
+    const { bus, dispose } = registerBusRoutes(ctx, async (id) => shot.link.capture(id), probe)
+    const { tools, dispose: offTools } = registerBrowserTools(ctx, bus, shot.link)
+
+    probe.run = async (name, args) => {
+      const tool = tools.find((t) => t.name === name)
+      if (tool === undefined) {
+        throw new Error(`không có tool tên "${name}" — có: ${tools.map((t) => t.name).join(', ')}`)
+      }
+      // Không có agent nào đang chạy ở đường này, và tool nào cũng phải chịu
+      // được điều đó: `modelReadsImages` hỏi qua `exec.agent?` rồi hỏng theo
+      // hướng đóng. Đúng cái nhánh mà model DeepSeek chạy hằng ngày.
+      const exec = { signal: AbortSignal.timeout(90_000) } as unknown as ToolRunContext
+      // `execute` khai trả `unknown`, còn `render` đòi JSON — mà giá trị đi qua
+      // đây LÀ JSON: nó vừa được gửi qua cầu WebSocket. Ép kiểu ở đúng một chỗ.
+      const value = await tool.execute(args, exec) as never
+      const blocks = tool.output.render(args as never, value) as Array<{ type?: string, text?: string }>
+      return {
+        value: value as unknown,
+        text: blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n'),
+        meta: tool.output.presentationMeta?.(args as never, value),
+      }
+    }
+
     return () => { offTools(); shot.dispose(); dispose() }
   }, 'hdw-dock: cầu nối và bộ lệnh trình duyệt')
 }

@@ -167,8 +167,6 @@ function browserTool(spec: {
   modelBlocks?: (value: unknown) => unknown[]
   /** JSON bền vững đi kèm kết quả, để thẻ giao diện dựng lại được lúc xem lại. */
   presentationMeta?: (value: unknown) => unknown
-  /** Khối nội dung chỉ dành cho NGƯỜI DÙNG xem trong thẻ kết quả. */
-  userBlocks?: (meta: unknown) => unknown[] | undefined
 }): ToolDefinition {
   return {
     name: spec.name,
@@ -193,13 +191,12 @@ function browserTool(spec: {
         ? {}
         : { presentationMeta: (_args: unknown, value: unknown) => spec.presentationMeta?.(value) }),
     },
-    ...(spec.userBlocks === undefined ? {} : {
-      presentResult: (_args: unknown, result: { meta?: unknown }) => {
-        const blocks = spec.userBlocks?.(result.meta)
-        return blocks === undefined ? undefined : { card: 'generic', content: blocks }
-      },
-    }),
     execute: async (args, exec) => spec.execute(args, exec),
+    // Giữ `presentCall` dù giao diện web hiện KHÔNG đọc loại thẻ `generic` (xem
+    // chú thích ở lệnh chụp ảnh): nó đúng hợp đồng của upstream, không tốn gì,
+    // và là chỗ duy nhất tên gọi dễ đọc của mỗi lời gọi được khai ra. Bỏ
+    // `presentResult` thì ngược lại — nó chỉ tồn tại để đưa ảnh ra màn hình, mà
+    // việc đó nay do `client/ScreenshotCard.tsx` làm.
     presentCall: (args) => ({
       card: 'generic',
       title: spec.title((args ?? {}) as Record<string, unknown>),
@@ -209,12 +206,17 @@ function browserTool(spec: {
 }
 
 /**
- * Đăng ký toàn bộ tool trình duyệt.
- * @param ctx - context của plugin; cần service `tools`.
+ * Dựng danh sách tool, chưa đăng ký.
+ *
+ * Tách khỏi phần đăng ký vì hai bên cần cùng một danh sách: `registerBrowserTools`
+ * đem nó nộp cho engine, còn route chẩn đoán đem nó chạy thẳng — xem
+ * `bus-routes.ts`, mục `?tool=`.
+ * @param ctx - context của plugin.
  * @param bus - cầu nối tới nửa giao diện.
- * @returns hàm gỡ mọi đăng ký.
+ * @param shots - đường chụp ảnh xuyên sang lớp vỏ.
+ * @returns danh sách định nghĩa tool.
  */
-export function registerBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): () => void {
+export function buildBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): ToolDefinition[] {
   // Hai hàm dưới đây chỉ khác nhau ở NGÂN SÁCH THỜI GIAN. Việc chặn theo công
   // tắc quyền nằm trong chính `bus.call` — một chốt duy nhất cho mọi đường tới
   // cầu, kể cả route chẩn đoán.
@@ -224,7 +226,7 @@ export function registerBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): (
   const act = async (cmd: string, params: unknown, timeoutMs = ACT_TIMEOUT_MS): Promise<unknown> =>
     bus.call(cmd, params, timeoutMs)
 
-  const tools: ToolDefinition[] = [
+  return [
     // ---------------------------------------------------------------- tab
 
     browserTool({
@@ -366,16 +368,22 @@ export function registerBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): (
       properties: { tab_id: TAB_ID },
       title: () => 'Chụp ảnh trang',
 
-      // Ba đường đi của cùng một tấm ảnh, và đó là điểm mấu chốt của lệnh này:
+      // Hai đường đi của cùng một tấm ảnh:
       //
       //   `render`           → model, CHỈ khi model đọc được ảnh
-      //   `presentationMeta` → nhật ký phiên, chỉ vài trường mô tả
-      //   `presentResult`    → thẻ kết quả, LUÔN LUÔN, cho người dùng xem
+      //   `presentationMeta` → nhật ký phiên, và từ đó ra thẻ kết quả
       //
-      // Nhờ tách ba đường mà chủ dự án luôn nhìn thấy agent vừa thấy gì, kể cả
+      // Nhờ tách hai đường mà chủ dự án luôn nhìn thấy agent vừa thấy gì, kể cả
       // khi model đang chạy không đọc được ảnh — đúng lúc mà việc nhìn thấy có
       // giá trị nhất. Nhồi ảnh vào cho một model không nhận ảnh thì bộ chuyển
       // đổi ném, và lỗi hiện ra ở tận đâu.
+      //
+      // ĐÃ TỪNG có đường thứ ba: `presentResult` trả `{ card: 'generic',
+      // content: [ảnh] }`. Đúng hợp đồng, và không hiện ra gì cả — giao diện web
+      // của upstream chỉ đọc năm loại thẻ có cấu trúc riêng (terminal, đọc file,
+      // diff, tìm kiếm, web), còn `generic` thì không ai đọc. Đường ra màn hình
+      // thật nằm ở `client/ScreenshotCard.tsx`, và nó đọc chính
+      // `presentationMeta` dưới đây.
       //
       // Chỉ `attachment_id` đi vào nhật ký, không phải byte ảnh: lưu cả ảnh vào
       // đó thì file phiên phình thêm vài chục KB mỗi lần chụp.
@@ -385,11 +393,6 @@ export function registerBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): (
         return [{ type: 'image', attachment: attachmentRef(shot) }]
       },
       presentationMeta: (value) => value,
-      userBlocks: (meta) => {
-        const shot = meta as ScreenshotValue | undefined
-        if (shot?.attachment_id === undefined) return undefined
-        return [{ type: 'image', attachment: attachmentRef(shot) }]
-      },
 
       render: (value) => {
         const shot = value as { width?: number, height?: number, bytes?: number, seen_by_model?: boolean }
@@ -584,7 +587,21 @@ export function registerBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): (
       execute: async (args) => act('resize', args),
     }),
   ]
+}
 
+/**
+ * Đăng ký toàn bộ tool trình duyệt với engine.
+ * @param ctx - context của plugin; cần service `tools`.
+ * @param bus - cầu nối tới nửa giao diện.
+ * @param shots - đường chụp ảnh xuyên sang lớp vỏ.
+ * @returns danh sách tool đã đăng ký, và hàm gỡ mọi đăng ký.
+ */
+export function registerBrowserTools(
+  ctx: Context,
+  bus: Bus,
+  shots: ShotLink,
+): { tools: ToolDefinition[], dispose: () => void } {
+  const tools = buildBrowserTools(ctx, bus, shots)
   const offs = tools.map((tool) => ctx.tools.register(tool))
-  return () => { for (const off of offs) off() }
+  return { tools, dispose: () => { for (const off of offs) off() } }
 }

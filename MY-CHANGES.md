@@ -788,3 +788,65 @@ tên tool của mình — mức 1, và là seat upstream chừa sẵn cho đúng
 **Bài học lặp lại lần thứ hai trong ngày:** hai bộ kiểm tự động 60 mục đều xanh, và cái sai vẫn nằm
 đúng chỗ không bộ nào nhìn tới — phần vẽ ra màn hình. Bộ kiểm tầng tool có kiểm `presentResult` trả
 đúng khối ảnh, nhưng nó kiểm **hàm đó trả về gì**, không kiểm **có ai gọi nó không**.
+
+## 2026-08-17 — Ảnh chụp hiện được ra màn hình, và cả 12 tool chạy thật một lượt
+
+### Vì sao thẻ kết quả không dùng phần khai của tool — đã truy ra
+
+Không phải plugin đăng ký sai. Đọc mã giao diện của upstream
+(`packages/client/ui-tool/src/client/tool/toolviews/GenericToolCard.tsx`): hàng mặc định chỉ đọc
+**năm** loại thẻ có cấu trúc riêng — terminal, đọc file, diff, tìm kiếm, web. Loại `generic` không
+có ai đọc; hàng vẫn dựng từ tên tool và JSON tham số thô, đúng như ảnh chụp màn hình của chủ dự án.
+
+Nghĩa là `presentCall`/`presentResult` loại `generic` là **mã chết** trong giao diện này. Đường ra
+màn hình duy nhất là nhận slot `tool.call.toolview` theo tên tool của mình.
+
+### Thẻ ảnh chụp — `client/ScreenshotCard.tsx`, mức 1
+
+Nhận `tool.call.toolview` khoá `browser_screenshot`. Upstream ghi rõ trong khai báo slot: nhận một
+khoá chưa ai giữ là **cộng thêm**, nhận khoá của tool có sẵn mới là chiếm chỗ. Mười một tool còn lại
+cố ý không nhận — hàng mặc định vẽ chúng đủ dùng, và nhận thêm là tự gánh việc bảo trì một cái hàng
+mà không đổi lại được gì.
+
+Người dùng thấy gì: agent chụp ảnh xong thì **tấm ảnh hiện ngay trong dòng hội thoại**, bấm vào mở
+ra cỡ gốc. Trước đó chỉ có một dòng chữ báo kích thước.
+
+**Ngoại lệ Luật 4, đã kiểm trước:** gói `dsh-client-ui-tool` chỉ xuất `apply`, `inject` và mấy kiểu
+— `ToolRow`/`GenericToolCard` **không xuất ra**, nên phần khung hàng buộc phải tự dựng. Mọi vật liệu
+bên trong vẫn là đồ hệ thống: ảnh dùng `MessageImage` của `dsh-client-ui-attachment` (kèm sẵn hộp
+xem cỡ gốc), icon từ `ui-primitives`, màu chỉ dùng biến `--dsw-alias-*`.
+
+Đường lấy ảnh (`client/shot-loader.ts`) đi qua `session.readAttachment` — hàm CÓ trong hợp đồng
+công bố. Service `conversation` có sẵn `resolveImage` tiện hơn, nhưng nó không nằm trong
+`IConversation`; bám vào thứ upstream không hứa giữ thì lần nâng cấp sau nó hỏng im lặng.
+
+### Cả 12 tool chạy thật một lượt — route `?tool=` và mục 20
+
+Lượt chạy với model thật chỉ chạm 7/12 tool: model gọi cái nó thấy cần, không gọi cho đủ danh sách.
+"Model không gọi tới" và "gọi tới thì hỏng" là hai chuyện khác nhau.
+
+Thêm `?tool=<tên>&args=<json>` vào route chẩn đoán, chạy đúng định nghĩa tool mà engine chạy — nên
+bài kiểm giao diện đi được trọn tầng tool với cầu thật, trang thật, lớp vỏ thật. 15 mục mới
+(20a–20o); bộ kiểm giao diện lên **61 mục**.
+
+### Hai lỗi bộ kiểm mới bắt được ngay lần chạy đầu
+
+1. **`isDrawable` tin vào `document.visibilityState`, và nó sai.** Chính bộ kiểm này đã đo từ trước
+   (mục 13): một tab báo `visibility=hidden` trong khi vẫn được cấp 167 khung hình mỗi giây. Hậu quả
+   người dùng: agent mở tab, trang hiện ra rành rành, mà **mọi lệnh bấm và mọi lệnh chụp ảnh đều bị
+   từ chối** với câu "trang này đang không được vẽ". Bỏ phép kiểm đó, chỉ hỏi
+   `requestAnimationFrame` có chạy không — Chromium ngừng gọi nó khi ngừng vẽ, nên nó trả lời đúng
+   câu hỏi thật.
+2. Mục kiểm console đọc nhầm tên trường (`lines` thay vì `messages`) — lỗi của bài kiểm.
+
+### Bộ kiểm thứ ba: `scripts/spike-card.cjs` (`npm run spike:card`)
+
+Dựng `ScreenshotCard` trong một cửa sổ Electron thật, với React thật của engine, rồi **đo thẻ `<img>`
+trên màn hình có kích thước lớn hơn không**. Bốn trạng thái: đang chụp, chụp xong, dữ liệu hỏng,
+chụp lỗi. Kèm một ảnh chụp để nhìn bằng mắt (`HDW_ANH=<đường dẫn>`).
+
+Đây là bộ kiểm mà sự vắng mặt của nó gây ra chính cái lỗi ở trên. Hai bộ cũ hỏi *hàm dựng thẻ trả về
+gì*; không bộ nào hỏi *có ai gọi nó không*, và càng không bộ nào hỏi *trên màn hình có tấm ảnh nào
+không*. Bài học đã ghi thành luật trong `.claude/rules/ui-slots.md`.
+
+Tổng: **61 + 14 + 5 = 80 mục, tất cả đạt.**
