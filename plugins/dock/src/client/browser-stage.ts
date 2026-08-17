@@ -28,7 +28,7 @@
  * @module
  */
 
-import { isPublicUrl } from '../net-policy.ts'
+import { isPublicUrl, withScheme } from '../net-policy.ts'
 
 /**
  * Phần API của thẻ `<webview>` mà panel dùng tới.
@@ -237,14 +237,20 @@ export interface ViewportSize {
   height: number
 }
 
-/** Thêm `https://` khi người dùng gõ thiếu, và từ chối thứ không thành URL. */
+/**
+ * Thêm `https://` khi người dùng gõ thiếu, và từ chối thứ không thành URL.
+ *
+ * Dùng chung phép nhận biết scheme với rào địa chỉ (`withScheme`), và đó là chủ
+ * ý: hai đường vào cùng một trình duyệt mà hiểu địa chỉ khác nhau thì sớm muộn
+ * người dùng gõ được một thứ mà agent không mở được, hoặc ngược lại. Bản trước
+ * mỗi bên một kiểu, và cả hai cùng từ chối oan `example.com:8080` — dấu hai
+ * chấm ở đó là cổng, không phải scheme.
+ */
 export function normalizeUrl(raw: string): string | undefined {
   const text = raw.trim()
   if (text === '') return undefined
-  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(text)
-  const candidate = hasScheme ? text : `https://${text}`
   try {
-    const url = new URL(candidate)
+    const url = new URL(withScheme(text))
     // Chỉ http/https. `javascript:` gõ vào thanh địa chỉ là một cách kinh điển
     // để tự bắn script vào trang mình đang mở.
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined

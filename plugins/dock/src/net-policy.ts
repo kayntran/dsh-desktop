@@ -153,6 +153,29 @@ export function isPrivateHost(hostname: string): boolean {
   return false
 }
 
+/**
+ * Thêm `https://` khi địa chỉ chưa có scheme.
+ *
+ * Nhận biết scheme bằng dấu **`://`**, không phải bằng dấu hai chấm. Khác biệt
+ * này quyết định, và cả hai chiều đều từng sai:
+ *
+ * - `example.com:8080` — dấu hai chấm ở đây là CỔNG. Đọc nó thành scheme thì
+ *   `new URL` trả về một URL có protocol `example.com:`, phép kiểm http/https
+ *   từ chối, và một địa chỉ công cộng hoàn toàn hợp lệ bị chặn oan.
+ * - `example.com` trần — model rất hay đưa dạng này, và bản trước từ chối bằng
+ *   câu "không phải URL hợp lệ": vừa đúng về kỹ thuật vừa vô dụng với người
+ *   đọc nó.
+ *
+ * `javascript:alert(1)` vẫn bị chặn: không có `://` nên nó thành
+ * `https://javascript:alert(1)`, và chuỗi đó không phân tích được.
+ * @param raw - địa chỉ do người dùng gõ hoặc model đưa.
+ * @returns địa chỉ chắc chắn có scheme.
+ */
+export function withScheme(raw: string): string {
+  const text = raw.trim()
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`
+}
+
 /** http(s) trỏ tới một nơi không phải máy này và không phải mạng nội bộ. */
 export function isPublicUrl(url: string): boolean {
   try {
@@ -173,7 +196,7 @@ export function isPublicUrl(url: string): boolean {
 export function assertPublicUrl(url: string): URL {
   let parsed: URL
   try {
-    parsed = new URL(url)
+    parsed = new URL(withScheme(url))
   } catch {
     throw new Error('Không phải một URL hợp lệ.')
   }

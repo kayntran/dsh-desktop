@@ -27,7 +27,8 @@
     "spike:pty-route": "node scripts/spike-pty-route.mjs",
     "spike:dock": "electron scripts/spike-dock-ui.cjs",
     "spike:surface": "electron scripts/spike-surface.cjs",
-    "spike:stage": "electron scripts/spike-stage-order.cjs"
+    "spike:stage": "electron scripts/spike-stage-order.cjs",
+    "spike:tools": "node scripts/spike-tools.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

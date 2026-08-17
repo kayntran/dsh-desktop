@@ -719,3 +719,39 @@ tìm kiếm theo mã → gõ chữ → Enter → chờ tải → trang nhảy sa
 Mục chụp ảnh đi trọn chuỗi ba tiến trình, không tắt đoạn nào.
 
 Bộ kiểm nay **46/46 đạt**.
+
+## 2026-08-15 — Bài kiểm cho tầng tool, và hai lỗi nó bắt được ngay
+
+Bộ kiểm giao diện gọi thẳng vào cầu qua route chẩn đoán. Nó chứng minh được "lệnh chạm tới trang
+thật", nhưng **không chứng minh được gì về đoạn từ model gọi xuống**: hình dạng schema, phép kiểm
+tham số, rào địa chỉ ở tầng tool, câu chữ trả cho model, ba đường đi của tấm ảnh. Cả tầng đó chưa
+từng chạy một lần nào.
+
+`scripts/spike-tools.mjs` đo đúng đoạn ấy. Nó thay cầu, đường chụp ảnh và kho đính kèm bằng đồ giả
+— không phải để né việc khó, mà để **đi tới được những nhánh app thật không đi tới**: model đưa địa
+chỉ sai, model quên tham số bắt buộc, model chạy trên tuyến không đọc được ảnh. Muốn chạm tới những
+nhánh đó trong app thật thì phải có một model chịu làm sai.
+
+### Hai lỗi bắt được ngay lần chạy đầu
+
+1. **Model đưa `example.com` trần thì tool từ chối thẳng.** Thanh địa chỉ của người dùng tự thêm
+   `https://` từ đầu, tầng tool thì không — hai đường vào cùng một trình duyệt hiểu địa chỉ khác
+   nhau. Câu lỗi trả về là "không phải URL hợp lệ": vừa đúng về kỹ thuật vừa vô dụng với người đọc.
+2. Phép sửa lộ ra lỗi thứ hai, nặng hơn: cả hai đường đều nhận biết scheme bằng **dấu hai chấm**,
+   nên `example.com:8080` bị đọc thành protocol `example.com:` và bị **chặn oan**. Một địa chỉ công
+   cộng hoàn toàn hợp lệ.
+
+Sửa: nhận biết scheme bằng `://`, và dùng **chung một hàm** cho cả hai đường. `javascript:alert(1)`
+vẫn bị chặn — không có `://` nên nó thành `https://javascript:alert(1)`, và chuỗi đó không phân
+tích được.
+
+Mỗi lần nới một phép kiểm thì thêm ngay một mục đo cái vừa nới ra: `192.168.1.1` trần và
+`localhost:3000` trần vẫn phải bị chặn, `example.com:8080` vẫn phải qua.
+
+### Bài học
+
+Hai bộ kiểm đo **hai đoạn khác nhau của cùng một đường**, và không bộ nào thay được bộ nào. Bộ giao
+diện đo từ cầu xuống trang; bộ tool đo từ model xuống cầu. Chỗ nối giữa hai đoạn — đúng chỗ hai bên
+hiểu địa chỉ khác nhau — là chỗ không bộ nào nhìn thấy cho tới khi có bộ thứ hai.
+
+Nghiệm thu: `npm run spike:dock` **46/46**, `npm run spike:tools` **14/14**.
