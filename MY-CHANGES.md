@@ -755,3 +755,36 @@ diện đo từ cầu xuống trang; bộ tool đo từ model xuống cầu. Ch�
 hiểu địa chỉ khác nhau — là chỗ không bộ nào nhìn thấy cho tới khi có bộ thứ hai.
 
 Nghiệm thu: `npm run spike:dock` **46/46**, `npm run spike:tools` **14/14**.
+
+## 2026-08-15 — Chạy thật với model thật, và một chỗ hỏng lộ ra
+
+Hai bộ kiểm tự động đều xanh, nhưng chưa lần nào có **model thật gọi tool thật**. Chạy app với
+profile và API key của chủ dự án, hai lượt hội thoại với DeepSeek-V4-Flash:
+
+- Lượt 1: mở `example.com`, đọc trang, trả lời đúng tiêu đề và câu đầu tiên.
+- Lượt 2: chụp ảnh trang, mở DuckDuckGo, đọc trang, gõ chữ vào ô tìm kiếm, nhấn Enter, đọc lại, và
+  đưa ra đúng địa chỉ trang kết quả.
+
+**7 trong 12 tool đã chạy thật** — `browser_tabs`, `browser_navigate`, `browser_read_page`,
+`browser_get_page_text`, `browser_form_input`, `browser_computer`, `browser_screenshot`. 11 bước,
+17 giây.
+
+### Chỗ hỏng: thẻ kết quả không dùng phần khai giao diện của tool
+
+Ảnh chụp màn hình từ app thật cho thấy thẻ của `browser_screenshot` là **thẻ mặc định**: tiêu đề là
+tên tool (`browser_screenshot · browser-2-…`) chứ không phải tiêu đề đã khai (`Chụp ảnh trang`), và
+phần IN là JSON thô của tham số. Nghĩa là `presentCall` và `presentResult` **không được dùng tới** —
+nên khối ảnh dành cho người dùng cũng không bao giờ hiện ra.
+
+Hậu quả người dùng thấy: chụp ảnh chạy đúng, ảnh lưu đúng vào kho đính kèm, nhưng **không ai nhìn
+thấy tấm ảnh** — model DeepSeek không đọc được ảnh, mà thẻ kết quả thì không vẽ nó ra. Lệnh chụp
+ảnh hiện chỉ là một dòng chữ báo kích thước.
+
+Chưa truy ra nguyên nhân. Hai giả thuyết chưa loại trừ: registry chỉ đọc phần khai giao diện từ
+định nghĩa do `defineTool` dựng (dù mã của nó chỉ chép thẳng hai hàm đó sang), hoặc thẻ generic của
+client không vẽ khối ảnh. Đường chắc ăn nếu phải làm lại: đăng ký `tool.call.toolview` theo đúng
+tên tool của mình — mức 1, và là seat upstream chừa sẵn cho đúng việc này.
+
+**Bài học lặp lại lần thứ hai trong ngày:** hai bộ kiểm tự động 60 mục đều xanh, và cái sai vẫn nằm
+đúng chỗ không bộ nào nhìn tới — phần vẽ ra màn hình. Bộ kiểm tầng tool có kiểm `presentResult` trả
+đúng khối ảnh, nhưng nó kiểm **hàm đó trả về gì**, không kiểm **có ai gọi nó không**.
