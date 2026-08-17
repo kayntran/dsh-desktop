@@ -932,3 +932,48 @@ ra, chữ nào xuất hiện trong câu trả lời.
 Điểm 2 cũng là một hành vi đáng biết của sản phẩm, không chỉ của bài kiểm: **tab agent mở sẽ ở lại
 qua các phiên hội thoại.** Giống một trình duyệt bình thường, nhưng nghĩa là chúng dồn dần và người
 dùng phải tự đóng. Chưa sửa — đó là một quyết định về hành vi, không phải một lỗi.
+
+## 2026-08-17 (khuya) — Năm việc nặng hơn, và một lỗi thật lộ ra ở trang chậm
+
+Thêm năm kịch bản vào `npm run spike:live`, đúng những việc chủ dự án nêu: điền form nhiều ô, trích
+dữ liệu từ bảng, tra một con số cụ thể, nghiên cứu nhiều nguồn, và trang cần đăng nhập.
+
+| Việc | Kết quả |
+|---|---|
+| Điền form 6 ô rồi gửi | đạt — server echo lại đúng cả 6 giá trị |
+| Trích ba nước đông dân nhất từ bảng Wikipedia | đạt |
+| Tra năm Python ra bản đầu | đạt |
+| Mở trang chủ Vite và Webpack rồi so sánh | đạt |
+| Google Docs | đạt — tới trang đăng nhập và **báo đúng là chưa đăng nhập** |
+
+### Lỗi sản phẩm: trang chậm làm mọi lệnh đọc treo đủ 25 giây
+
+httpbin.org trả 503 và giữ kết nối mở. `executeJavaScript` trên một trang chưa dựng xong DOM **không
+ném và cũng không trả lời** — nó nằm chờ. Nên `browser_read_page` treo hết hạn 25 giây rồi chết với
+câu *"lệnh read_page quá 25000ms không có trả lời"*. Model đọc câu đó không biết làm gì nên thử lại,
+và thử lại cũng treo 25 giây nữa. Đo được: hai lần liên tiếp, mất 50 giây cho hai câu lỗi vô nghĩa.
+
+Sửa trong `client/bus.ts`: mọi lời gọi vào trang khách đi qua `withPageReady` — hạn 12 giây (ngắn
+hơn hạn của tool để câu trả lời kịp về), và khi quá hạn thì nói **trang chưa tải xong**, kèm địa chỉ
+và trạng thái tải, kèm gợi ý chờ hoặc tải lại.
+
+### Hành vi đúng mà bài kiểm suýt chấm sai
+
+Hai kịch bản đỏ ở lượt chạy đầu, và cả hai đều là agent **dừng lại hỏi người dùng**:
+
+- Câu nhờ ghi liên kết tên "More information" trong khi trang chỉ có "Learn more" — agent đọc trang,
+  thấy lệch, và hỏi lại thay vì bấm bừa.
+- Gặp trang đăng nhập Google, agent báo đúng là chưa đăng nhập rồi hỏi muốn làm gì tiếp; nó **cố ý
+  không tự nhập mật khẩu**, chỉ đề nghị điền email và để người dùng tự gõ mật khẩu.
+
+Với app thì lượt vẫn "đang chạy" — nó đang chờ người. Bài kiểm ngồi chờ hết ngân sách rồi chấm đỏ.
+Sửa: nhận ra thẻ câu hỏi và coi đó là một cách kết thúc hợp lệ, có ghi rõ *"agent DỪNG LẠI HỎI người
+dùng"* trong dòng kết quả. Một bộ kiểm ổn định phải **gọi đúng tên** trạng thái này, không được gộp
+nó vào "treo".
+
+### Giới hạn phải nói thẳng: Google Docs/Sheets
+
+Panel dùng **kho cookie riêng**, tách khỏi Chrome của người dùng. Đăng nhập Google trên Chrome không
+giúp gì; phải đăng nhập một lần **ngay trong panel Browser của app**, và người dùng tự gõ — không
+bao giờ để agent nhập mật khẩu hộ. Sau khi có phiên đăng nhập trong kho đó thì mới đo được các việc
+thật trên Docs/Sheets.

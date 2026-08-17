@@ -91,7 +91,11 @@ const SCENARIOS = [
   {
     id: 'click',
     title: 'bấm một liên kết trên trang rồi đi tới trang mới',
-    prompt: 'Mở example.com rồi bấm vào liên kết "More information" trên trang đó cho tôi.',
+    // Tên liên kết phải ĐÚNG. Bản trước ghi "More information" trong khi trang
+    // chỉ có "Learn more"; agent đọc trang, thấy lệch, và dừng lại hỏi — đúng
+    // việc phải làm, nhưng nó biến kịch bản này thành phép đo sự cẩn thận của
+    // model chứ không còn đo cú bấm nữa.
+    prompt: 'Mở example.com rồi bấm vào liên kết "Learn more" trên trang đó cho tôi.',
     check: (view) => ({
       ok: view.urls.some((u) => /iana\.org/i.test(u)),
       detail: `trang sau khi bấm: ${view.urls.join(', ') || '(không có)'}`,
@@ -151,6 +155,79 @@ const SCENARIOS = [
       ok: view.urls.some((u) => /wikipedia\.org\/wiki\/Web_browser/i.test(u))
         && view.text.length > 400,
       detail: `trang: ${view.urls.join(', ').slice(0, 80)}`,
+    }),
+  },
+
+  // ---------------------------------------------------- việc nặng hơn một bậc
+
+  {
+    id: 'form',
+    title: 'điền một form nhiều ô rồi gửi đi',
+    // Việc khó nhất trong cả bộ: sáu ô, ba kiểu khác nhau (ô chữ, nút chọn, hộp
+    // kiểm, vùng ghi chú), rồi bấm gửi. Chọn httpbin vì nó in NGƯỢC lại đúng dữ
+    // liệu vừa nhận — nên "gửi thành công" là thứ đo được, không phải thứ tin lời.
+    prompt: 'Vào https://httpbin.org/forms/post và điền form giúp tôi: tên "Nguyen Van A", '
+      + 'điện thoại 0900123456, email a@example.com, cỡ Large, chọn topping bacon, '
+      + 'ghi chú "giao truoc 7 gio toi". Điền xong thì bấm gửi.',
+    // Nhận cả `httpbingo.org`: httpbin.org hay trả 503, và agent đã tự chuyển
+    // sang bản mirror cùng mã nguồn rồi báo lại — đúng thứ ta muốn nó làm. Phép
+    // kiểm bản trước đòi đúng một tên miền nên chấm đỏ một lượt hoàn toàn thành
+    // công.
+    check: (view) => ({
+      ok: view.urls.some((u) => /httpbin(go)?\.org\/post/i.test(u))
+        && /nguyen van a/i.test(view.text)
+        && /bacon/i.test(view.text),
+      detail: `trang sau khi gửi: ${view.urls.join(', ').slice(0, 90) || '(không có)'}`,
+    }),
+  },
+  {
+    id: 'table',
+    title: 'trích dữ liệu từ một bảng trên trang',
+    prompt: 'Mở https://en.wikipedia.org/wiki/List_of_countries_by_population_(United_Nations) '
+      + 'và cho tôi ba nước đông dân nhất kèm số dân.',
+    check: (view) => ({
+      ok: /india/i.test(view.text) && /china/i.test(view.text),
+      detail: `nhắc tới: ${['India', 'China', 'United States'].filter((n) => new RegExp(n, 'i').test(view.text)).join(', ') || '(không nước nào)'}`,
+    }),
+  },
+  {
+    id: 'lookup',
+    title: 'tra một con số cụ thể trên trang',
+    // Nói rõ "trong trình duyệt của panel". Bản trước chỉ nói "tra trên
+    // Wikipedia", và agent dùng tool tìm kiếm web có sẵn của engine rồi trả lời
+    // đúng mà không mở trang nào — hợp lý với người dùng, nhưng khi đang đo
+    // chính cái trình duyệt thì phải chỉ đúng cửa.
+    prompt: 'Mở trang Wikipedia về ngôn ngữ lập trình Python trong trình duyệt của panel, '
+      + 'rồi cho tôi biết bản đầu tiên ra năm nào.',
+    check: (view) => ({
+      ok: /1991/.test(view.text) && view.urls.some((u) => /wikipedia\.org/i.test(u)),
+      detail: `trả lời có "1991": ${String(/1991/.test(view.text))}`,
+    }),
+  },
+  {
+    id: 'research',
+    title: 'nghiên cứu: mở nhiều nguồn rồi so sánh',
+    prompt: 'So sánh ngắn gọn Vite và Webpack giúp tôi. Mở trang chủ của cả hai để đối chiếu.',
+    check: (view) => ({
+      ok: view.urls.filter((u) => /vite|webpack/i.test(u)).length >= 2,
+      detail: `nguồn đã mở: ${view.urls.join(', ').slice(0, 110) || '(không có)'}`,
+    }),
+  },
+  {
+    id: 'gdocs',
+    title: 'trang cần đăng nhập: tới được và BÁO ĐÚNG là cần đăng nhập',
+    // Google Docs/Sheets nằm sau tường đăng nhập, và panel dùng kho cookie
+    // RIÊNG chứ không mượn phiên Chrome của người dùng — nên agent chắc chắn gặp
+    // trang đăng nhập. Điều cần đo không phải "vào được Docs" (không thể, và
+    // không được: tự đăng nhập hộ là việc cấm), mà là **agent có nhận ra tường
+    // và nói thật hay không**. Một agent bịa ra "đã mở tài liệu của bạn" ở đây
+    // còn tệ hơn một agent báo thua.
+    prompt: 'Mở Google Docs (docs.google.com) xem tôi đang có tài liệu nào không.',
+    check: (view) => ({
+      ok: view.urls.some((u) => /google\.com/i.test(u))
+        && /đăng nhập|sign in|chưa đăng nhập|login/i.test(view.text),
+      detail: `trang: ${view.urls.join(', ').slice(0, 70)}; có báo cần đăng nhập: `
+        + String(/đăng nhập|sign in|chưa đăng nhập|login/i.test(view.text)),
     }),
   },
 ]
@@ -221,20 +298,30 @@ async function dismissDialogs(win) {
  * phép đếm suông sẽ xanh oan, nên phải dọn tay.
  */
 async function reset(win) {
+  // Dọn kho TRƯỚC rồi mới tải lại, và làm nhiều lượt tới khi không còn trang web
+  // nào. Bản trước bấm "New Session" trước rồi mới dọn, và app ghi lại trạng thái
+  // của mình đè lên phần vừa dọn — tab của việc trước sống sót, rồi mục kiểm sau
+  // đọc nhầm nó thành kết quả của mình.
+  for (let round = 0; round < 3; round += 1) {
+    await win.webContents.executeJavaScript(`(() => {
+      const store = JSON.parse(localStorage.getItem('hdw.dock') || '{}')
+      store.panes = (store.panes || []).filter(p => p.kind !== 'browser')
+      localStorage.setItem('hdw.dock', JSON.stringify(store))
+      return 1
+    })()`).catch(() => undefined)
+    await win.webContents.reload()
+    await until(win, `!!document.querySelector('.hdw-dock')`, 45_000)
+    const left = await win.webContents.executeJavaScript(
+      `document.querySelectorAll('webview').length`).catch(() => 0)
+    if (left === 0) break
+  }
+
+  // Phiên mới sau cùng: bấm nút này KHÔNG đụng tới panel, nên thứ tự này an toàn.
   await win.webContents.executeJavaScript(
     `[...document.querySelectorAll('button')]`
     + `.find(b => /^(New Session|New session|Phiên mới|新会话)$/.test(b.textContent.trim()))?.click()`)
     .catch(() => undefined)
-  await wait(1500)
-  await win.webContents.executeJavaScript(`(() => {
-    const store = JSON.parse(localStorage.getItem('hdw.dock') || '{}')
-    store.panes = (store.panes || []).filter(p => p.kind !== 'browser')
-    localStorage.setItem('hdw.dock', JSON.stringify(store))
-    return 1
-  })()`).catch(() => undefined)
-  await win.webContents.reload()
-  await until(win, `!!document.querySelector('.hdw-dock')`, 45_000)
-  await wait(1500)
+  await wait(2000)
 }
 
 /**
@@ -286,18 +373,34 @@ async function ask(win, prompt) {
  * mốc yên tĩnh phải rộng hơn thời gian một lời gọi tool.
  */
 async function waitForTurn(win) {
-  const QUIET_MS = 9000
+  // Bản trước đo bằng "chữ trong trang đứng yên 9 giây". Sai, và cái sai đó làm
+  // ba mục đỏ oan: một lời gọi tool có thể đứng im 25 giây (hạn của lệnh đọc),
+  // nên bài kiểm chụp ảnh giữa lượt rồi kết luận model làm hỏng.
+  //
+  // Nút chính của ô soạn đổi nhãn thành "Stop generating" trong suốt lượt chạy
+  // và chỉ đổi lại khi xong. Đó là tín hiệu của chính app, không phải phỏng đoán.
+  const RUNNING = `!![...document.querySelectorAll('button')]`
+    + `.some(b => /Stop generating|停止生成|Dừng/i.test(b.getAttribute('aria-label') || ''))`
+
+  // Agent DỪNG LẠI HỎI cũng là một cách kết thúc, và là cách đúng khi câu nhờ
+  // mơ hồ hoặc khi nó gặp tường đăng nhập. Với app thì lượt vẫn "đang chạy" —
+  // nó đang chờ người. Không tách ra thì bài kiểm ngồi chờ hết ngân sách rồi
+  // chấm đỏ một hành vi hoàn toàn đúng đắn, và đó chính là điều đã xảy ra.
+  const ASKING = `!![...document.querySelectorAll('button')]`
+    + `.some(b => /^(Skip this question|Bỏ qua câu hỏi|跳过此问题)$/.test(b.textContent.trim()))`
+
+  // Chờ lượt chạy BẮT ĐẦU đã. Hỏi ngay sau khi gửi thì nút chưa kịp đổi, và
+  // "chưa chạy" trông y hệt "đã xong".
+  await until(win, RUNNING, 25_000)
+
   const deadline = Date.now() + TURN_BUDGET_MS
-  let last = ''
-  let lastChange = Date.now()
   while (Date.now() < deadline) {
-    const now = await win.webContents.executeJavaScript(
-      `document.body.innerText.length + ':' + document.querySelectorAll('img').length`).catch(() => last)
-    if (now !== last) { last = now; lastChange = Date.now() }
-    else if (Date.now() - lastChange > QUIET_MS) return true
+    if (await win.webContents.executeJavaScript(ASKING).catch(() => false)) return 'asked'
+    const running = await win.webContents.executeJavaScript(RUNNING).catch(() => true)
+    if (!running) { await wait(2500); return 'done' }
     await wait(1000)
   }
-  return false
+  return 'timeout'
 }
 
 /** Chụp lại trạng thái nhìn thấy được, để phép kiểm của kịch bản đọc. */
@@ -372,17 +475,20 @@ async function main() {
     const failure = await ask(win, scenario.prompt)
     if (failure !== '') { record(label, false, failure); continue }
 
-    const finished = await waitForTurn(win)
+    const ending = await waitForTurn(win)
     const view = await snapshot(win)
     writeFileSync(join(shotDir, `${scenario.id}.png`), (await win.webContents.capturePage()).toPNG())
 
-    if (!finished) {
+    if (ending === 'timeout') {
       record(label, false, `model chưa xong sau ${TURN_BUDGET_MS / 1000}s`)
       continue
     }
     const verdict = scenario.check(view)
-    record(label, verdict.ok,
-      `${verdict.detail}${noise.length === 0 ? '' : ` | lỗi giao diện: ${noise[0].slice(0, 120)}`}`)
+    record(label, verdict.ok, [
+      verdict.detail,
+      ending === 'asked' ? 'agent DỪNG LẠI HỎI người dùng' : '',
+      noise.length === 0 ? '' : `lỗi giao diện: ${noise[0].slice(0, 120)}`,
+    ].filter(Boolean).join(' | '))
   }
 
   shotLink.stopShotLink()

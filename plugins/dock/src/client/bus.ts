@@ -97,9 +97,53 @@ function pickPublicTab(holder: StageHolder, params: unknown): string {
  * "không đọc được thuộc tính của undefined" — một câu chẳng nói gì với ai.
  */
 async function callInPage(stage: Stage, id: string, expression: string): Promise<unknown> {
-  const installed = await stage.evaluate(id, `typeof window.__hdw`)
-  if (installed !== 'object') await stage.evaluate(id, PAGE_SCRIPT)
-  return stage.evaluate(id, expression)
+  const installed = await withPageReady(stage, id, stage.evaluate(id, `typeof window.__hdw`))
+  if (installed !== 'object') await withPageReady(stage, id, stage.evaluate(id, PAGE_SCRIPT))
+  return withPageReady(stage, id, stage.evaluate(id, expression))
+}
+
+/**
+ * Ngân sách cho một lần chạy mã trong trang, trước khi kết luận trang chưa sẵn
+ * sàng. Cố ý NGẮN HƠN hạn của tool (25s) để câu trả lời kịp về tới model dưới
+ * dạng một lời giải thích, thay vì một cái hết giờ trống rỗng.
+ */
+const PAGE_READY_MS = 12_000
+
+/**
+ * Bọc một lời gọi vào trang khách bằng hạn giờ và một câu lỗi nói được sự thật.
+ *
+ * Vì sao cần: `executeJavaScript` trên một trang **chưa dựng xong DOM** không
+ * ném và cũng không trả lời — nó nằm chờ. Trang chậm hay trang giữ kết nối mở
+ * (đo được trên httpbin.org) làm mọi lệnh đọc treo đủ 25 giây rồi chết với câu
+ * *"lệnh read_page quá 25000ms không có trả lời"*. Model đọc câu đó không biết
+ * làm gì nên thử lại, và thử lại cũng treo đúng 25 giây nữa.
+ *
+ * Cái nó cần biết là **trang chưa tải xong**, kèm địa chỉ để tự quyết định chờ
+ * hay tải lại. Đó là toàn bộ việc của hàm này.
+ * @param stage - sân khấu webview.
+ * @param id - tab đang thao tác.
+ * @param work - lời gọi đang bay.
+ * @returns kết quả, hoặc ném kèm câu giải thích khi quá hạn.
+ */
+async function withPageReady(stage: Stage, id: string, work: Promise<unknown>): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = Symbol('expired')
+  try {
+    const outcome = await Promise.race([
+      work,
+      new Promise((resolve) => { timer = setTimeout(() => { resolve(expired) }, PAGE_READY_MS) }),
+    ])
+    if (outcome !== expired) return outcome
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+
+  const tab = stage.list().find((t) => t.id === id)
+  throw new Error(
+    `trang chưa tải xong nên chưa chạy được gì trong đó`
+    + `${tab === undefined ? '' : ` (${tab.loading ? 'đang tải' : 'đã dừng tải nhưng chưa dựng xong'}: ${tab.url})`}. `
+    + 'Hãy chờ vài giây rồi thử lại, hoặc dùng browser_navigate để tải lại trang.',
+  )
 }
 
 /** Đợi một khoảng, dùng cho các lệnh phải nhường cho trang phản ứng. */
