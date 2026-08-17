@@ -1122,6 +1122,98 @@ async function main() {
       `mã ${String(cam.status)} — ${String(cam.body.reason ?? JSON.stringify(cam.body))}`)
   }
 
+  // --- 18. BỘ LỆNH CỦA AGENT, TRÊN MỘT TRANG THẬT
+  //
+  // Mục 18e là mục quyết định của cả hai giai đoạn bộ lệnh: nó đi trọn một vòng
+  // như người dùng thật — đọc trang, tìm ô nhập theo mã, gõ chữ, gõ Enter, chờ
+  // tải, đọc lại, và xác nhận kết quả mang đúng chuỗi đã gõ. Từng lệnh xanh
+  // riêng lẻ không chứng minh được điều đó.
+  {
+    const call = async (cmd, params) => {
+      const qs = `?cmd=${encodeURIComponent(cmd)}&params=${encodeURIComponent(JSON.stringify(params ?? {}))}`
+      return hoiThu(baseUrl, qs)
+    }
+
+    // Dọn về một tab web sạch trên một trang có ô tìm kiếm thật.
+    await call('open_tab', { url: 'https://duckduckgo.com/' })
+    await cho(6000)
+
+    const scan = await call('read_page', { filter: 'interactive' })
+    const outline = scan.body.result?.outline ?? ''
+    record('18a. đọc được cấu trúc trang và gán mã tham chiếu',
+      scan.body.ok === true && (scan.body.result?.refs ?? 0) > 0 && outline.includes('[ref_'),
+      scan.body.ok === true
+        ? `${String(scan.body.result.refs)} mã, ${outline.split('\n').length} dòng`
+        : JSON.stringify(scan.body))
+
+    const pageText = await call('get_page_text', { max_chars: 2000 })
+    record('18b. lấy được chữ hiển thị của trang',
+      pageText.body.ok === true && typeof pageText.body.result?.text === 'string'
+      && pageText.body.result.text.length > 20,
+      pageText.body.ok === true ? `${String(pageText.body.result.total)} ký tự` : JSON.stringify(pageText.body))
+
+    const found = await call('find', { query: 'search' })
+    // Nhận cả `combobox`: ô tìm kiếm có gợi ý tự động mang vai trò đó theo đúng
+    // chuẩn ARIA, và phần lớn trang lớn đều làm vậy. Bản trước chỉ nhận
+    // `textbox` nên báo đỏ trong khi lệnh đọc hoàn toàn đúng — phép kiểm hẹp
+    // hơn thực tế cũng là một loại phép kiểm sai.
+    const TEXT_ROLES = ['textbox', 'searchbox', 'combobox']
+    const field = (found.body.result?.matches ?? []).find((m) => TEXT_ROLES.includes(m.role))
+    record('18c. tìm được ô nhập trong kết quả đã đọc',
+      field !== undefined,
+      field === undefined
+        ? JSON.stringify((found.body.result?.matches ?? []).slice(0, 5))
+        : `${field.ref} — ${field.role} "${field.name}"`)
+
+    const netLog = await call('network_log', { limit: 10 })
+    record('18d. đọc được danh sách request của trang',
+      netLog.body.ok === true && Array.isArray(netLog.body.result?.requests)
+      && netLog.body.result.requests.length > 0,
+      netLog.body.ok === true
+        ? `${String(netLog.body.result.requests.length)} request`
+        : JSON.stringify(netLog.body))
+
+    // --- 18e. MỤC QUYẾT ĐỊNH: trọn một vòng như người dùng thật
+    if (field !== undefined) {
+      const phrase = 'harness desktop spike'
+      const typed = await call('computer', { action: 'type', ref: field.ref, text: phrase })
+      const entered = await call('computer', { action: 'key', text: 'Enter' })
+      await cho(6000)
+      const after = await call('page_eval', { code: 'location.href' })
+      const urlAfter = String(after.body.result?.value ?? '')
+      record('18e. gõ vào ô tìm kiếm rồi Enter thì trang đổi theo đúng chuỗi đã gõ',
+        typed.body.ok === true && entered.body.ok === true && urlAfter.includes('harness'),
+        `gõ=${String(typed.body.ok)} enter=${String(entered.body.ok)} → ${urlAfter.slice(0, 90)}`)
+    } else {
+      record('18e. gõ vào ô tìm kiếm rồi Enter thì trang đổi theo đúng chuỗi đã gõ',
+        false, 'không tìm được ô nhập ở mục 18c')
+    }
+
+    // --- 18f. công tắc TẮT thì thao tác bị từ chối, còn đọc thì vẫn chạy
+    //
+    // Đây là mục chứng minh công tắc có thật chứ không phải trang trí. Gạt ở
+    // kho giao diện đúng như người dùng bấm, rồi hỏi lại qua cầu.
+    await win.webContents.executeJavaScript(`(() => {
+      const kho = JSON.parse(localStorage.getItem('hdw.dock') || '{}')
+      kho.agentControl = false
+      localStorage.setItem('hdw.dock', JSON.stringify(kho))
+      return 1
+    })()`)
+    await win.webContents.reload()
+    await doiDenKhi(win, `!!document.querySelector('.hdw-dock')`, 30_000)
+    for (let i = 0; i < 20; i += 1) {
+      if ((await hoiThu(baseUrl)).body.connected === true) break
+      await cho(500)
+    }
+
+    const clickWhenOff = await call('computer', { action: 'left_click', coordinate: [10, 10] })
+    const readWhenOff = await call('tabs_list', {})
+    record('18f. tắt công tắc thì CHẶN thao tác nhưng VẪN cho đọc',
+      clickWhenOff.status === 503 && String(clickWhenOff.body.reason ?? '').includes('TẮT')
+      && readWhenOff.body.ok === true,
+      `bấm → ${String(clickWhenOff.status)}; đọc → ${String(readWhenOff.status)}`)
+  }
+
   // Ảnh chụp để nhìn bằng mắt, kể cả khi mọi mục đều đạt.
   if (process.env['HDW_ANH'] !== undefined) {
     const anh = await win.webContents.capturePage()

@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { registerBusRoutes } from './bus-routes.ts'
 import { registerFsRoutes } from './fs-routes.ts'
 import { registerPtyRoutes } from './pty-routes.ts'
+import { registerBrowserTools } from './tools.ts'
 
 export const name = 'harness-desktop-dock'
 
@@ -20,7 +21,7 @@ export const name = 'harness-desktop-dock'
  * Service cần có trước khi `apply` chạy. Cordis giữ fiber ở trạng thái chờ tới
  * khi đủ, nên không cần tự kiểm tra sự tồn tại của chúng.
  */
-export const inject = ['webServer', 'fs', 'workspaceRegistry']
+export const inject = ['webServer', 'fs', 'workspaceRegistry', 'tools']
 
 /**
  * Thân plugin.
@@ -29,7 +30,14 @@ export const inject = ['webServer', 'fs', 'workspaceRegistry']
 export function apply(ctx: Context): void {
   ctx.effect(() => registerFsRoutes(ctx), 'hdw-dock: route Files')
   ctx.effect(() => registerPtyRoutes(ctx), 'hdw-dock: route Terminal')
-  // Cầu nối tới nửa giao diện. Hiện chưa có tool nào gọi nó — nó là nền móng
-  // cho tầng tool sắp tới, và `bus` trả về ở đây chính là bề mặt tầng đó dùng.
-  ctx.effect(() => registerBusRoutes(ctx).dispose, 'hdw-dock: cầu nối giao diện')
+  // Cầu nối tới nửa giao diện, và bộ tool đứng trên nó.
+  //
+  // Hai thứ này buộc phải cùng một `effect`: tool giữ tham chiếu tới `bus`, nên
+  // gỡ cầu mà để tool sống là để lại một bộ tool gọi vào hư không — agent nhờ gì
+  // cũng hết giờ, không có lỗi nào báo. Cùng vòng đời thì cùng sống, cùng chết.
+  ctx.effect(() => {
+    const { bus, dispose } = registerBusRoutes(ctx)
+    const offTools = registerBrowserTools(ctx, bus)
+    return () => { offTools(); dispose() }
+  }, 'hdw-dock: cầu nối và bộ lệnh trình duyệt')
 }

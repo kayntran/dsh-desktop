@@ -70,6 +70,25 @@ const HEARTBEAT_MS = 15_000
 /** Mã đóng riêng, báo cho giao diện biết ĐỪNG nối lại. */
 const CLOSE_FINAL = 4001
 
+/**
+ * Những lệnh chỉ ĐỌC — luôn chạy được, kể cả khi công tắc quyền đang tắt.
+ *
+ * Bịt mắt agent không ngăn được nó hành động, chỉ làm nó hành động mù.
+ *
+ * Danh sách nằm ở đây, ngay trong `call`, chứ không ở tầng tool. Lý do: tầng
+ * tool không phải đường duy nhất tới cầu — route chẩn đoán cũng gọi thẳng vào.
+ * Hai đường mà hai luật thì sớm muộn một đường bị quên, và cái bị quên luôn là
+ * đường ít ai nhìn. Một chốt duy nhất thì không quên được.
+ */
+const READ_COMMANDS = new Set([
+  'ping', 'tabs_list', 'read_page', 'find', 'get_page_text', 'console_log', 'network_log',
+])
+
+/** Câu từ chối khi công tắc tắt — nói rõ bật lại ở đâu. */
+const DENIED
+  = 'Công tắc "Cho agent điều khiển trình duyệt" đang TẮT, nên thao tác bị từ chối. '
+  + 'Người dùng bật lại ở Cài đặt → General. Các lệnh ĐỌC trang vẫn chạy bình thường.'
+
 /** Bề mặt mà tầng tool sẽ dùng. */
 export interface Bus {
   /**
@@ -256,6 +275,7 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
     agentControl: () => agentControl,
 
     call: async (cmd, params, timeoutMs = 20_000) => {
+      if (!READ_COMMANDS.has(cmd) && !agentControl) throw new Error(DENIED)
       if (pending.size >= MAX_PENDING) {
         throw new Error(`quá ${String(MAX_PENDING)} lệnh đang chờ giao diện trả lời`)
       }
@@ -345,6 +365,29 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
         try {
           const result = await bus.call('page_eval', { code, tab_id: tabId }, 10_000)
           json(res, 200, { ok: true, result })
+        } catch (error) {
+          json(res, 503, { reason: error instanceof Error ? error.message : String(error) })
+        }
+        return
+      }
+
+      // `?cmd=<tên>&params=<json>` gọi thẳng một lệnh của cầu.
+      //
+      // Đây là đường DUY NHẤT để bài kiểm chạm tới bộ lệnh: tool thật do model
+      // gọi, mà bài kiểm thì không có model. Nó đi qua đúng `bus.call` mà tool
+      // đi qua, nên nó cũng chịu đúng chốt công tắc quyền — không có đường tắt
+      // nào ở đây.
+      const cmd = url.searchParams.get('cmd')
+      if (cmd !== null) {
+        let params: unknown
+        try {
+          params = JSON.parse(url.searchParams.get('params') ?? '{}')
+        } catch {
+          json(res, 400, { reason: 'params không phải JSON hợp lệ' })
+          return
+        }
+        try {
+          json(res, 200, { ok: true, result: await bus.call(cmd, params, 40_000) })
         } catch (error) {
           json(res, 503, { reason: error instanceof Error ? error.message : String(error) })
         }
