@@ -47,11 +47,10 @@ export const SCREENSHOT_TOOL = 'browser_screenshot'
 export interface ScreenshotCardInjected {
   /**
    * Lấy địa chỉ xem được của một ảnh đã lưu.
-   * @param sessionId - phiên sở hữu ảnh; chính nó là phạm vi cho phép đọc.
    * @param attachment - tham chiếu ảnh dựng lại từ dữ liệu thẻ.
    * @returns địa chỉ dùng được trong thẻ `<img>`.
    */
-  loadShot: (sessionId: string, attachment: ImageAttachmentRef) => Promise<string>
+  loadShot: (attachment: ImageAttachmentRef) => Promise<string>
 }
 
 /** Props đầy đủ của thẻ. */
@@ -116,10 +115,10 @@ const IMAGE_LABELS = {
  * @param props - xem {@link ScreenshotCardProps}.
  * @returns thẻ hiển thị trong dòng hội thoại.
  */
-export function ScreenshotCard({ block, sessionId, loadShot }: ScreenshotCardProps): React.JSX.Element {
+export function ScreenshotCard({ block, loadShot }: ScreenshotCardProps): React.JSX.Element {
   const load = useCallback(
-    async (attachment: ImageAttachmentRef) => loadShot(String(sessionId), attachment),
-    [loadShot, sessionId],
+    async (attachment: ImageAttachmentRef) => loadShot(attachment),
+    [loadShot],
   )
 
   // `'kind' in block` là cách upstream phân biệt lệnh đang chạy với lệnh đã

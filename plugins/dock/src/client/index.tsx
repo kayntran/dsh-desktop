@@ -18,7 +18,7 @@ import { openBridge } from './bus.ts'
 import { DockPanel } from './DockPanel.tsx'
 import { DockToggle } from './DockToggle.tsx'
 import { ScreenshotCard, SCREENSHOT_TOOL } from './ScreenshotCard.tsx'
-import { createShotLoader } from './shot-loader.ts'
+import { shotUrl } from './shot-loader.ts'
 import { createStageHolder } from './stage-holder.ts'
 import { createDock } from './store.ts'
 import styles from './styles.css'
@@ -115,11 +115,9 @@ export function apply(ctx: ClientContext): void {
   // chúng ta — upstream ghi rõ đó là cộng thêm. Mười một tool còn lại cố ý
   // KHÔNG nhận: hàng mặc định của họ vẽ chúng đủ dùng, và nhận thêm là tự gánh
   // việc bảo trì một cái hàng mà không đổi lại được gì.
-  const shots = createShotLoader(ctx)
-  ctx.effect(() => () => { shots.dispose() }, 'hdw-dock: thu hồi ảnh đã tải')
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview',
     key: SCREENSHOT_TOOL,
-    inject: () => ({ loadShot: (id: string, ref: ImageAttachmentRef) => shots.load(id, ref) }),
+    inject: () => ({ loadShot: async (ref: ImageAttachmentRef) => shotUrl(ref) }),
   }, ScreenshotCard))
 }

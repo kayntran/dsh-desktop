@@ -850,3 +850,52 @@ gì*; không bộ nào hỏi *có ai gọi nó không*, và càng không bộ n�
 không*. Bài học đã ghi thành luật trong `.claude/rules/ui-slots.md`.
 
 Tổng: **61 + 14 + 5 = 80 mục, tất cả đạt.**
+
+## 2026-08-17 (chiều) — Lượt chạy thật với model thật, và bức tường cuối cùng
+
+Thêm `npm run spike:live`: chạy engine trên **profile thật** của chủ dự án (có API key, có model),
+gõ một câu nhờ vào ô soạn, gửi bằng phím Enter thật, rồi hỏi đúng một câu — **trong khung hội thoại
+có tấm ảnh nào không**. Kèm ảnh chụp cửa sổ app để nhìn bằng mắt.
+
+Nó bắt được hai thứ mà 80 mục kiểm kia không thể bắt, vì cả 80 mục đều chạy trên `DSH_HOME` tạm và
+không có model nào.
+
+### Lỗi 1: plugin chưa khai cần service `sessions`
+
+Cordis chặn cứng việc đọc một service không khai trong `inject`. Câu chặn chỉ hiện trong console của
+trang, nơi khối ảnh đã nuốt nó thành một dòng *"không tải được ảnh"*. Đã thêm một dòng in lỗi ngay
+tại chỗ nuốt — không có nó thì người gỡ lỗi có đúng một câu vô nghĩa để làm việc.
+
+### Lỗi 2: engine TỪ CHỐI cho giao diện đọc ảnh của chúng ta — và nó có lý
+
+Câu từ chối: *"Image is not referenced by this session."* Đọc mã của họ thì ra một ràng buộc cứng,
+ghép từ hai luật:
+
+1. `api-proxy.ts` — giao diện chỉ được đọc một ảnh nếu nhật ký phiên có một khối `image` **mà model
+   nhìn thấy**.
+2. `tool-fs/src/read-image.ts` — một khối như thế chỉ được phép tồn tại khi tuyến model **đọc được
+   ảnh**, vì kết quả tool đi vào lịch sử phiên và nhét ảnh vào tuyến không chở được ảnh là làm hỏng
+   mọi lượt hỏi sau.
+
+Cộng lại: **model DeepSeek không đọc được ảnh → ảnh không vào được nhật ký → giao diện không xin đọc
+được nó.** Không có cách nào lách trong khuôn đó mà không nói dối về khả năng của model.
+
+Lối ra: `plugins/dock/src/image-routes.ts` — route `/hdw/image` của chính plugin, đọc lại byte từ
+kho đính kèm của engine (`attachments.readImage`) rồi phục vụ. Ảnh vẫn lưu content-addressed, vẫn
+bền qua lần khởi động sau, vẫn không phình nhật ký. Nhờ vậy `client/shot-loader.ts` teo lại còn một
+hàm ghép chuỗi — trình duyệt tự lo tải, đệm và huỷ.
+
+**Đánh đổi, nói thẳng:** route này bỏ đúng phép kiểm "ảnh có thuộc phiên đang xem không" mà upstream
+đặt ra. Thay chỗ nó là `isTrustedRequest` (như mọi route `/hdw/*`) và việc mã ảnh chính là sha256
+của nội dung — muốn lấy được một ảnh thì phải biết trước băm của nó. Thứ mất đi là "một trang trong
+app đọc được ảnh của phiên khác nếu đã biết băm", không phải "ai cũng đọc được ảnh".
+
+### Kết quả
+
+Model thật (DeepSeek-V4-Flash) tự mở tab, tự chụp, và **tấm ảnh hiện ra trong khung hội thoại** —
+440×1113, bấm vào mở ra cỡ gốc.
+
+Bài học của cả ngày, gọn lại một câu: **mỗi lớp kiểm chỉ nhìn thấy được lớp nó chạy trong.** Bộ kiểm
+tầng tool có cầu giả nên không thấy giao diện; bộ kiểm giao diện có `DSH_HOME` tạm nên không thấy
+luật cấp quyền của engine; bộ kiểm thẻ có React thật nhưng không có engine nào. Chỉ lượt chạy thật
+mới thấy được cả bốn lớp cùng lúc — và nó tìm ra lỗi ở lớp thứ tư trong ba phút.

@@ -29,7 +29,8 @@
     "spike:surface": "electron scripts/spike-surface.cjs",
     "spike:stage": "electron scripts/spike-stage-order.cjs",
     "spike:tools": "node scripts/spike-tools.mjs",
-    "spike:card": "electron scripts/spike-card.cjs"
+    "spike:card": "electron scripts/spike-card.cjs",
+    "spike:live": "electron scripts/spike-live.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -68,7 +68,7 @@ function fakeShot(width, height) {
   return canvas.toDataURL('image/png')
 }
 
-const loadShot = async (_sessionId, attachment) => fakeShot(attachment.width, attachment.height)
+const loadShot = async (attachment) => fakeShot(attachment.width, attachment.height)
 
 const DONE_META = {
   attachment_id: 'sha256:' + 'a'.repeat(64),

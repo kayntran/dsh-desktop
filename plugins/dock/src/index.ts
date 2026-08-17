@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { registerBusRoutes, type ToolProbe } from './bus-routes.ts'
 import { registerFsRoutes } from './fs-routes.ts'
+import { registerImageRoutes } from './image-routes.ts'
 import { registerPtyRoutes } from './pty-routes.ts'
 import { registerShotRoutes } from './shot-routes.ts'
 import { registerBrowserTools } from './tools.ts'
@@ -32,6 +33,7 @@ export const inject = ['webServer', 'fs', 'workspaceRegistry', 'tools', 'attachm
 export function apply(ctx: Context): void {
   ctx.effect(() => registerFsRoutes(ctx), 'hdw-dock: route Files')
   ctx.effect(() => registerPtyRoutes(ctx), 'hdw-dock: route Terminal')
+  ctx.effect(() => registerImageRoutes(ctx), 'hdw-dock: route ảnh chụp')
   // Cầu nối tới nửa giao diện, và bộ tool đứng trên nó.
   //
   // Hai thứ này buộc phải cùng một `effect`: tool giữ tham chiếu tới `bus`, nên
