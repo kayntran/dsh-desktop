@@ -977,3 +977,14 @@ Panel dùng **kho cookie riêng**, tách khỏi Chrome của người dùng. Đ�
 giúp gì; phải đăng nhập một lần **ngay trong panel Browser của app**, và người dùng tự gõ — không
 bao giờ để agent nhập mật khẩu hộ. Sau khi có phiên đăng nhập trong kho đó thì mới đo được các việc
 thật trên Docs/Sheets.
+
+### Lượt xác nhận cuối: 13/13
+
+Chạy trọn bộ một lượt với mã đã sửa — 13 kịch bản, tất cả đạt. Mục "trích dữ liệu từ bảng" đỏ ở lượt
+áp chót vì agent trả lời **bằng tiếng Việt** (Ấn Độ, Trung Quốc, Hoa Kỳ) còn phép kiểm dò chữ tiếng
+Anh; đã nhận cả hai ngôn ngữ.
+
+Đó là lần thứ ba trong bộ này một phép kiểm chấm sai một lượt chạy đúng, và cả ba cùng một gốc:
+**đo lời văn của model thì mong manh, đo dấu vết nó để lại thì chắc.** Địa chỉ trang đang mở, tấm
+ảnh trên màn hình, khung nhìn trang tự khai — ba thứ đó không phụ thuộc model diễn đạt thế nào, và
+không mục nào dựa vào chúng bị chấm sai lần nào.

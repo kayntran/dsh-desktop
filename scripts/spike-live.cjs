@@ -185,10 +185,23 @@ const SCENARIOS = [
     title: 'trích dữ liệu từ một bảng trên trang',
     prompt: 'Mở https://en.wikipedia.org/wiki/List_of_countries_by_population_(United_Nations) '
       + 'và cho tôi ba nước đông dân nhất kèm số dân.',
-    check: (view) => ({
-      ok: /india/i.test(view.text) && /china/i.test(view.text),
-      detail: `nhắc tới: ${['India', 'China', 'United States'].filter((n) => new RegExp(n, 'i').test(view.text)).join(', ') || '(không nước nào)'}`,
-    }),
+    // Nhận CẢ HAI ngôn ngữ. Agent trả lời bằng tiếng Việt vì câu nhờ bằng tiếng
+    // Việt — hoàn toàn đúng — và bản trước chỉ dò "India"/"China" nên chấm đỏ một
+    // câu trả lời chuẩn xác tới từng con số.
+    //
+    // Bài học chung của cả ba lần chấm sai trong bộ này: **đo lời văn của model
+    // thì mong manh, đo dấu vết nó để lại thì chắc.** Địa chỉ trang, tấm ảnh,
+    // khung nhìn đều không phụ thuộc model diễn đạt thế nào.
+    check: (view) => {
+      const NAMES = [
+        ['India', 'Ấn Độ'], ['China', 'Trung Quốc'], ['United States', 'Hoa Kỳ|Mỹ'],
+      ]
+      const seen = NAMES.filter(([en, vi]) => new RegExp(`${en}|${vi}`, 'i').test(view.text))
+      return {
+        ok: seen.length >= 2,
+        detail: `nhắc tới: ${seen.map(([en]) => en).join(', ') || '(không nước nào)'}`,
+      }
+    },
   },
   {
     id: 'lookup',
