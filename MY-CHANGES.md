@@ -1219,3 +1219,77 @@ sẽ đọc thấy lý do ngay tại chỗ. `npm run spike:manager` nay **14/14 
 người dùng chạm vào. Lần này lỗi nằm trong logic của component, mà không mục kiểm nào chạy component
 đó. Bộ kiểm giao diện tự động cho tab này (kiểu `spike:dock`) là việc còn thiếu, và đây là lần thứ hai
 nó chứng minh mình cần thiết.
+
+## 2026-08-17 — Bộ kiểm bấm thật vào tab Bật/tắt, và lỗi nó bắt được ngay lượt đầu
+
+`scripts/spike-switch-ui.cjs` (`npm run spike:switch`, 13 mục). Mở một cửa sổ Electron thật, nạp trang
+thật, bấm vào Cài đặt → Plugins → tab Bật/tắt, rồi gạt công tắc bằng chuột.
+
+Vì sao: hai lần trong dự án này một lỗi người dùng thấy ngay đã đi qua toàn bộ bộ kiểm — thẻ ảnh chụp
+không hiện ra (60 mục xanh), và bật lại plugin thì không có nút Reload (13 mục xanh). Cả hai lần lỗi
+nằm trong **logic của thành phần giao diện**, mà không mục kiểm nào mở trang và bấm. Dự án đã có đúng
+loại bộ kiểm cần thiết từ lâu (`spike-dock-ui.cjs`); nó chỉ chưa bao giờ được chỉ sang trang Cài đặt.
+
+**Nghiệm thu chính cái lưới, không chỉ nghiệm thu app.** Thả lại con lỗi cũ vào `PluginSwitchTab.tsx`
+(chỉ hỏi `hasClientHalf` trước cú gạt) thì mục 5 và 6 vẫn xanh còn mục 7 và 8 chuyển đỏ — khớp từng
+chữ với điều chủ dự án báo. Hoàn nguyên thì 13/13. Một bộ kiểm chưa từng đỏ thì chưa chứng minh được gì.
+
+**Lỗi thật nó bắt được ngay lượt chạy đúng đầu tiên:** lý do một plugin bị khoá **không bao giờ hiện ra
+được**. Nút bị khoá là `disabled`, mà nút `disabled` không phát sự kiện chuột và không nhận được tiêu
+điểm — nên tooltip không có đường bật lên, trong khi chính câu giới thiệu của tab bảo người dùng rê
+chuột vào nút để xem lý do. Sửa: neo tooltip vào một lớp bọc (`.hdw-pm-lock`), cho nó nhận được cả
+chuột (`pointer-events: none` trên nút) lẫn bàn phím (`tabindex`).
+
+Ba cái bẫy đáng ghi, cả ba chỉ lộ khi chạy thật:
+
+- Hộp chào mừng của upstream đặt `#root.inert = true`. Ở trạng thái đó `.click()` **bị bỏ qua trong im
+  lặng** — không lỗi, không cảnh báo. Nên mục kiểm số 0 phải chờ tới khi `inert` tắt mới đi tiếp.
+- Các hộp onboarding **thay chỗ nhau một-đổi-một**, nên phép đếm "số hộp giảm" không bao giờ đúng. Phải
+  đo bằng danh tính hộp trên cùng.
+- Mục Plugins trong nav **không có thuộc tính nào ổn định** và nhãn thì đổi theo ngôn ngữ. Bám bằng hệ
+  quả: bấm thử từng mục nav rồi dừng khi tab của ta xuất hiện. Tab của ta thì bám được chính xác —
+  upstream dựng `id` của tab từ id đăng ký, nên `hdw-switch` có thật trong DOM.
+
+## 2026-08-17 — App nói tiếng Anh trọn vẹn: chữ cho agent, chữ trên màn hình, và 1849 dòng chú thích
+
+`src/main/` và `plugins/dock/` nay không còn một chữ tiếng Việt nào. Ba lớp:
+
+1. **Chữ agent đọc** — mô tả 12 tool và mọi câu lỗi đi về tới model. Ba chỗ trong mô tả tool là hợp
+   đồng hành vi chứ không phải văn xuôi, nên giữ nguyên ý từng chữ: câu chặn tiêm lệnh, quy tắc mã
+   tham chiếu được cấp lại mỗi lần đọc, và lời hứa báo tên kẻ đang che thay vì bấm trượt.
+2. **Mười chỗ vẫn hiện trên màn hình** mà lượt dịch trước sót — xem `.claude/rules/naming.md`.
+3. **1849 dòng chú thích**, dịch tay từng khối. Khoảng 40% nằm trong khối `@module` dài 15–42 dòng ghi
+   lại *vì sao* một cách làm bị loại, và dẫn ra bằng chứng không suy lại được từ mã.
+
+Ba chỗ chú thích đã **nói sai so với mã**, sửa chứ không dịch: một đoạn bảo chữ trong thẻ ảnh là tiếng
+Việt (đã là tiếng Anh từ lâu), và hai chỗ đếm sai số tool.
+
+Sáu mục kiểm phải sửa theo vì chúng dò chữ tiếng Việt của app. Một chỗ suýt lọt: mục 18f dò chữ `TẮT`
+— viết hoa, không dấu nào ở chữ thường, nên mọi phép quét theo dấu đều đi qua nó. **Quét theo dấu là
+chưa đủ.**
+
+Và hai mục kiểm vốn đã **nói dối từ trước**, cùng lộ ra khi chụp mốc: `spike:dock` mục 19d dò một câu
+đã dịch, `spike:plugin` mục 2 dò một dòng log không còn tồn tại — mục sau còn báo sai theo chiều nguy
+hiểm hơn (nửa Node vẫn luôn chạy, nó bảo là KHÔNG). Nay đo bằng dấu vết thật.
+
+`scripts/` mới dọn được 4 trong 20 file; hai file khó nhất và lý do để lại ghi ở
+`.claude/rules/naming.md`, mục "Chỗ còn lệch".
+
+## 2026-08-17 — Lượt chạy model thật sau khi dịch: 14/16, và phép đo A/B cho mục đỏ
+
+`npm run spike:live` với `~/.dsh` thật, sau khi mô tả 12 tool đổi sang tiếng Anh. **14/16 đạt.** Model
+vẫn làm xong việc: đọc trang, gõ vào ô tìm kiếm rồi đọc kết quả, bấm liên kết, chụp ảnh và ảnh hiện
+ra, xem trang ở cỡ điện thoại, mở nhiều tab, xem danh sách request, cuộn và đọc phần dưới, trích dữ
+liệu từ bảng, tra một con số, mở nhiều nguồn để so sánh, và báo đúng khi một trang cần đăng nhập.
+
+Hai mục đỏ, và **cả hai đều không phải do việc dịch**:
+
+- **Google Docs** — chưa đăng nhập Google trong panel ở lượt chạy này. Bộ kiểm nói thẳng lý do đó.
+- **Điền form rồi gửi** — agent điền xong rồi **dừng lại hỏi người dùng** thay vì bấm gửi. Mục này
+  từng đạt trong sổ, nên không loại trừ được ngay là do chữ mới. Đã **đo A/B**: trả `tools.ts` về đúng
+  bản tiếng Việt của commit trước, dựng lại, chạy lại riêng mục đó — **đỏ y hệt**. Vậy nguyên nhân
+  nằm ở hành vi của agent trước một việc gửi đi không hoàn tác được, không nằm ở ngôn ngữ mô tả tool.
+
+Bài học về cách kết luận: một mục đỏ ngay sau một thay đổi lớn *trông* như hậu quả của thay đổi đó.
+Cách duy nhất biết được là hoàn nguyên đúng một thứ rồi đo lại — tốn một lượt gọi model, và đổi lại là
+một câu trả lời chắc chắn thay vì một lời phỏng đoán ghi vào sổ.

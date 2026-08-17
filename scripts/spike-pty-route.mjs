@@ -1,17 +1,17 @@
 /**
- * Spike đường WebSocket của tab Terminal — kiểm nửa Node mà không cần mở giao diện.
+ * A spike for the Terminal tab's WebSocket route — tests the Node half with no UI open.
  *
- * Khởi động engine đúng cách app khởi động nó (Node runtime đóng gói + `--patch`
- * trỏ vào plugin), rồi đóng vai trình duyệt: mở `/hdw/pty`, gõ một lệnh, đọc kết
- * quả, và thử hai đường bị từ chối.
+ * It starts the engine the way the app starts it (the bundled Node runtime plus a
+ * `--patch` pointing at the plugin), then plays the browser: open `/hdw/pty`, type a
+ * command, read the output, and try the two paths that must be refused.
  *
- * Sáu mục:
- *   1. plugin nạp được — route `/hdw/pty` có người nhận
- *   2. rào workspace: thư mục lạ bị TỪ CHỐI
- *   3. rào tin cậy: Origin của trang khác bị TỪ CHỐI
- *   4. mở được phiên, có khung `ready`
- *   5. gõ lệnh vào → kết quả chảy về
- *   6. đóng WebSocket → shell chết theo, không mồ côi
+ * Six checks:
+ *   1. the plugin loads — something answers on `/hdw/pty`
+ *   2. the workspace gate: an unknown directory is REFUSED
+ *   3. the trust gate: another page's Origin is REFUSED
+ *   4. a session opens, with a `ready` frame
+ *   5. a typed command produces output flowing back
+ *   6. closing the WebSocket kills the shell with it, leaving no orphan
  *
  *   node scripts/spike-pty-route.mjs
  */
@@ -36,13 +36,13 @@ const record = (name, ok, detail) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === undefined ? '' : ` — ${detail}`}`)
 }
 
-// DSH_HOME riêng: spike không được đụng vào lịch sử phiên thật của chủ dự án.
+// Its own DSH_HOME: the spike must not touch the owner's real session history.
 const home = mkdtempSync(join(tmpdir(), 'hdw-pty-'))
 
-// Junction bắt buộc, không phải tuỳ chọn: engine phân giải plugin bằng TÊN GÓI
-// từ thư mục profile, nên khai đường dẫn trong `cordis.patch.yml` là chưa đủ.
-// Đây chính là việc `src/main/plugin-link.ts` làm mỗi lần app khởi động; dựng
-// lại ở đây để DSH_HOME tạm cũng thấy plugin.
+// The junction is mandatory, not optional: the engine resolves a plugin by PACKAGE NAME
+// from the profile directory, so declaring a path in `cordis.patch.yml` is not enough.
+// This is exactly what `src/main/plugin-link.ts` does on every app launch; rebuilt here so
+// the temporary DSH_HOME can see the plugin too.
 const nmDir = join(home, 'profiles', 'node_' + 'modules')
 mkdirSync(nmDir, { recursive: true })
 symlinkSync(join(root, 'plugins', 'dock'), join(nmDir, 'harness-desktop-dock'), 'junction')
@@ -50,11 +50,11 @@ symlinkSync(join(root, 'plugins', 'dock'), join(nmDir, 'harness-desktop-dock'), 
 console.log(`node:     ${nodeExe}`)
 console.log(`DSH_HOME: ${home}\n`)
 
-// Lớp patch thứ hai: một plugin tạm đăng ký thư mục dự án thành workspace, để
-// rào workspace của route có cái hợp lệ mà đối chiếu. DSH_HOME mới tinh thì
-// chưa có workspace nào, và khi đó MỌI kết nối đều bị từ chối — đúng luật,
-// nhưng như vậy thì không kiểm được đường thành công. Đặt qua biến môi trường
-// để spike không phụ thuộc vào một file nằm ngoài dự án.
+// A second patch layer: a throwaway plugin registers the project directory as a
+// workspace, so the route's workspace gate has something valid to compare against. A
+// brand-new DSH_HOME has no workspace at all, and then EVERY connection is refused —
+// correct by the rules, but it leaves the success path untested. Supplied through an
+// environment variable so the spike does not depend on a file outside the project.
 const seedPatch = process.env['HDW_SEED_PATCH']
 const patchArgs = seedPatch === undefined
   ? ['--patch', patch]
@@ -92,106 +92,107 @@ const baseUrl = await new Promise((resolve, reject) => {
 })
 
 const wsBase = baseUrl.replace('http://', 'ws://')
-const ket = (u, headers) => new Promise((resolve) => {
+const connect = (u, headers) => new Promise((resolve) => {
   const ws = new WebSocket(u, headers === undefined ? undefined : { headers })
-  const khung = []
-  const timer = setTimeout(() => resolve({ ws, mo: false, khung, ly_do: 'hết 12s' }), 12_000)
+  const frames = []
+  const timer = setTimeout(() => resolve({ ws, open: false, frames, reason: 'hết 12s' }), 12_000)
   ws.binaryType = 'arraybuffer'
-  ws.addEventListener('message', (e) => { khung.push(e.data) })
-  ws.addEventListener('open', () => { clearTimeout(timer); resolve({ ws, mo: true, khung }) })
-  ws.addEventListener('error', () => { clearTimeout(timer); resolve({ ws, mo: false, khung, ly_do: 'bị từ chối' }) })
+  ws.addEventListener('message', (e) => { frames.push(e.data) })
+  ws.addEventListener('open', () => { clearTimeout(timer); resolve({ ws, open: true, frames }) })
+  ws.addEventListener('error', () => { clearTimeout(timer); resolve({ ws, open: false, frames, reason: 'bị từ chối' }) })
 })
-const cho = (ms) => new Promise((r) => setTimeout(r, ms))
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-// Chờ registry workspace bootstrap xong.
+// Wait for the workspace registry to finish bootstrapping.
 //
-// Dòng URL readiness in ra SỚM HƠN lúc registry sẵn sàng: nó có hai phụ thuộc
-// khởi động riêng (`storageDomain`, `sessionPersistence`) và chỉ nạp danh sách
-// workspace sau khi cả hai lên. Hỏi ngay lúc thấy URL là gặp một registry còn
-// rỗng, và rào sẽ từ chối mọi thứ — trông y hệt như rào thủng ngược.
+// The readiness URL line prints EARLIER than the registry becomes ready: the registry has
+// two startup dependencies of its own (`storageDomain`, `sessionPersistence`) and only
+// loads the workspace list once both are up. Asking the moment the URL appears finds an
+// empty registry, and the gate then refuses everything — which looks exactly like an
+// inverted gate.
 //
-// Route Files dùng ĐÚNG rào mà route Terminal dùng, và nó trả lời bằng HTTP kèm
-// lý do bằng chữ, nên nó là chỗ hỏi tốt nhất: một lời từ chối ở tầng WebSocket
-// chỉ là "kết nối đứt", không nói được vì sao.
+// The Files route uses THE SAME gate the Terminal route uses, and it answers over HTTP
+// with a reason in words, so it is the best place to ask: a refusal at the WebSocket layer
+// is only "the connection dropped" and says nothing about why.
 {
   const q = `root=${encodeURIComponent(root)}&path=${encodeURIComponent(root)}`
-  let cuoi = ''
+  let last = ''
   for (let i = 0; i < 40; i += 1) {
     const res = await fetch(`${baseUrl}/hdw/fs/list?${q}`)
-    cuoi = `HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`
+    last = `HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`
     if (res.ok) break
     await new Promise((r) => setTimeout(r, 500))
   }
-  console.log(`  (chuẩn đoán) /hdw/fs/list → ${cuoi}\n`)
+  console.log(`  (chuẩn đoán) /hdw/fs/list → ${last}\n`)
 }
 
-// --- 1 + 2. Thư mục lạ phải bị từ chối --------------------------------------
+// --- 1 + 2. An unknown directory has to be refused ---------------------------
 //
-// Chạy TRƯỚC mục mở phiên: nếu rào thủng thì phải biết ngay, đừng để một mục
-// PASS ở dưới làm yên tâm nhầm.
+// Run BEFORE the session-opening check: if the gate leaks, that has to be known at once,
+// rather than letting a PASS further down create false confidence.
 
 {
-  const la = await ket(`${wsBase}/hdw/pty?cwd=${encodeURIComponent('C:/Windows/System32')}&cols=80&rows=24`)
-  record('2. rào workspace: thư mục lạ bị từ chối', !la.mo, la.mo ? 'MỞ ĐƯỢC — RÀO THỦNG' : la.ly_do)
-  la.ws.close()
+  const stranger = await connect(`${wsBase}/hdw/pty?cwd=${encodeURIComponent('C:/Windows/System32')}&cols=80&rows=24`)
+  record('2. rào workspace: thư mục lạ bị từ chối', !stranger.open, stranger.open ? 'MỞ ĐƯỢC — RÀO THỦNG' : stranger.reason)
+  stranger.ws.close()
 }
 
-// --- 3. Rào tin cậy: Origin của trang khác ----------------------------------
+// --- 3. The trust gate: another page's Origin --------------------------------
 
 {
-  const cheo = await ket(`${wsBase}/hdw/pty?cwd=${encodeURIComponent(root)}&cols=80&rows=24`, {
+  const crossSite = await connect(`${wsBase}/hdw/pty?cwd=${encodeURIComponent(root)}&cols=80&rows=24`, {
     origin: 'http://evil.example',
   })
-  record('3. rào tin cậy: Origin lạ bị từ chối', !cheo.mo, cheo.mo ? 'MỞ ĐƯỢC — RÀO THỦNG' : cheo.ly_do)
-  cheo.ws.close()
+  record('3. rào tin cậy: Origin lạ bị từ chối', !crossSite.open, crossSite.open ? 'MỞ ĐƯỢC — RÀO THỦNG' : crossSite.reason)
+  crossSite.ws.close()
 }
 
-// --- 1 + 4. Mở phiên thật ---------------------------------------------------
+// --- 1 + 4. Open a real session ---------------------------------------------
 
-const phien = await ket(`${wsBase}/hdw/pty?cwd=${encodeURIComponent(root)}&cols=100&rows=30`)
-record('1. plugin nạp được, route /hdw/pty có người nhận', phien.mo || phien.ly_do !== 'hết 12s',
-  phien.mo ? 'kết nối mở' : String(phien.ly_do))
+const session = await connect(`${wsBase}/hdw/pty?cwd=${encodeURIComponent(root)}&cols=100&rows=30`)
+record('1. plugin nạp được, route /hdw/pty có người nhận', session.open || session.reason !== 'hết 12s',
+  session.open ? 'kết nối mở' : String(session.reason))
 
-if (!phien.mo) {
+if (!session.open) {
   record('4. nhận được khung ready', false, 'không mở được kết nối')
   console.log('\n--- stderr engine ---\n' + stderr.slice(-3000))
 } else {
-  await cho(2500)
-  const dieuKhien = phien.khung.filter((k) => typeof k === 'string').map((k) => JSON.parse(k))
-  const ready = dieuKhien.find((k) => k.t === 'ready')
+  await sleep(2500)
+  const control = session.frames.filter((k) => typeof k === 'string').map((k) => JSON.parse(k))
+  const ready = control.find((k) => k.t === 'ready')
   record('4. nhận được khung ready', ready !== undefined,
-    ready === undefined ? JSON.stringify(dieuKhien).slice(0, 200) : `pid ${ready.pid}, ${ready.shell}`)
+    ready === undefined ? JSON.stringify(control).slice(0, 200) : `pid ${ready.pid}, ${ready.shell}`)
 
-  // --- 5. Gõ lệnh vào -------------------------------------------------------
-  phien.khung.length = 0
-  phien.ws.send(new TextEncoder().encode('echo hdw-route-ok\r'))
-  await cho(3000)
-  const man = phien.khung
+  // --- 5. Type a command ----------------------------------------------------
+  session.frames.length = 0
+  session.ws.send(new TextEncoder().encode('echo hdw-route-ok\r'))
+  await sleep(3000)
+  const screen = session.frames
     .filter((k) => k instanceof ArrayBuffer)
     .map((k) => new TextDecoder().decode(k))
     .join('')
-  record('5. gõ lệnh vào → kết quả chảy về', man.includes('hdw-route-ok'),
-    man.includes('hdw-route-ok') ? `${man.length} byte màn hình` : JSON.stringify(man.slice(0, 200)))
+  record('5. gõ lệnh vào → kết quả chảy về', screen.includes('hdw-route-ok'),
+    screen.includes('hdw-route-ok') ? `${screen.length} byte màn hình` : JSON.stringify(screen.slice(0, 200)))
 
-  // --- 6. Đóng kết nối → shell chết theo ------------------------------------
+  // --- 6. Closing the connection kills the shell with it ---------------------
   const pid = ready?.pid
-  phien.ws.close()
-  await cho(3000)
-  let conSong = true
+  session.ws.close()
+  await sleep(3000)
+  let stillAlive = true
   try {
-    const ra = execFileSync('tasklist', ['/fi', `PID eq ${String(pid)}`, '/nh'], { encoding: 'utf8' })
-    conSong = ra.includes(String(pid))
+    const listing = execFileSync('tasklist', ['/fi', `PID eq ${String(pid)}`, '/nh'], { encoding: 'utf8' })
+    stillAlive = listing.includes(String(pid))
   } catch {
-    conSong = false
+    stillAlive = false
   }
-  record('6. đóng WebSocket → shell chết theo', !conSong, `pid ${String(pid)} ${conSong ? 'CÒN SỐNG' : 'đã biến mất'}`)
+  record('6. đóng WebSocket → shell chết theo', !stillAlive, `pid ${String(pid)} ${stillAlive ? 'CÒN SỐNG' : 'đã biến mất'}`)
 }
 
 console.log('\n=== KẾT QUẢ ===')
-const hong = results.filter((r) => !r.ok)
-console.log(hong.length === 0
+const failed = results.filter((r) => !r.ok)
+console.log(failed.length === 0
   ? 'Tất cả đạt. Nửa Node của tab Terminal chạy đúng, cả hai rào an toàn đều giữ.'
-  : `${hong.length}/${results.length} mục KHÔNG đạt: ${hong.map((r) => r.name).join(', ')}`)
+  : `${failed.length}/${results.length} mục KHÔNG đạt: ${failed.map((r) => r.name).join(', ')}`)
 
-try { execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* đã tắt */ }
-process.exit(hong.length === 0 ? 0 : 1)
+try { execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* already stopped */ }
+process.exit(failed.length === 0 ? 0 : 1)

@@ -49,10 +49,18 @@ qua stdout. Chú thích trong chính các file đó vẫn theo luật chung.
 ## Đổi luật ngày 2026-08-17
 
 Trước ngày này, luật ngược lại: chú thích và chữ trên màn hình bằng **tiếng Việt**. Chủ dự án đổi vì
-lý do ở trên. Hệ quả còn tồn: `plugins/dock/` và `src/main/` vẫn còn chú thích và một số nhãn tiếng
-Việt (`'Đóng panel'`, `'Cho agent điều khiển trình duyệt'`). **Dọn dần trong lúc sửa từng file**, đừng
-dịch hàng loạt bằng regex — chú thích ở đó ghi lại vì sao từng quyết định được chọn, và dịch máy sẽ
-làm mất đúng phần đó.
+lý do ở trên.
+
+**Dọn xong cùng ngày:** `src/main/` và `plugins/dock/` nay không còn một chữ tiếng Việt nào — chú
+thích, câu lỗi, nhãn trên màn hình, chú thích trong `tsconfig.json` và `cordis.patch.yml`. Dịch tay
+từng khối chứ không bằng regex: các khối `@module` ở đó ghi lại *vì sao* từng quyết định được chọn,
+và dịch máy làm mất đúng phần đó. Ba chỗ chú thích đã nói sai so với mã thì sửa chứ không dịch.
+
+Cùng lượt đó, **mười chỗ tiếng Việt vẫn đang hiện trên màn hình** mới lộ ra: năm câu lỗi khi engine
+không khởi động được (màn hình đầu tiên của một người cài lỗi), ba chỗ `'không rõ'` ở màn hình About,
+tên tab khi chặn chuyển hướng, và tên file ảnh đính kèm. Bài học: *"đã dịch giao diện"* không có
+nghĩa là đã dịch hết chữ người dùng thấy — chữ dựng ở lớp vỏ rồi bơm vào một trang tiếng Anh vẫn là
+chữ trên màn hình.
 
 ## Sai — đúng, lấy từ chính dự án này
 
@@ -109,7 +117,17 @@ for f in $(ls plugins/dock/src/*.ts plugins/dock/src/client/* src/main/*.ts); do
 
 ## Chỗ còn lệch
 
-`scripts/spike-*.cjs|mjs` vẫn còn tên tiếng Việt. Cố ý để lại: đó là mã kiểm không có bộ kiểm kiểu
-nào bắt lỗi, nên đổi tên hàng loạt bằng regex ở đó là cách chắc chắn nhất để làm hỏng chính cái lưới
-an toàn dùng để nghiệm thu mọi thay đổi khác. Dọn dần **trong lúc** sửa từng file, mỗi đợt chạy lại
-`npm run spike:dock` ngay sau đó. Hook vẫn gác mọi tên mới thêm vào chúng.
+`scripts/` đang dọn dần. Xong: `spike-pty.mjs`, `spike-pty-route.mjs`, `spike-stage-order.cjs`,
+`spike-surface.cjs`; `spike-switch-ui.cjs` sinh ra đã là tiếng Anh. Còn lại 15 file.
+
+Hai file khó nhất, cố ý để sau cùng:
+
+- **`spike-dock-ui.cjs`** — khoảng 120 tên tiếng Việt, và nó chính là cái lưới dùng để nghiệm thu mọi
+  thay đổi khác. Đổi tên ở đó phải chạy lại `npm run spike:dock` (62 mục) ngay sau, theo từng đợt nhỏ.
+- **`spike-webview.cjs`** — tên tiếng Việt nằm cả trong chuỗi HTML của trang thử (`nut`, `san`,
+  `con-nguyen`), và chính các mục kiểm dò đúng những chuỗi đó. Đổi một bên mà quên bên kia thì mục
+  kiểm đỏ mà không nói được vì sao.
+
+Nguyên tắc khi dọn: **chữ in ra terminal giữ tiếng Việt** (xem mục ngoại lệ ở trên), biến môi trường
+`HDW_*` giữ nguyên tên vì chủ dự án gõ tay chúng, và mỗi file dọn xong thì chạy lại đúng bộ kiểm của
+nó trước khi sang file sau. Hook vẫn gác mọi tên mới thêm vào.
