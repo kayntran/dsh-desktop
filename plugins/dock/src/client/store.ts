@@ -1,28 +1,29 @@
 /**
- * Trạng thái của panel: mở/đóng, bề rộng, và danh sách pane đang mở.
+ * The panel's state: open/closed, its width, and the list of open panes.
  *
- * Dựng bằng `createSnapshotStore` chứ không phải `defineStore`, và lý do nằm ở
- * chỗ ĐẶT nút. Panel sống ở lớp nổi của cả cửa sổ (phạm vi `root`), còn nút
- * bật/tắt sống trong header của TỪNG PHIÊN (phạm vi `session`). `defineStore`
- * phát cho mỗi phạm vi một bản sao riêng — cùng một khai báo, hai instance —
- * nên nút ở phiên sẽ bật/tắt một bản sao mà panel không hề nhìn thấy: bấm vào
- * không có gì xảy ra, và không có lỗi nào báo.
+ * Built with `createSnapshotStore` rather than `defineStore`, and the reason lies in
+ * WHERE the button sits. The panel lives in the whole window's overlay layer (`root`
+ * scope), while the on/off button lives in EACH SESSION's header (`session` scope).
+ * `defineStore` hands each scope its own copy — one declaration, two instances — so the
+ * button in a session would toggle a copy the panel never sees: clicking does nothing,
+ * and no error is reported.
  *
- * Kho dựng ở tầng plugin thì chỉ có đúng một, và cả hai bên nhận chính nó qua
- * `inject`. Đây là cơ chế của upstream, không phải lối đi vòng: plugin
- * agent-preset của họ chuyền `SnapshotStore` cho các slot y hệt cách này.
+ * A store built at plugin level exists exactly once, and both sides receive that very
+ * store through `inject`. This is upstream's own mechanism, not a workaround: their
+ * agent-preset plugin passes a `SnapshotStore` to slots in precisely this way.
  *
- * `persist` vẫn do upstream lo: đọc lại từ localStorage lúc dựng, ghi lại mỗi
- * lần đổi, và nếu localStorage hỏng thì tự tắt phần lưu chứ không làm vỡ kho.
+ * `persist` is still upstream's job: read back from localStorage at construction,
+ * written on every change, and if localStorage is broken it disables persistence rather
+ * than breaking the store.
  *
- * ## Một dải pane, không phải ba tab cố định
+ * ## One strip of panes, not three fixed tabs
  *
- * Files, mỗi terminal, mỗi trang web đều là một `Pane` ngang hàng trong cùng
- * một danh sách — đúng kiểu của app tham chiếu. Cái được không chỉ là hình
- * thức: **chỉ có một danh sách và một chủ sở hữu**. Bản trước có một `tab` cố
- * định cộng (về sau sẽ có) danh sách tab web riêng, tức hai mô tả về "đang xem
- * cái gì", và hai mô tả thì sớm muộn lệch nhau — đó chính là lỗi mà dự án tham
- * chiếu đã phải gỡ và ghi lại trong `browserStore.ts` của họ.
+ * Files, each terminal and each web page are all peer `Pane`s in one list — the same
+ * shape as the reference app. The gain is not only cosmetic: **there is one list and one
+ * owner**. An earlier version had one fixed `tab` plus (eventually) a separate list of
+ * web tabs, meaning two descriptions of "what is being viewed", and two descriptions
+ * eventually disagree — which is exactly the bug the reference project had to untangle
+ * and recorded in their own `browserStore.ts`.
  * @module
  */
 
@@ -30,91 +31,92 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import { isPublicUrl } from '../net-policy.ts'
 import type { TabOwner } from './browser-stage.ts'
 
-/** Loại của một pane. */
+/** A pane's kind. */
 export type PaneKind = 'files' | 'terminal' | 'browser'
 
-/** Bề rộng nhỏ nhất còn đọc được cây thư mục. */
+/** The narrowest width at which the directory tree is still readable. */
 export const MIN_WIDTH = 220
 
-/** Bề rộng lớn nhất, để panel không nuốt mất hội thoại. */
+/** The widest width, so the panel does not swallow the conversation. */
 export const MAX_WIDTH = 720
 
-/** Một pane trong dải. */
+/** One pane in the strip. */
 export interface Pane {
-  /** Định danh bền, dùng làm khoá React và làm tên tab cho agent gọi tới. */
+  /** A durable identifier, used as the React key and as the tab name the agent addresses. */
   id: string
   kind: PaneKind
   /**
-   * Chữ trên pill. Files là hằng số; terminal lấy tên shell; trang web lấy
-   * tiêu đề trang — **do trang tự đặt**, nên chỉ dùng để hiện, không bao giờ
-   * dùng để quyết định gì.
+   * The text on the pill. Files is a constant; a terminal takes the shell's name; a web
+   * page takes the page title — **set by the page itself**, so it is only ever
+   * displayed and never used to decide anything.
    */
   title: string
-  /** Chỉ với `kind: 'browser'` — địa chỉ đang mở. */
+  /** Only for `kind: 'browser'` — the address currently open. */
   url?: string
   /**
-   * Ai mở tab này. Thiếu thì coi như người dùng — mọi tab từ bản trước đều là
-   * tab người dùng, và đó cũng là hướng đoán an toàn: nó chỉ NỚI cho tab thật
-   * của người dùng, không nới cho tab của agent.
+   * Who opened this tab. Absent means the user — every tab from an earlier version is a
+   * user tab, and that is also the safe direction to guess: it only RELAXES things for a
+   * genuine user tab, never for an agent's tab.
    */
   openedBy?: TabOwner
 }
 
-/** Trạng thái panel, cùng một hình dạng cho cả panel lẫn nút bật/tắt. */
+/** The panel's state, one shape shared by the panel and its on/off button. */
 export interface DockState {
   open: boolean
   width: number
   panes: Pane[]
-  /** Pane đang hiện. `undefined` khi dải rỗng. */
+  /** The pane currently showing. `undefined` when the strip is empty. */
   activeId: string | undefined
   /**
-   * Cho agent bấm, gõ, cuộn, điền form trong trình duyệt của panel.
+   * Let the agent click, type, scroll and fill forms in the panel's browser.
    *
-   * Bật sẵn. Tắt thì agent vẫn **đọc** được trang: bịt mắt nó không ngăn được
-   * nó hành động, chỉ làm nó hành động mù.
+   * On by default. Turned off, the agent can still **read** the page: blindfolding it
+   * does not stop it acting, it only makes it act blind.
    *
-   * Kho này chỉ là chỗ LƯU và chỗ người dùng bấm. Nguồn sự thật lúc thi hành
-   * nằm ở nửa Node — một rào mà bên bị chặn tự gỡ được thì không phải rào.
+   * This store is only where the choice is KEPT and where the user clicks. The source of
+   * truth at enforcement time lives in the Node half — a gate the blocked party can lift
+   * for itself is not a gate.
    */
   agentControl: boolean
 }
 
-/** Bộ ghi của panel. Component chỉ được đổi trạng thái qua đây. */
+/** The panel's writers. Components may only change state through these. */
 export interface DockActions {
   toggle: () => void
   close: () => void
   setWidth: (px: number) => void
   /**
-   * Mở một pane mới và chuyển sang nó.
+   * Open a new pane and switch to it.
    *
-   * Files là **duy nhất**: gọi lại chỉ chuyển sang cái đang có. Hai cây thư mục
-   * của cùng một workspace không nói được điều gì khác nhau, mà lại làm dải tab
-   * dài ra vô ích.
-   * @returns id của pane đang hiện sau lời gọi.
+   * Files is **unique**: calling again only switches to the existing one. Two directory
+   * trees of the same workspace cannot say anything different from each other, while
+   * they do make the tab strip needlessly longer.
+   * @returns the id of the pane showing after the call.
    */
   openPane: (kind: PaneKind, url?: string, openedBy?: TabOwner) => string
   closePane: (id: string) => void
   setActive: (id: string) => void
-  /** Bật/tắt quyền agent thao tác trên trang. */
+  /** Turn the agent's permission to act on the page on or off. */
   setAgentControl: (allowed: boolean) => void
-  /** Cập nhật chữ trên pill và địa chỉ, khi trang đổi tiêu đề hoặc điều hướng. */
+  /** Update the pill's text and the address, when a page retitles itself or navigates. */
   describePane: (id: string, patch: { title?: string | undefined, url?: string | undefined }) => void
 }
 
-/** Kho cộng bộ ghi, dựng một lần trong `apply` rồi chia cho các slot. */
+/** The store plus its writers, built once inside `apply` and shared with the slots. */
 export interface Dock {
   store: SnapshotStore<DockState>
   actions: DockActions
 }
 
-/** Chữ mặc định trên pill của từng loại. */
+/** Each kind's default pill text. */
 const LABELS: Record<PaneKind, string> = {
   files: 'Files',
   terminal: 'Terminal',
   browser: 'New page',
 }
 
-/** Id ngắn, duy nhất trong một phiên chạy. */
+/** A short id, unique within one run. */
 let counter = 0
 function newId(kind: PaneKind): string {
   counter += 1
@@ -122,22 +124,21 @@ function newId(kind: PaneKind): string {
 }
 
 /**
- * Chọn pane kế tiếp sau khi đóng pane đang xem.
+ * Pick the next pane after closing the one being viewed.
  *
- * Lấy cái bên phải, không có thì lấy cái bên trái — đúng thói quen của mọi
- * trình duyệt. Trả `undefined` khi vừa đóng cái cuối cùng.
+ * Take the one to the right, or failing that the one to the left — the habit every
+ * browser has. Returns `undefined` when the last one was just closed.
  */
 function nextAfterClose(panes: readonly Pane[], index: number): string | undefined {
   return panes[index]?.id ?? panes[index - 1]?.id
 }
 
 /**
- * Dựng kho trạng thái panel.
+ * Build the panel's state store.
  *
- * Gọi trong `apply` chứ không phải ở cấp module: một kho ở cấp module là một
- * singleton trá hình, sẽ sống sót qua các lần nạp lại plugin và mang trạng thái
- * cũ sang bản mới.
- * @returns kho và bộ ghi đã buộc vào nó.
+ * Called inside `apply` rather than at module level: a module-level store is a singleton
+ * in disguise; it survives plugin reloads and carries old state into the new build.
+ * @returns the store and the writers bound to it.
  */
 export function createDock(): Dock {
   const first: Pane = { id: newId('files'), kind: 'files', title: LABELS.files }
@@ -146,9 +147,9 @@ export function createDock(): Dock {
     { persist: { name: 'hdw.dock' } },
   )
 
-  // Trạng thái đọc lại từ lần trước có thể tới từ một bản plugin cũ hơn (khoá
-  // `hdw.dock` không đổi qua các bản). Dọn một lần lúc dựng, để phần còn lại
-  // của code không phải phòng thủ ở mọi chỗ đọc.
+  // State read back from a previous run may come from an older plugin build (the
+  // `hdw.dock` key does not change between builds). Clean it once at construction, so the
+  // rest of the code does not have to defend itself at every read.
   store.update((d) => {
     if (!Array.isArray(d.panes) || d.panes.length === 0) {
       const files: Pane = { id: newId('files'), kind: 'files', title: LABELS.files }
@@ -157,15 +158,15 @@ export function createDock(): Dock {
     if (!d.panes.some((p) => p.id === d.activeId)) d.activeId = d.panes[0]?.id
     if (typeof d.agentControl !== 'boolean') d.agentControl = true
 
-    // Địa chỉ do AGENT mở không được sống lại sau khi tắt app.
+    // An address the AGENT opened must not come back to life after the app closes.
     //
-    // Kho panel có `persist`, nên một địa chỉ agent mở hôm nay sẽ tự mở lại ở
-    // lần chạy sau — và ở lượt đó nó KHÔNG đi qua phép kiểm nào, vì phép kiểm
-    // chỉ chạy lúc agent gọi lệnh mở. Kiểm lại ngay lúc đọc là chỗ duy nhất bịt
-    // được.
+    // The panel store has `persist`, so an address the agent opened today would reopen
+    // itself on the next run — and on that pass it would go through NO check at all,
+    // because the check only runs when the agent calls the open command. Re-checking at
+    // read time is the only place this can be closed.
     //
-    // Tab người dùng tự mở thì không đụng tới: gõ tay địa chỉ router hay NAS là
-    // việc chính đáng, và nó phải sống qua các lần mở app như mọi tab khác.
+    // A tab the user opened is left alone: typing a router's or a NAS's address by hand is
+    // legitimate, and it should survive launches like any other tab.
     for (const pane of d.panes) {
       if (pane.openedBy !== 'agent') continue
       if (pane.url !== undefined && !isPublicUrl(pane.url)) {

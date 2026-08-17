@@ -1,19 +1,20 @@
 /**
- * Làm cho plugin riêng của app phân giải được từ phía engine.
+ * Make the app's own plugins resolvable from the engine's side.
  *
- * Vì sao cần bước này: engine tìm nửa giao diện của một plugin bằng
- * `createRequire(<thư mục profile>).resolve('<tên gói>/package.json')`. Thư mục
- * profile nằm trong `~/.dsh`, còn plugin của ta nằm trong thư mục app — Node
- * không có đường nào đi từ chỗ nọ sang chỗ kia. Một junction trong cây phân
- * giải của profile nối hai chỗ lại.
+ * Why this step is needed: the engine finds a plugin's client half through
+ * `createRequire(<profile dir>).resolve('<package name>/package.json')`. The profile
+ * directory lives inside `~/.dsh`, while our plugins live inside the app directory —
+ * Node has no route from one to the other. A junction inside the profile's
+ * resolution tree joins them.
  *
- * Khai đường dẫn tuyệt đối trong `cordis.patch.yml` thay cho tên gói thì nửa
- * Node vẫn chạy, engine không báo lỗi gì, mà panel đơn giản là không bao giờ
- * hiện ra — nên bước này không có đường tắt nào an toàn hơn.
+ * Declaring an absolute path in `cordis.patch.yml` instead of a package name still
+ * loads the Node half, the engine reports no error, and the panel simply never
+ * appears — so this step has no shortcut that is any safer.
  *
- * Chỗ đặt junction là `<DSH_HOME>/profiles/node_modules/`, đúng thư mục mà
- * upstream tự dựng và tự chữa cây junction của nó
- * (`healProfilesModuleFallback`), và routine đó chỉ thêm chứ không xoá tên lạ.
+ * The junction goes into `<DSH_HOME>/profiles/node_modules/`, the very directory
+ * upstream builds and repairs its own junction tree in
+ * (`healProfilesModuleFallback`), and that routine only adds; it never deletes names
+ * it does not recognize.
  * @module
  */
 
@@ -40,13 +41,14 @@ function lstatOrUndefined(path: string): ReturnType<typeof lstatSync> | undefine
 }
 
 /**
- * Dựng junction trỏ tới một thư mục, gọi lại được nhiều lần.
+ * Create a junction pointing at a directory; safe to call repeatedly.
  *
- * Luôn tạo lại thay vì so đích cũ: trên Windows, `readlink` của một junction
- * trả về dạng `\\?\D:\...` nên so chuỗi không đáng tin, mà tạo lại thì rẻ.
- * @param link - đường dẫn junction cần có.
- * @param target - thư mục thật nó trỏ tới.
- * @throws khi vị trí junction đã bị một thư mục thật chiếm chỗ.
+ * It always recreates rather than comparing the old target: on Windows, `readlink`
+ * on a junction returns the `\\?\D:\...` form, so string comparison is
+ * unreliable, and recreating is cheap.
+ * @param link - the junction path that must exist.
+ * @param target - the real directory it points at.
+ * @throws when a real directory already occupies the junction's place.
  */
 function ensureJunction(link: string, target: string): void {
   const info = lstatOrUndefined(link)
@@ -55,18 +57,18 @@ function ensureJunction(link: string, target: string): void {
   } else if (info !== undefined) {
     throw new Error(`${link} is a real directory, not a junction — stopping rather than deleting someone else's files`)
   }
-  // Junction trên Windows không cần quyền quản trị, khác với symlink thường.
+  // A junction on Windows needs no administrator rights, unlike an ordinary symlink.
   symlinkSync(target, link, 'junction')
 }
 
 /**
- * Nối các plugin của app vào cây phân giải module của profile dsh.
+ * Link the app's plugins into the dsh profile's module resolution tree.
  *
- * Chạy lại mỗi lần khởi động nên tự lành: người dùng đổi chỗ thư mục app, hay
- * một công cụ nào đó dọn mất junction, lần mở app sau là có lại.
+ * It runs on every launch, so it self-heals: if the user moves the app directory, or
+ * some tool cleans the junction away, the next launch puts it back.
  *
- * Không ném ra ngoài: link hỏng thì app mất panel, còn ném thì app mất engine.
- * Đánh đổi đó chỉ có một chiều đúng.
+ * It never throws outward: a broken link costs the app its panel, while throwing
+ * costs the app its engine. That trade has only one correct direction.
  */
 export function linkPlugins(): void {
   const dir = join(dshHome(), 'profiles', 'node_modules')

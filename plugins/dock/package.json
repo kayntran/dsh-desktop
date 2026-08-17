@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Panel bên phải của Harness Desktop: Files, Terminal, Browser.",
+  "description": "Harness Desktop's right-hand panel: Files, Terminal, Browser.",
   "main": "lib/index.js",
   "exports": {
     ".": { "default": "./lib/index.js" },

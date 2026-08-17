@@ -1,13 +1,15 @@
 /**
- * Tab Files: cây thư mục của workspace phiên hiện tại, cộng ô xem nội dung.
+ * The Files tab: the current session workspace's directory tree, plus a content viewer.
  *
- * Chỉ đọc, giống app tham chiếu. Không có file watcher: cây tải khi mở thư mục
- * và khi bấm Tải lại. Agent sửa file thì cây không tự cập nhật — nói ra ở đây
- * để sau này không ai đi tìm một cái watcher không tồn tại.
+ * Read-only, like the reference app. There is no file watcher: the tree loads when a
+ * directory is expanded and when Reload is pressed. If the agent edits a file the tree
+ * does not update itself — said here so nobody later goes looking for a watcher that
+ * does not exist.
  *
- * Cây dựng phẳng chứ không đệ quy component: mỗi hàng biết độ sâu của nó và tự
- * thụt vào. Cách này giữ số component không đổi theo độ sâu, và về sau muốn
- * ảo hoá danh sách cho thư mục khổng lồ thì không phải viết lại.
+ * The tree is built flat rather than as recursive components: each row knows its own
+ * depth and indents itself. That keeps the component count independent of depth, and if
+ * the list ever needs virtualizing for an enormous directory, nothing has to be
+ * rewritten.
  * @module
  */
 
@@ -23,7 +25,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { fileIcon } from './file-icon.tsx'
 
-/** Trần số dòng đưa vào DOM. File dài hơn vẫn xem được phần đầu. */
+/** Ceiling on lines put into the DOM. A longer file still shows its beginning. */
 const MAX_LINES = 3000
 
 interface DirEntry {
@@ -40,12 +42,12 @@ interface FileContent {
   binary?: boolean
 }
 
-/** Nối một đoạn đường dẫn. Windows nhận cả `/`, và server chuẩn hoá lại. */
+/** Join one path segment. Windows accepts `/` too, and the server re-normalizes. */
 function join(parent: string, name: string): string {
   return parent.endsWith('/') || parent.endsWith('\\') ? `${parent}${name}` : `${parent}/${name}`
 }
 
-/** Thư mục trước, file sau, trong mỗi nhóm thì theo bảng chữ cái. */
+/** Directories first, files after, alphabetical within each group. */
 function sortEntries(entries: readonly DirEntry[]): DirEntry[] {
   return [...entries].sort((a, b) => {
     if ((a.type === 'directory') !== (b.type === 'directory')) return a.type === 'directory' ? -1 : 1
@@ -53,7 +55,7 @@ function sortEntries(entries: readonly DirEntry[]): DirEntry[] {
   })
 }
 
-/** Một hàng đã tính sẵn vị trí trong cây. */
+/** One row with its position in the tree already worked out. */
 interface Row {
   path: string
   name: string
@@ -62,17 +64,17 @@ interface Row {
 }
 
 export interface FilesTabProps {
-  /** Thư mục gốc — đường dẫn workspace, đúng nguyên văn như registry giữ. */
+  /** The root directory — the workspace path, verbatim as the registry holds it. */
   root: string | undefined
-  /** Đang bị che vì pane khác đang hiện. Không tháo, chỉ ẩn — giữ nguyên cây
-      đang mở và vị trí cuộn khi người dùng quay lại. */
+  /** Covered because another pane is showing. Not unmounted, only hidden — the expanded
+      tree and the scroll position survive until the user comes back. */
   isHidden: boolean
 }
 
 /**
- * Thân tab Files.
- * @param props - xem {@link FilesTabProps}.
- * @returns phần tử tab.
+ * The Files tab's body.
+ * @param props - see {@link FilesTabProps}.
+ * @returns the tab element.
  */
 export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
   const [children, setChildren] = useState<Record<string, DirEntry[]>>({})
@@ -98,8 +100,8 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
     }
   }, [root])
 
-  // Đổi workspace thì bỏ hết trạng thái cũ và nạp lại từ gốc — giữ lại cây của
-  // thư mục khác là cách chắc chắn để hiện nhầm dữ liệu.
+  // On a workspace change, drop all old state and reload from the root — keeping another
+  // directory's tree is a sure way to display the wrong data.
   useEffect(() => {
     setChildren({})
     setExpanded([])
@@ -132,7 +134,7 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
     }
   }, [root])
 
-  // Duyệt cây theo chiều sâu, chỉ đi vào những thư mục đang mở.
+  // Walk the tree depth-first, descending only into expanded directories.
   const rows = useMemo((): Row[] => {
     if (root === undefined) return []
     const out: Row[] = []
@@ -213,7 +215,7 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
   )
 }
 
-/** Nội dung file, dựng bằng đúng component upstream dùng để hiện file. */
+/** File content, built with the very component upstream uses to display files. */
 function FileView({ content }: { content: FileContent }): React.JSX.Element {
   const all = (content.text ?? '').split('\n')
   const lines = all.slice(0, MAX_LINES).map((text, i) => ({ number: i + 1, text }))

@@ -1,49 +1,49 @@
 /**
- * Thông báo Windows khi agent cần bạn hoặc đã làm xong việc.
+ * Windows notifications for when the agent needs you or has finished a job.
  *
- * App mở thêm một kết nối client THỨ HAI tới engine bằng đúng giao thức công
- * khai mà UI đang dùng, thay vì can thiệp vào UI thượng nguồn. Engine phục vụ
- * nhiều client cùng lúc nên đây là cách dùng đúng thiết kế, không phải mẹo.
+ * The app opens a SECOND client connection to the engine using the same public
+ * protocol the UI uses, rather than reaching into upstream's UI. The engine serves
+ * many clients at once, so this is the design being used as intended, not a trick.
  *
- * ⚠️ Thượng nguồn ghi rõ giao thức KHÔNG mang số hiệu phiên bản: client và host
- * phát hành gắn liền nhau. Nên mỗi lần nâng cấp `@deepseek-ai/dsh` phải chạy
- * lại `scripts/spike-frames.mjs` để đối chiếu hình dạng gói tin. Đổi lại, mọi
- * thứ ở đây đều chịu lỗi im lặng: frame lạ thì bỏ qua, không bao giờ làm chết
- * app chỉ vì thượng nguồn đổi tên một trường.
+ * ⚠️ Upstream states plainly that the protocol carries NO version number: client and
+ * host ship together. So every `@deepseek-ai/dsh` upgrade has to re-run
+ * `scripts/spike-frames.mjs` to re-check the frame shapes. In exchange, everything
+ * here fails silently: an unrecognized frame is ignored, and the app never dies just
+ * because upstream renamed a field.
  * @module
  */
 
 import { Notification } from 'electron'
 import { logShell } from './log.js'
 
-/** Gói tin trên dây: `payload` chính là frame, `method` lặp lại `payload.type`. */
+/** The wire envelope: `payload` is the frame itself, and `method` repeats `payload.type`. */
 interface ServerRequestEnvelope {
   type: string
   method: string
   payload: { type: string } & Record<string, unknown>
 }
 
-/** Những việc notifier cần từ phần còn lại của app. */
+/** What the notifier needs from the rest of the app. */
 export interface NotifierHandlers {
-  /** Người dùng có đang nhìn cửa sổ không — đang nhìn thì không báo. */
+  /** Whether the user is looking at the window — if so, stay quiet. */
   isWindowActive: () => boolean
-  /** Hiện cửa sổ khi người dùng bấm vào thông báo. */
+  /** Show the window when the user clicks the notification. */
   reveal: () => void
 }
 
-/** Các mốc chờ khi kết nối rớt, tính bằng mili giây. */
+/** Backoff steps after a dropped connection, in milliseconds. */
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000]
 
 let sockets: WebSocket[] = []
 let timers: NodeJS.Timeout[] = []
 let running = false
-/** Phiên nào đang chạy — để nhận ra lúc chuyển từ đang chạy sang xong. */
+/** Which sessions are running — so the running-to-finished transition can be spotted. */
 const busySessions = new Set<string>()
 
 /**
- * Phiên nào vừa báo lỗi. Engine phát `host/agent-error` rồi mới hạ cờ chạy, nên
- * nếu không nhớ lại thì một thất bại sẽ đẻ ra hai thông báo, cái sau còn nói
- * nhầm là đã xong.
+ * Which sessions just reported an error. The engine emits `host/agent-error` and
+ * only then lowers the running flag, so without remembering this, one failure would
+ * produce two notifications — and the second would wrongly say the work finished.
  */
 const erroredSessions = new Set<string>()
 
@@ -53,7 +53,7 @@ function readString(source: Record<string, unknown>, key: string): string | unde
 }
 
 function show(handlers: NotifierHandlers, title: string, body: string): void {
-  // Đang nhìn màn hình mà toast nhảy ra là phiền; UI đã hiện việc đó rồi.
+  // A toast popping up while the user is watching is a nuisance; the UI already showed it.
   if (handlers.isWindowActive()) {
     logShell(`notifier: skipped "${title}" because the window is showing`)
     return
@@ -70,7 +70,7 @@ function show(handlers: NotifierHandlers, title: string, body: string): void {
   logShell(`notifier: asked to show "${title}"`)
 }
 
-/** Frame trên luồng mux: những việc agent cần người dùng trả lời. */
+/** Frames on the mux stream: things the agent needs the user to answer. */
 function handleMuxFrame(frame: ServerRequestEnvelope['payload'], handlers: NotifierHandlers): void {
   if (frame.type === 'approval/requested') {
     const tool = readString(frame, 'toolName') ?? 'an action'
@@ -88,7 +88,7 @@ function handleMuxFrame(frame: ServerRequestEnvelope['payload'], handlers: Notif
   }
 }
 
-/** Frame trên luồng host: vòng đời phiên và lỗi không gắn với lượt nào. */
+/** Frames on the host stream: session lifecycle and errors not tied to a turn. */
 function handleHostFrame(frame: ServerRequestEnvelope['payload'], handlers: NotifierHandlers): void {
   if (frame.type === 'host/session-status') {
     const sessionId = readString(frame, 'sessionId')
@@ -98,10 +98,10 @@ function handleHostFrame(frame: ServerRequestEnvelope['payload'], handlers: Noti
       return
     }
     const wasBusy = busySessions.delete(sessionId)
-    // Lỗi đã được báo ngay trước đó rồi; nói thêm "đã xong" vừa thừa vừa sai.
+    // The error was announced a moment ago; adding "done" would be both redundant and wrong.
     if (erroredSessions.delete(sessionId)) return
-    // Chỉ báo cho phiên mà app đã thấy chạy: một phiên vốn đứng yên báo "xong"
-    // là thông báo rác.
+    // Only announce for a session the app saw running: a session that was idle all
+    // along reporting "done" is junk notification.
     if (wasBusy) show(handlers, 'The agent is done', 'The session just finished its work.')
     return
   }
@@ -112,7 +112,7 @@ function handleHostFrame(frame: ServerRequestEnvelope['payload'], handlers: Noti
   }
 }
 
-/** Mở một luồng và tự nối lại khi rớt, im lặng suốt quá trình. */
+/** Open one stream and reconnect when it drops, staying silent throughout. */
 function connect(
   url: string,
   onFrame: (frame: ServerRequestEnvelope['payload']) => void,
@@ -142,8 +142,8 @@ function connect(
       if (envelope.type !== 'server-request' || frame === undefined || typeof frame.type !== 'string') return
       onFrame(frame)
     } catch {
-      // Gói tin không đọc được thì bỏ qua — quan sát không bao giờ được cắn
-      // vào luồng chính.
+      // An unreadable envelope is ignored — observation must never bite into the main
+      // flow.
     }
   })
 
@@ -161,14 +161,14 @@ function connect(
 
   socket.addEventListener('close', retry)
   socket.addEventListener('error', () => {
-    // 'error' luôn kéo theo 'close', nên việc nối lại để 'close' lo — ở đây chỉ
-    // nuốt sự kiện để nó không nổi lên thành lỗi không ai bắt.
+    // 'error' always drags 'close' along, so reconnecting is 'close's job — this only
+    // swallows the event so it does not surface as an unhandled error.
   })
 }
 
 /**
- * Bắt đầu theo dõi engine.
- * @param baseUrl - URL loopback của engine, ví dụ `http://127.0.0.1:53211`.
+ * Start watching the engine.
+ * @param baseUrl - the engine's loopback URL, e.g. `http://127.0.0.1:53211`.
  */
 export function startNotifier(baseUrl: string, handlers: NotifierHandlers): void {
   stopNotifier()
@@ -181,7 +181,7 @@ export function startNotifier(baseUrl: string, handlers: NotifierHandlers): void
   connect(`${wsBase}/api/events.host`, (frame) => { handleHostFrame(frame, handlers) })
 }
 
-/** Dừng theo dõi và đóng mọi kết nối. */
+/** Stop watching and close every connection. */
 export function stopNotifier(): void {
   running = false
   for (const timer of timers) clearTimeout(timer)

@@ -1,14 +1,14 @@
 /**
- * Một tab trình duyệt: thanh điều hướng, thanh địa chỉ, và **một ô trống**.
+ * One browser tab: a navigation bar, an address bar, and **one empty slot**.
  *
- * Ô trống là chỗ trang web sẽ xuất hiện. Bản thân trang không nằm trong cây
- * React — nó sống ở sân khấu ngoài `document.body` (xem `browser-stage.ts`).
- * Component này chỉ đo ô trống rồi báo toạ độ sang đó.
+ * The empty slot is where the web page will appear. The page itself is not in the React
+ * tree — it lives on a stage outside `document.body` (see `browser-stage.ts`). This
+ * component only measures the slot and reports the coordinates across.
  *
- * Cách này chép từ app tham chiếu, và cả một chi tiết nhỏ của họ cũng đáng chép:
- * đo xong thì **so với lần trước, giống thì thôi**. Kéo mép panel làm phép đo
- * chạy mỗi khung hình, mà việc phía bên kia là bố trí lại một trang web sống —
- * không hề rẻ.
+ * The approach is copied from the reference app, and one small detail of theirs is worth
+ * copying too: after measuring, **compare with last time and stop if it matches**.
+ * Dragging the panel's edge makes the measurement run every frame, while the work on the
+ * other side is re-laying out a live web page — not cheap at all.
  * @module
  */
 
@@ -31,18 +31,18 @@ const EMPTY_STATUS: TabStatus = {
 export interface BrowserPaneProps {
   paneId: string
   stage: Stage
-  /** Đang bị che vì pane khác đang hiện. Không tháo, chỉ ẩn. */
+  /** Covered because another pane is showing. Not unmounted, only hidden. */
   isHidden: boolean
-  /** Địa chỉ mở sẵn, khi tab được tạo kèm URL (agent mở, hoặc đọc lại từ lần trước). */
+  /** A preset address, when the tab was created with a URL (opened by the agent, or read back from a previous run). */
   startUrl: string | undefined
-  /** Ai mở tab này — quyết định rào chuyển hướng có áp cho nó không. */
+  /** Who opened this tab — it decides whether the redirect gate applies to it. */
   openedBy: TabOwner
 }
 
 /**
- * Thân một tab trình duyệt.
- * @param props - xem {@link BrowserPaneProps}.
- * @returns phần tử tab.
+ * One browser tab's body.
+ * @param props - see {@link BrowserPaneProps}.
+ * @returns the tab element.
  */
 export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: BrowserPaneProps): React.JSX.Element {
   const slotRef = useRef<HTMLDivElement>(null)
@@ -50,47 +50,48 @@ export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: Bro
   const [input, setInput] = useState(startUrl ?? '')
   const [typing, setTyping] = useState(false)
 
-  // Tạo webview một lần. Không phụ thuộc `startUrl` để lần đổi địa chỉ sau đó
-  // không dựng lại thẻ — dựng lại là mất sạch trạng thái trang.
+  // Create the webview once. It does not depend on `startUrl` so a later address change
+  // does not rebuild the tag — rebuilding wipes the page's entire state.
   useEffect(() => {
     stage.ensure(paneId, startUrl, openedBy)
-    // Cố ý bỏ `startUrl` khỏi danh sách phụ thuộc: nó chỉ là địa chỉ khởi đầu.
+    // `startUrl` is deliberately left out of the dependency list: it is only a starting
+    // address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, paneId, openedBy])
 
-  // Nghe trạng thái tab. Sân khấu báo cho cả panel, nên lọc lấy đúng tab mình.
+  // Listen for tab status. The stage reports to the whole panel, so filter for our own tab.
   useEffect(() => {
     const readStatus = (): void => {
       const next = stage.status(paneId)
       if (next === undefined) return
-      // So từng trường rồi mới ghi. `stage.status()` trả về một object MỚI mỗi
-      // lần gọi, nên ghi thẳng là bắt cả pane vẽ lại 4 lần mỗi giây cho tới khi
-      // đóng tab — kể cả khi không có gì đổi.
+      // Compare field by field before writing. `stage.status()` returns a NEW object on
+      // every call, so writing it straight through would make the whole pane re-render four
+      // times a second until the tab closes — even when nothing changed.
       setStatus((prev) => (
         prev.url === next.url && prev.title === next.title && prev.loading === next.loading
         && prev.canBack === next.canBack && prev.canForward === next.canForward
       ) ? prev : next)
     }
     readStatus()
-    // Sân khấu không có bộ phát sự kiện riêng; nó gọi `onChange` của panel, mà
-    // panel dùng để cập nhật kho. Kho đổi thì component này vẽ lại và đọc lại
-    // trạng thái ở đây. Một nhịp hỏi lại theo khung hình lo nốt những thay đổi
-    // không đi qua kho (nút back/forward sáng hay mờ).
+    // The stage has no event emitter of its own; it calls the panel's `onChange`, which
+    // the panel uses to update the store. When the store changes, this component
+    // re-renders and re-reads the status here. A polling beat covers the changes that do
+    // not travel through the store (whether back/forward are lit or dimmed).
     const timer = setInterval(readStatus, 250)
     return () => { clearInterval(timer) }
   }, [stage, paneId])
 
-  // Theo địa chỉ thật, TRỪ lúc người dùng đang gõ — nếu không, một lần trang tự
-  // chuyển hướng giữa chừng sẽ xoá mất thứ họ đang nhập dở.
+  // Follow the real address, EXCEPT while the user is typing — otherwise a page
+  // redirecting itself mid-way would erase what they were half-way through entering.
   useEffect(() => {
     if (!typing && status.url !== '') setInput(status.url)
   }, [status.url, typing])
 
   /**
-   * Đo ô trống rồi báo toạ độ sang sân khấu.
+   * Measure the empty slot and report the coordinates to the stage.
    *
-   * Gộp vào một khung hình và bỏ qua khi hình chữ nhật không đổi — hai điều
-   * này là bài học chép từ app tham chiếu, không phải tối ưu sớm.
+   * Coalescing into one frame and skipping when the rectangle has not changed are both
+   * lessons copied from the reference app, not premature optimization.
    */
   const publishRect = useCallback((): void => {
     const el = slotRef.current
@@ -112,26 +113,27 @@ export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: Bro
     const sync = (): void => {
       const r = el.getBoundingClientRect()
       const key = `${String(Math.round(r.left))},${String(Math.round(r.top))},${String(Math.round(r.width))},${String(Math.round(r.height))}`
-      // Bỏ qua khi hình chữ nhật không đổi: việc phía bên kia là bố trí lại một
-      // trang web sống, không hề rẻ.
+      // Skip when the rectangle has not changed: the work on the other side is re-laying
+      // out a live web page, which is not cheap.
       if (key === last) return
       last = key
       publishRect()
     }
 
-    // KHÔNG bọc trong `requestAnimationFrame`. Bản trước bọc, và cái giá là
-    // trang nạp xong nhưng không vẽ ra: sân khấu nằm im ở `display: none` vì
-    // lệnh hiện nó chờ một khung hình không bao giờ tới. Chromium ngừng cấp
-    // khung hình cho cửa sổ nó cho là không ai nhìn, nên gửi một lệnh KHỞI TẠO
-    // qua `requestAnimationFrame` là gửi một lệnh có thể không bao giờ chạy.
+    // Do NOT wrap this in `requestAnimationFrame`. An earlier version did, and the price
+    // was a page that loaded but never appeared: the stage sat still at `display: none`
+    // because the command to show it was waiting for a frame that never came. Chromium
+    // stops producing frames for a window it believes nobody is watching, so sending an
+    // INITIALIZATION command through `requestAnimationFrame` is sending a command that may
+    // never run.
     //
-    // Và không cần nó: `ResizeObserver` vốn đã phát tối đa một lần mỗi khung
-    // hình, còn phép so hình chữ nhật ở trên đã chặn mọi lần gửi thừa.
+    // And it is not needed: `ResizeObserver` already fires at most once per frame, and the
+    // rectangle comparison above already blocks every redundant send.
     sync()
     const observer = new ResizeObserver(sync)
     observer.observe(el)
     window.addEventListener('resize', sync)
-    // Cửa sổ app cuộn thì toạ độ khung nhìn đổi theo.
+    // When the app window scrolls, the viewport coordinates change with it.
     window.addEventListener('scroll', sync, true)
     return () => {
       observer.disconnect()
@@ -146,9 +148,9 @@ export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: Bro
     if (url === undefined) return
     stage.navigate(paneId, url)
     setTyping(false)
-    // Trả bàn phím cho trang. Không có dòng này thì trang mới nạp xong nhưng
-    // tiêu điểm vẫn nằm ở ô địa chỉ, và phím đầu tiên người dùng gõ — thường là
-    // để cuộn hoặc để tìm trong trang — lại chui vào ô nhập.
+    // Hand the keyboard back to the page. Without this line, the new page finishes
+    // loading while focus is still in the address bar, and the first key the user presses —
+    // usually to scroll or to search within the page — goes into the input instead.
     stage.focus(paneId)
   }
 
@@ -192,13 +194,13 @@ export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: Bro
           onBlur={() => { setTyping(false) }}
         />
       </form>
-      {/* Trang web được vẽ đè lên ô này. Nó rỗng, và phải rỗng. */}
+      {/* The web page is painted over this slot. It is empty, and it has to be. */}
       <div className="hdw-slot" ref={slotRef} aria-hidden />
     </div>
   )
 }
 
-/** Trạng thái ban đầu, có kể tới địa chỉ mở sẵn. */
+/** The initial status, taking any preset address into account. */
 function initialStatus(url: string | undefined): TabStatus {
   return url === undefined ? EMPTY_STATUS : { ...EMPTY_STATUS, url, loading: true }
 }

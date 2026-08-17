@@ -1,52 +1,56 @@
 /**
- * Mã chạy BÊN TRONG trang web khách — mắt và tay của agent.
+ * The code that runs INSIDE the guest web page — the agent's eyes and hands.
  *
- * Đây là một chuỗi JavaScript chứ không phải module: nó không chạy trong app mà
- * được bơm vào trang của người ta qua `webview.executeJavaScript`. Không có kiểu,
- * không có import, không dùng cú pháp mới hơn thứ trang có thể hiểu.
+ * This is a JavaScript string, not a module: it does not run in the app, it is injected
+ * into someone else's page through `webview.executeJavaScript`. No types, no imports, no
+ * syntax newer than the page might understand.
  *
- * ## Bốn quy tắc về mã tham chiếu, cả bốn đều có giá
+ * ## Four rules about reference codes, each one paid for
  *
- * Mỗi lần đọc trang, mọi phần tử bấm được nhận một mã `ref_1`, `ref_2`… Agent
- * nói `ref_7` thay vì đoán toạ độ. Bốn quy tắc dưới đây là lỗi có thật mà dự án
- * tham chiếu đã trả giá để học:
+ * On every page read, every clickable element receives a code `ref_1`, `ref_2`… The agent
+ * says `ref_7` instead of guessing coordinates. The four rules below are real bugs the
+ * reference project paid to learn:
  *
- * 1. **Cấp lại từ đầu mỗi lần đọc.** Một mã sống sót qua lần đọc lại là một mã
- *    bị đổi nghĩa âm thầm — agent bấm nhầm chỗ và không ai biết.
- * 2. **Mã chết khi trang điều hướng.** Biến toàn cục của trang bị xoá sạch, nên
- *    điều này tự đúng; nhưng câu lỗi phải nói rõ mã cũ trỏ tới cái gì.
- * 3. **Đưa phần tử vào tầm nhìn KHÔNG dùng cuộn mượt.** Cuộn mượt thì đo vị trí
- *    ngay sau đó ra vị trí cũ, và cú bấm rơi vào chỗ trống.
- * 4. **Đo bằng từng mảnh của phần tử, không bằng khung bao.** Một liên kết xuống
- *    dòng có tâm khung bao nằm lọt vào khe giữa hai dòng — bấm vào đó là bấm
- *    trượt.
+ * 1. **Reissue from scratch on every read.** A code that survives a re-read is a code
+ *    whose meaning changed silently — the agent clicks the wrong thing and nobody knows.
+ * 2. **Codes die on navigation.** The page's globals are wiped, so this holds by itself;
+ *    but the error message has to say what the old code pointed at.
+ * 3. **Bring an element into view WITHOUT smooth scrolling.** With smooth scrolling, a
+ *    measurement taken right afterwards reads the OLD position, and the click lands on
+ *    nothing.
+ * 4. **Measure from the element's individual rects, not its bounding box.** A wrapped
+ *    link's bounding-box center falls into the gap between two lines — clicking there is
+ *    clicking a miss.
  *
- * ## Phép kiểm giá trị nhất
+ * ## The most valuable check
  *
- * `locate` hỏi lại trang "ở đúng điểm này là phần tử nào". Một vòng hỏi đó bắt
- * được banner cookie, thanh dính, lớp phủ vô hình, nền mờ của hộp thoại — tất cả
- * những thứ làm cú bấm đi vào nhầm chỗ trong khi mọi lệnh vẫn báo thành công.
+ * `locate` asks the page back: "what element is at exactly this point?" That one round
+ * trip catches cookie banners, sticky bars, invisible overlays and dialog scrims — all
+ * the things that send a click to the wrong place while every command still reports
+ * success.
  * @module
  */
 
-/** Trần số dòng mạng giữ lại. */
+/** Ceiling on network entries kept. */
 const MAX_NET_ENTRIES = 300
 
-/** Trần số phản hồi giữ nội dung, và trần kích thước mỗi cái. */
+/** Ceiling on responses whose bodies are kept, and on the size of each. */
 const MAX_BODIES = 25
 const MAX_BODY_BYTES = 8192
 
 /**
- * Mã cài vào trang khách. Chạy nhiều lần vô hại — lần sau thấy đã có thì thôi.
+ * The code installed into the guest page. Running it repeatedly is harmless — a later
+ * run sees it is already there and stops.
  *
- * Trả về `'installed'` hoặc `'already'` để chỗ gọi biết có phải lần đầu không.
+ * Returns `'installed'` or `'already'` so the caller knows whether this was the first
+ * time.
  */
 export const PAGE_SCRIPT = `(() => {
   if (window.__hdw) return 'already'
 
   var state = { refs: new Map(), seq: 0, net: [], bodies: [] }
 
-  // ---------------------------------------------------------------- vai trò
+  // ----------------------------------------------------------------- roles
 
   var ROLE_BY_TAG = {
     a: 'link', button: 'button', textarea: 'textbox', select: 'combobox',
@@ -79,8 +83,8 @@ export const PAGE_SCRIPT = `(() => {
       return 'textbox'
     }
     if (tag in ROLE_BY_TAG) return ROLE_BY_TAG[tag]
-    // Phần tử tự nhận cú bấm mà không mang thẻ ngữ nghĩa nào — rất phổ biến ở
-    // các app dựng bằng div. Bỏ qua chúng là bỏ qua nửa số nút của web hiện đại.
+    // An element that takes clicks itself while carrying no semantic tag — very common in
+    // div-built apps. Skipping them means skipping half the buttons on the modern web.
     if (el.hasAttribute('onclick') || el.getAttribute('tabindex') === '0') return 'button'
     if (el.isContentEditable) return 'textbox'
     return ''
@@ -111,8 +115,8 @@ export const PAGE_SCRIPT = `(() => {
       var chosen = el.options[el.selectedIndex]
       return clean(el.getAttribute('name') || (chosen ? chosen.text : ''))
     }
-    // \`innerText\` chứ không phải \`textContent\`: nó tôn trọng CSS, nên chữ đang
-    // bị ẩn không lọt vào tên. Đắt hơn, nhưng đây là chỗ đắt xứng đáng.
+    // \`innerText\` rather than \`textContent\`: it respects CSS, so hidden text does not
+    // leak into the name. More expensive, but this is a place worth the expense.
     return clean(el.innerText || el.textContent)
   }
 
@@ -122,12 +126,12 @@ export const PAGE_SCRIPT = `(() => {
     if (cs.display === 'none' || cs.visibility === 'hidden') return false
     if (cs.opacity === '0') return false
     var r = el.getBoundingClientRect()
-    // Còn nằm dưới màn hình vẫn tính là thấy được — agent cuộn tới được. Chỉ
-    // phần tử KHÔNG CHIẾM CHỖ NÀO mới là phần tử không có thật.
+    // Still below the fold counts as visible — the agent can scroll to it. Only an element
+    // that OCCUPIES NO SPACE AT ALL is an element that is not really there.
     return r.width > 0 && r.height > 0
   }
 
-  // ------------------------------------------------------------- đọc trang
+  // ---------------------------------------------------------- reading the page
 
   function scan(opts) {
     var onlyInteractive = opts.filter !== 'all'
@@ -210,7 +214,7 @@ export const PAGE_SCRIPT = `(() => {
     }
   }
 
-  // ------------------------------------------------------------- nhắm đích
+  // --------------------------------------------------------------- aiming
 
   function describe(el) {
     if (!el) return 'nothing'
@@ -228,14 +232,15 @@ export const PAGE_SCRIPT = `(() => {
       return { error: ref + ' is gone from the page (its content changed) — read it again' }
     }
 
-    // \`instant\` chứ không phải mặc định: trang nào đặt \`scroll-behavior: smooth\`
-    // thì phép đo ngay sau đây sẽ đọc ra vị trí CŨ, và cú bấm rơi vào chỗ trống.
+    // \`instant\` rather than the default: on a page that sets \`scroll-behavior: smooth\`,
+    // the measurement right after this would read the OLD position and the click would
+    // land on nothing.
     try { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }) } catch (e) {
       el.scrollIntoView(true)
     }
 
-    // Từng mảnh, không phải khung bao: một liên kết xuống dòng có tâm khung bao
-    // nằm lọt vào khe giữa hai dòng.
+    // Individual rects, not the bounding box: a wrapped link's bounding-box center falls
+    // into the gap between two lines.
     var rects = el.getClientRects()
     var best = null
     for (var i = 0; i < rects.length; i += 1) {
@@ -251,9 +256,9 @@ export const PAGE_SCRIPT = `(() => {
     var x = Math.round(best.left + best.width / 2)
     var y = Math.round(best.top + best.height / 2)
 
-    // Phép kiểm quan trọng nhất trong cả file: ở đúng điểm sắp bấm, trang trả về
-    // phần tử nào? Trúng thứ khác nghĩa là có gì đó che — banner cookie, thanh
-    // dính, lớp phủ vô hình, nền mờ của hộp thoại.
+    // The most important check in the whole file: at exactly the point about to be
+    // clicked, which element does the page return? Anything else means something is
+    // covering it — a cookie banner, a sticky bar, an invisible overlay, a dialog scrim.
     var hit = document.elementFromPoint(x, y)
     var covered = !!hit && hit !== el && !el.contains(hit) && !hit.contains(el)
 
@@ -270,11 +275,11 @@ export const PAGE_SCRIPT = `(() => {
   function focus(ref) {
     var el = state.refs.get(ref)
     if (!el) return { error: 'no ' + ref }
-    try { el.focus({ preventScroll: true }) } catch (e) { /* phần tử không nhận tiêu điểm */ }
+    try { el.focus({ preventScroll: true }) } catch (e) { /* the element refuses focus */ }
     return { ok: document.activeElement === el }
   }
 
-  // ------------------------------------------------------------- điền form
+  // -------------------------------------------------------- filling in forms
 
   function setValue(ref, value) {
     var el = state.refs.get(ref)
@@ -313,12 +318,12 @@ export const PAGE_SCRIPT = `(() => {
     }
 
     if (tag === 'input' || tag === 'textarea') {
-      // Gán qua setter GỐC của prototype, không gán thẳng \`el.value\`.
+      // Assign through the prototype's NATIVE setter, not straight onto \`el.value\`.
       //
-      // React (và mọi framework theo lối đó) ghi đè setter để theo dõi thay đổi;
-      // gán thẳng thì DOM đổi mà React không biết, và ở lần vẽ lại kế tiếp nó
-      // ghi đè ngược giá trị cũ lên. Triệu chứng: ô nhập nhấp nháy rồi trở về
-      // trống, còn lệnh thì báo thành công.
+      // React (and every framework built the same way) overrides the setter to track
+      // changes; assigning directly changes the DOM without React knowing, and on the next
+      // render it writes the old value back over it. The symptom: the input flickers and
+      // returns to empty, while the command reports success.
       var proto = tag === 'input' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
       var setter = Object.getOwnPropertyDescriptor(proto, 'value')
       el.focus()
@@ -332,7 +337,7 @@ export const PAGE_SCRIPT = `(() => {
     return { error: 'cannot fill a <' + tag + '>' }
   }
 
-  // ------------------------------------------------------------------ mạng
+  // ---------------------------------------------------------------- network
 
   function pushNet(entry) {
     state.net.push(entry)
@@ -356,13 +361,14 @@ export const PAGE_SCRIPT = `(() => {
         })
       }
     })
-    // \`buffered\` để bắt cả những request đã xong TRƯỚC khi mã này được cài —
-    // agent thường chỉ nghĩ tới việc đi xem mạng sau khi trang đã tải xong.
+    // \`buffered\` so requests that finished BEFORE this code was installed are caught too
+    // — an agent usually only thinks of looking at the network after the page has loaded.
     observer.observe({ type: 'resource', buffered: true })
-  } catch (e) { /* trình duyệt quá cũ — danh sách mạng sẽ rỗng, không sập */ }
+  } catch (e) { /* browser too old — the network list stays empty rather than crashing */ }
 
-  // Bắt thêm NỘI DUNG phản hồi cho request do chính trang gọi. Số liệu hiệu
-  // năng ở trên không có phần này, mà đó thường là thứ cần nhất khi gỡ lỗi.
+  // Also capture response BODIES for requests the page made itself. The performance
+  // numbers above do not include them, and they are usually what is most needed when
+  // debugging.
   try {
     var nativeFetch = window.fetch
     window.fetch = function () {
@@ -378,12 +384,12 @@ export const PAGE_SCRIPT = `(() => {
               truncated: body.length > ${String(MAX_BODY_BYTES)}
             })
             if (state.bodies.length > ${String(MAX_BODIES)}) state.bodies.shift()
-          }).catch(function () { /* thân không đọc được */ })
-        } catch (e) { /* không cản trở trang */ }
+          }).catch(function () { /* the body could not be read */ })
+        } catch (e) { /* never get in the page's way */ }
         return res
       })
     }
-  } catch (e) { /* trang khoá fetch — bỏ qua */ }
+  } catch (e) { /* the page locked fetch down — skip it */ }
 
   window.__hdw = {
     scan: scan, find: find, text: text, locate: locate, focus: focus,

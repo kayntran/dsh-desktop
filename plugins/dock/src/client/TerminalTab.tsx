@@ -1,20 +1,21 @@
 /**
- * Tab Terminal: một shell thật của Windows, hiện ngay trong panel.
+ * The Terminal tab: a real Windows shell, right inside the panel.
  *
- * Màn hình do `@xterm/xterm` vẽ — cùng thư viện mà VS Code và hầu hết terminal
- * trong trình duyệt dùng. Nó lo phần khó: chuỗi thoát ANSI, màu, con trỏ, cuộn,
- * chọn chữ, chữ rộng hai ô của tiếng Trung/Nhật/Hàn. Tự viết lại phần đó là
- * hàng nghìn dòng và vẫn sai ở những chỗ ít ai nghĩ tới.
+ * The screen is drawn by `@xterm/xterm` — the same library VS Code and most
+ * in-browser terminals use. It handles the hard parts: ANSI escape sequences, colors,
+ * the cursor, scrolling, text selection, the double-width characters of Chinese,
+ * Japanese and Korean. Rewriting that ourselves would be thousands of lines and still
+ * wrong in the places nobody thinks about.
  *
- * **Vì sao terminal luôn nền tối, kể cả khi app đang ở chế độ sáng.** Bảng 16
- * màu ANSI (đỏ, xanh lá, vàng… mà `npm`, `git`, `dir` dùng) không có trong hệ
- * token của DeepSeek — họ chỉ có amber, blue, green, red, neutral, thiếu hẳn
- * cyan và magenta. Hai lối đi: tự bịa ra một bảng 16 màu, hoặc dùng bảng mặc
- * định của xterm. Bảng mặc định đó được thiết kế cho nền tối; đặt nó lên nền
- * trắng thì "trắng sáng" và "vàng sáng" gần như tàng hình. Nên chọn cách không
- * bịa màu nào: giữ mặt terminal tối bằng chính token `--dsw-static-*` của
- * upstream (chúng cố ý không đổi theo sáng/tối), còn khung viền quanh nó vẫn đi
- * theo chủ đề như mọi chỗ khác.
+ * **Why the terminal is always dark, even while the app is in light mode.** The 16-color
+ * ANSI palette (the reds, greens and yellows `npm`, `git` and `dir` use) does not exist
+ * in DeepSeek's token system — they have amber, blue, green, red and neutral, with cyan
+ * and magenta missing entirely. Two ways forward: invent a 16-color palette, or use
+ * xterm's default one. That default palette is designed for a dark background; put it on
+ * white and "bright white" and "bright yellow" become nearly invisible. So the choice was
+ * to invent no colors at all: keep the terminal's face dark using upstream's own
+ * `--dsw-static-*` tokens (which deliberately do not change with light/dark), while the
+ * frame around it still follows the theme like everything else.
  * @module
  */
 
@@ -23,30 +24,30 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import { Button, IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 
-/** Số dòng giữ lại để cuộn ngược. */
+/** How many lines are kept for scrolling back. */
 const SCROLLBACK = 5000
 
 type PtyState = 'opening' | 'live' | 'closed'
 
 /**
- * Đọc một biến CSS đã tính toán xong. Trả về chuỗi rỗng nếu không có, để chỗ
- * gọi tự quyết định giá trị dự phòng.
+ * Read a computed CSS variable. Returns an empty string when there is none, leaving the
+ * caller to decide its own fallback.
  */
 function cssVar(el: Element, name: string): string {
   return getComputedStyle(el).getPropertyValue(name).trim()
 }
 
 export interface TerminalTabProps {
-  /** Thư mục mở terminal — đường dẫn workspace, server sẽ xác thực lại. */
+  /** The directory the terminal opens in — the workspace path, re-validated by the server. */
   root: string | undefined
-  /** Đang bị che vì tab khác đang hiện. Không unmount, chỉ ẩn. */
+  /** Covered because another tab is showing. Not unmounted, only hidden. */
   isHidden: boolean
 }
 
 /**
- * Thân tab Terminal.
- * @param props - xem {@link TerminalTabProps}.
- * @returns phần tử tab.
+ * The Terminal tab's body.
+ * @param props - see {@link TerminalTabProps}.
+ * @returns the tab element.
  */
 export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -55,16 +56,17 @@ export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Ele
   const wsRef = useRef<WebSocket | undefined>(undefined)
   const [state, setState] = useState<PtyState>('opening')
   const [note, setNote] = useState<string | undefined>(undefined)
-  // Tăng lên để ép effect dựng lại toàn bộ phiên — đường duy nhất của nút "Mở lại".
+  // Bumped to force the effect to rebuild the whole session — the only route the "Reopen"
+  // button has.
   const [attempt, setAttempt] = useState(0)
 
-  /** Đo lại kích thước rồi báo cho shell biết, để chữ xuống dòng đúng chỗ. */
+  /** Re-measure the size and tell the shell, so text wraps in the right place. */
   const refit = useCallback((): void => {
     const host = hostRef.current
     const term = termRef.current
     const fit = fitRef.current
-    // Lúc đang bị ẩn thì phần tử có kích thước 0; đo lúc đó ra số vô nghĩa và
-    // xterm sẽ vẽ lại cả màn hình theo số đó.
+    // While hidden, the element has size 0; measuring then yields a nonsense number and
+    // xterm would redraw the whole screen at it.
     if (host === null || term === undefined || fit === undefined) return
     if (host.clientWidth === 0 || host.clientHeight === 0) return
     fit.fit()
@@ -108,14 +110,14 @@ export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Ele
     url.searchParams.set('rows', String(term.rows))
 
     const ws = new WebSocket(url)
-    // Byte thô, không để trình duyệt tự giải mã: một ký tự UTF-8 có thể bị cắt
-    // đôi giữa hai gói tin, và xterm mới là chỗ biết ghép lại cho đúng.
+    // Raw bytes, not decoded by the browser: a UTF-8 character can be split across two
+    // packets, and xterm is the place that knows how to join it back correctly.
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onmessage = (event: MessageEvent<unknown>) => {
-      // Khung nhị phân là màn hình; khung văn bản là lệnh điều khiển. Tách theo
-      // loại khung nên không chuỗi nào của người dùng bị hiểu nhầm thành lệnh.
+      // A binary frame is screen content; a text frame is a control message. Split by frame
+      // type, so no string a user types is mistaken for a command.
       if (event.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(event.data))
         return
@@ -141,8 +143,8 @@ export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Ele
     }
 
     ws.onclose = () => {
-      // Đã có lời giải thích cụ thể từ `exit`/`error` thì giữ nguyên, đừng đè
-      // lên bằng một câu chung chung hơn.
+      // If `exit` or `error` already gave a specific explanation, keep it rather than
+      // overwriting it with something vaguer.
       setState('closed')
       setNote((prev) => prev ?? 'The terminal session closed.')
     }
@@ -151,16 +153,16 @@ export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Ele
       if (ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data))
     })
 
-    // Panel đổi bề rộng, cửa sổ đổi kích thước, tab hiện trở lại — cả ba đều
-    // qua đây.
+    // The panel changing width, the window resizing, the tab coming back into view — all
+    // three arrive here.
     const observer = new ResizeObserver(() => { refit() })
     observer.observe(host)
 
     return () => {
       observer.disconnect()
       onInput.dispose()
-      // Gỡ tay nghe trước khi đóng, nếu không `onclose` sẽ setState lên một
-      // component đã tháo.
+      // Detach the listeners before closing, or `onclose` would setState on an unmounted
+      // component.
       ws.onmessage = null
       ws.onerror = null
       ws.onclose = null
@@ -172,17 +174,17 @@ export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Ele
     }
   }, [root, attempt, refit])
 
-  // Từ ẩn chuyển sang hiện: phần tử vừa có kích thước trở lại, phải đo lại.
-  // Đợi một khung hình để trình duyệt kịp bố trí xong.
+  // Going from hidden to shown: the element has just regained a size, so it has to be
+  // re-measured. Wait one frame for the browser to finish laying it out.
   useEffect(() => {
     if (isHidden) return undefined
     const id = requestAnimationFrame(() => { refit() })
     return () => { cancelAnimationFrame(id) }
   }, [isHidden, refit])
 
-  // `hidden` ở đây không phải cẩn thận thừa: component này KHÔNG bị tháo khi
-  // chuyển tab, nên thiếu nó thì dòng thông báo của Terminal sẽ nằm chình ình
-  // giữa tab Files.
+  // `hidden` here is not surplus caution: this component is NOT unmounted on a tab
+  // switch, so without it the Terminal's notice line would sit right in the middle of the
+  // Files tab.
   if (root === undefined) {
     return <div className="hdw-empty" hidden={isHidden}>No session is open yet, so there is no folder to start a terminal in. Start a session and come back.</div>
   }

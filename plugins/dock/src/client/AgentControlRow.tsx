@@ -1,16 +1,16 @@
 /**
- * Một dòng trong Cài đặt → General: cho hay không cho agent thao tác trên trang
- * web trong panel.
+ * One row in Settings > General: whether the agent may act on the web page inside the
+ * panel.
  *
- * **Mức 1 — chỉ cộng thêm.** `settings.general.item` là slot loại `list`, và
- * upstream cắm nhiều dòng vào đó (ngôn ngữ, giao diện, hành vi phím Enter). Thêm
- * một dòng nữa không chiếm chỗ của ai.
+ * **Level 1 — additive only.** `settings.general.item` is a `list` slot, and upstream
+ * plugs several rows into it (language, appearance, Enter-key behaviour). One more row
+ * takes nobody's place.
  *
- * Dựng theo đúng khuôn dòng cài đặt của upstream (`EnterBehaviorRow`): chữ bên
- * trái, nút chọn bên phải, và nút đó là `Menu` của họ. Cố ý **không tự vẽ một
- * cái công tắc gạt**: bộ primitive của upstream không có sẵn component đó, và
- * mọi lựa chọn nhị phân trong Cài đặt của họ đều làm bằng `Menu` hai mục — tự vẽ
- * một cái gạt sẽ là thứ duy nhất trong trang trông khác mọi thứ còn lại.
+ * Built to upstream's own settings-row shape (`EnterBehaviorRow`): text on the left, the
+ * chooser on the right, and that chooser is their `Menu`. Deliberately **no
+ * hand-drawn toggle switch**: upstream's primitive set has no such component, and every
+ * binary choice in their Settings is a two-item `Menu` — a hand-drawn switch would be
+ * the one thing on the page that looks unlike everything else.
  * @module
  */
 
@@ -24,21 +24,21 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DockState } from './store.ts'
 
-/** Phần dữ liệu plugin chuyền vào dòng này. */
+/** The data the plugin passes into this row. */
 export interface AgentControlRowInjected {
   hooks: { dock: SnapshotStore<DockState> }
   actions: { setAgentControl: (allowed: boolean) => void }
 }
 
-/** Props đầy đủ của dòng cài đặt. */
+/** The settings row's full props. */
 export type AgentControlRowProps =
   PropsRuntime<'settings.general.item'>
   & InjectFace<AgentControlRowInjected>
 
 /**
- * Dòng công tắc "cho agent điều khiển trình duyệt".
- * @param props - xem {@link AgentControlRowProps}.
- * @returns dòng cài đặt.
+ * The "let the agent control the browser" switch row.
+ * @param props - see {@link AgentControlRowProps}.
+ * @returns the settings row.
  */
 export function AgentControlRow({ useDock, actions }: AgentControlRowProps): React.JSX.Element {
   const allowed = useDock((s) => s.agentControl)
@@ -70,8 +70,8 @@ export function AgentControlRow({ useDock, actions }: AgentControlRowProps): Rea
           actions.setAgentControl(id === 'on')
         }}
         align="end"
-        // `portal` vì lý do y hệt menu "+" của dải pill: trang Cài đặt có vùng
-        // cuộn, và một hộp menu neo bên trong vùng cuộn sẽ bị cắt mất.
+        // `portal` for exactly the same reason as the pill strip's "+" menu: the Settings
+        // page has a scrolling region, and a menu anchored inside one gets clipped away.
         portal
         anchor={(
           <button

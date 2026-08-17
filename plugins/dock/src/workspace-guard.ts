@@ -1,35 +1,36 @@
 /**
- * Rào workspace: một đường dẫn client gửi lên chỉ được chấp nhận khi nó là một
- * workspace **đã đăng ký với engine**.
+ * The workspace gate: a path sent up by the client is only accepted when it is a
+ * workspace **registered with the engine**.
  *
- * Đây là rào do server quyết định. Nếu để client tự khai thư mục gốc thì sửa
- * URL một cái là duyệt được cả ổ đĩa — và với tab Terminal thì còn nặng hơn:
- * mở được shell ở bất cứ đâu. Danh sách workspace là thứ duy nhất client không
- * bịa ra được.
+ * This is a server-side decision. Letting the client declare its own root directory
+ * means one edited URL browses the whole drive — and with the Terminal tab it is worse
+ * still: a shell anywhere. The workspace list is the one thing the client cannot
+ * invent.
  *
- * Tách riêng khỏi `fs-routes.ts` vì tab Files và tab Terminal cùng cần đúng
- * rào này. Một rào an ninh bị chép làm hai bản là một rào sớm muộn lệch nhau.
+ * Split out of `fs-routes.ts` because the Files tab and the Terminal tab need exactly
+ * this same gate. A security gate copied into two places is a gate that eventually
+ * drifts apart.
  * @module
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 
-// Kéo khai báo bổ sung vào chương trình: hai gói này gắn `fs` và
-// `workspaceRegistry` lên `Context` bằng declaration merging, mà merge chỉ có
-// hiệu lực khi module thực sự được nạp.
+// Pull the extra declarations into the program: these packages attach `fs` and
+// `workspaceRegistry` to `Context` through declaration merging, and the merge only
+// applies when the module is genuinely part of the program.
 import type {} from '@deepseek-ai/dsh-workspace'
 
 /**
- * Phân giải một đường dẫn và xác nhận nó là workspace đã đăng ký.
+ * Resolve a path and confirm it is a registered workspace.
  *
- * So SAU KHI phân giải chứ không so chuỗi: `C:/x` và `C:\x` là cùng một thư mục
- * nhưng khác nhau từng ký tự. So chuỗi thì một cách viết hợp lệ bị từ chối mà
- * không ai hiểu vì sao, còn rào thì vẫn nguyên vẹn theo cách này — chỉ thư mục
- * đã đăng ký mới lọt, viết kiểu gì cũng vậy.
- * @param ctx - context của plugin; cần `fs` và `workspaceRegistry`.
- * @param root - đường dẫn client gửi lên.
- * @returns target đã phân giải, hoặc undefined nếu không phải workspace đã đăng ký.
+ * Compared AFTER resolving rather than as strings: `C:/x` and `C:\x` are the same
+ * directory yet differ character by character. String comparison rejects a valid
+ * spelling for reasons nobody can see, while this way the gate stays intact — only a
+ * registered directory passes, however it is spelled.
+ * @param ctx - the plugin's context; needs `fs` and `workspaceRegistry`.
+ * @param root - the path the client sent up.
+ * @returns the resolved target, or undefined when it is not a registered workspace.
  */
 export async function resolveWorkspaceRoot(ctx: Context, root: string): Promise<FsTarget | undefined> {
   let target: FsTarget
@@ -43,7 +44,7 @@ export async function resolveWorkspaceRoot(ctx: Context, root: string): Promise<
       try {
         return (await ctx.fs.resolve(workspace.path)).targetKey
       } catch {
-        // Workspace trỏ vào thư mục đã bị xoá — bỏ qua, đừng làm hỏng cả request.
+        // A workspace pointing at a deleted directory — skip it, do not fail the whole request.
         return undefined
       }
     }),

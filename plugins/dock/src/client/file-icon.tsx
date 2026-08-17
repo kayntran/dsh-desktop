@@ -1,21 +1,21 @@
 /**
- * Chọn icon cho một file theo đuôi tên.
+ * Pick an icon for a file from its extension.
  *
- * Bộ 70 icon của upstream **không có icon file** — bản thân DeepSeek chưa cần,
- * vì trình duyệt thư mục của họ chỉ liệt kê thư mục chứ không bao giờ hiện file
- * (`ui-directory-picker-browse/src/client/DirectoryBrowser.tsx`). Nên thay vì
- * tự vẽ một bộ icon file, ta mượn đúng những icon họ đã có và đã dùng cho cùng
- * ý nghĩa ở nơi khác trong app:
+ * Upstream's set of 70 icons has **no file icon** — DeepSeek has not needed one,
+ * because their directory browser lists only directories and never shows files
+ * (`ui-directory-picker-browse/src/client/DirectoryBrowser.tsx`). So rather than
+ * drawing a file icon set by hand, we borrow the icons they already have and already
+ * use for the same meaning elsewhere in the app:
  *
- * - `IconCodeOutline16` là icon họ gán cho biến thể `code` của thẻ tool
- * - `IconApiOutline14` là icon họ gán cho biến thể `bash`
- * - `IconGlobeOutline14` là quả địa cầu, dùng cho trang web
- * - `IconDataOutline16` là hình khối dữ liệu, dùng cho file cấu hình/dữ liệu
- * - `IconListPenOutline16` là trang giấy có bút, dùng cho file chữ
- * - `IconPaperclipOutline16` là cái kẹp giấy — thứ đính kèm chứ không đọc được
+ * - `IconCodeOutline16` is the icon they assign to a tool card's `code` variant
+ * - `IconApiOutline14` is the icon they assign to the `bash` variant
+ * - `IconGlobeOutline14` is a globe, used for web pages
+ * - `IconDataOutline16` is a data block, used for config and data files
+ * - `IconListPenOutline16` is a page with a pen, used for text files
+ * - `IconPaperclipOutline16` is a paperclip — something attached rather than readable
  *
- * Sáu nhóm là đủ để nhìn lướt phân biệt được, và ít hơn hẳn một bảng đuôi file
- * đầy đủ mà không ai duy trì nổi.
+ * Six groups are enough to tell apart at a glance, and far fewer than a complete
+ * extension table nobody could maintain.
  * @module
  */
 
@@ -28,7 +28,7 @@ import {
   IconPaperclipOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
-/** Đuôi file theo nhóm. Đuôi không nằm ở đây rơi vào nhóm "đính kèm". */
+/** File extensions by group. An extension not listed falls into the "attachment" group. */
 const GROUPS: readonly (readonly [React.ReactNode, readonly string[]])[] = [
   [<IconApiOutline14 key="sh" size={16} />, ['sh', 'bash', 'zsh', 'fish', 'ps1', 'psm1', 'bat', 'cmd']],
   [<IconGlobeOutline14 key="web" size={16} />, ['html', 'htm', 'xhtml']],
@@ -46,17 +46,17 @@ const GROUPS: readonly (readonly [React.ReactNode, readonly string[]])[] = [
 ]
 
 /**
- * Icon hợp với kiểu file.
+ * The icon that suits a file type.
  *
- * File không có đuôi (`Makefile`, `Dockerfile`, `LICENSE`) rơi vào nhóm chữ —
- * gần như luôn đúng, và đúng hơn hẳn cái kẹp giấy.
- * @param name - tên file, không phải đường dẫn.
- * @returns phần tử icon 16px.
+ * An extensionless file (`Makefile`, `Dockerfile`, `LICENSE`) falls into the text group
+ * — almost always right, and far more right than a paperclip.
+ * @param name - the file's name, not its path.
+ * @returns a 16px icon element.
  */
 export function fileIcon(name: string): React.ReactNode {
   const dot = name.lastIndexOf('.')
-  // `.gitignore` có dấu chấm ở vị trí 0: đó là file ẩn không đuôi, không phải
-  // file đuôi `gitignore`.
+  // `.gitignore` has its dot at index 0: that is an extensionless hidden file, not a
+  // file with the extension `gitignore`.
   if (dot <= 0) return <IconListPenOutline16 />
   const ext = name.slice(dot + 1).toLowerCase()
   for (const [icon, exts] of GROUPS) {

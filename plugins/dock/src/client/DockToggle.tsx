@@ -1,11 +1,11 @@
 /**
- * Nút bật/tắt panel, đặt ở nhóm tiện ích canh phải trên hàng tiêu đề phiên —
- * `conversation.session.header.utilities`, slot loại `list` đang trống mà
- * upstream chừa sẵn. Cùng vị trí app tham chiếu đặt nút này: góc trên bên phải
- * khung hội thoại.
+ * The panel's on/off button, placed in the right-aligned utility group on the session
+ * header row — `conversation.session.header.utilities`, an empty `list` slot upstream
+ * leaves open. The same place the reference app puts this button: the top-right corner
+ * of the conversation frame.
  *
- * Hệ quả của việc ở trong header phiên: màn hình chưa mở phiên nào thì chưa có
- * header, nên chưa có nút. App tham chiếu cũng đúng như vậy.
+ * A consequence of living in the session header: with no session open there is no
+ * header, so there is no button. The reference app behaves the same way.
  * @module
  */
 
@@ -14,15 +14,15 @@ import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DockActions, DockState } from './store.ts'
 
 export interface DockToggleProps {
-  /** Kho panel, do plugin chuyền vào — cùng một kho với panel. */
+  /** The panel store, passed in by the plugin — the same store the panel uses. */
   useDock: SnapshotSelectorHook<DockState>
   actions: DockActions
 }
 
 /**
- * Nút mở/đóng panel.
- * @param props - xem {@link DockToggleProps}.
- * @returns phần tử nút.
+ * The open/close button.
+ * @param props - see {@link DockToggleProps}.
+ * @returns the button element.
  */
 export function DockToggle({ useDock, actions }: DockToggleProps): React.JSX.Element {
   const open = useDock((s) => s.open)
@@ -33,9 +33,9 @@ export function DockToggle({ useDock, actions }: DockToggleProps): React.JSX.Ele
       <Button
         variant="ghost"
         size="sm"
-        // Bộ icon của upstream chỉ có bản "panel bên trái"; panel của ta nằm bên
-        // phải nên lật ngang bằng CSS. Vẫn là icon của hệ thống, đúng nét đúng
-        // cỡ — không tự vẽ thêm một icon mới.
+        // Upstream's icon set only has a "panel on the left" version; ours sits on the
+        // right, so it is mirrored in CSS. Still a system icon, with the right stroke and
+        // the right size — no new icon drawn by hand.
         icon={<span className="hdw-flip"><IconPanelLeftOutline16 /></span>}
         aria-label={label}
         aria-pressed={open}

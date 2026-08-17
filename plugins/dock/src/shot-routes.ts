@@ -1,24 +1,25 @@
 /**
- * Đầu bên plugin của đường chụp ảnh: WebSocket `/hdw/shell`.
+ * The plugin end of the screenshot path: the `/hdw/shell` WebSocket.
  *
- * Chiều gọi ngược với `/hdw/bus`. Ở đó nửa Node nhờ giao diện làm việc; ở đây
- * nửa Node nhờ **lớp vỏ Electron** làm việc — vì chụp ảnh trang web là thứ duy
- * nhất trong cả bộ lệnh mà đường của plugin không đi được.
+ * The direction of calls is the reverse of `/hdw/bus`. There, the Node half asks the
+ * client to do work; here, the Node half asks the **Electron shell** to do work —
+ * because capturing a web page is the one thing in the whole command set that the
+ * plugin's own route cannot do.
  *
- * Lý do đầy đủ nằm ở `src/main/shot-link.ts`. Tóm tắt: gọi `capturePage()` từ
- * trong trang làm treo cứng cả cửa sổ trên trang https thật; gọi từ tiến trình
- * chính thì chạy 23KB trong 5ms.
+ * The full reasoning lives in `src/main/shot-link.ts`. In short: calling
+ * `capturePage()` from inside the page hard-locks the whole window on a real https
+ * page; calling it from the main process runs 23KB in 5ms.
  *
- * ## Luật tài xế, giống hệt `/hdw/bus`
+ * ## The driver rule, identical to `/hdw/bus`
  *
- * Cái nối đầu tiên còn sống là cái được hỏi, và giữ tới khi socket đóng. Lý do
- * cũng y hệt: `isTrustedRequest` là rào chống trang lạ, **không phải xác thực**,
- * nên "mới nhất lái" sẽ trao việc cho bất kỳ tiến trình nào trên máy vừa nối
- * vào sau.
+ * The first connection still alive is the one asked, and it holds until its socket
+ * closes. The reason is identical: `isTrustedRequest` is a gate against foreign pages,
+ * **not authentication**, so "newest wins" would hand the work to whatever process on
+ * the machine connected most recently.
  *
- * Kẻ giả danh lớp vỏ chỉ NHẬN được yêu cầu chụp và trả ảnh giả — nó không sai
- * khiến được gì. Thiệt hại nếu có là agent nhìn thấy một ảnh không đúng, không
- * phải là ai đó chụp trộm được màn hình.
+ * Something impersonating the shell can only RECEIVE capture requests and return fake
+ * images — it cannot command anything. The damage, if any, is that the agent sees a
+ * wrong image, not that somebody captured the screen without permission.
  * @module
  */
 
@@ -28,32 +29,32 @@ import type { Context } from '@deepseek-ai/cordis'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { isTrustedRequest } from './trust.ts'
 
-/** Ảnh PNG base64 có thể lớn; 32MB đủ cho một khung hình 4K. */
+/** A base64 PNG can be large; 32MB is enough for a 4K frame. */
 const MAX_FRAME_BYTES = 32 * 1024 * 1024
 
-/** Trần số lệnh chụp đang chờ. Chụp là việc nặng, không cần hàng dài. */
+/** Ceiling on pending captures. Capturing is heavy work; a long queue serves nobody. */
 const MAX_PENDING = 8
 
-/** Mã đóng riêng, báo cho lớp vỏ biết ĐỪNG nối lại. */
+/** Private close code, telling the shell NOT to reconnect. */
 const CLOSE_FINAL = 4001
 
-/** Ảnh đã chụp. */
+/** A captured image. */
 export interface Shot {
   data: string
   width: number
   height: number
 }
 
-/** Bề mặt cho tầng tool. */
+/** The surface for the tool layer. */
 export interface ShotLink {
   /**
-   * Nhờ lớp vỏ chụp một trang khách.
-   * @param webContentsId - id trang khách, do nửa giao diện hỏi thẻ webview.
-   * @param timeoutMs - tổng ngân sách.
-   * @returns ảnh PNG base64.
+   * Ask the shell to capture one guest page.
+   * @param webContentsId - the guest page's id, which the client half asks the webview tag for.
+   * @param timeoutMs - the total budget.
+   * @returns the PNG image as base64.
    */
   capture: (webContentsId: number, timeoutMs?: number) => Promise<Shot>
-  /** Lớp vỏ đã nối vào chưa. */
+  /** Whether the shell has connected. */
   ready: () => boolean
 }
 
@@ -63,16 +64,16 @@ interface Pending {
   timer: NodeJS.Timeout
 }
 
-/** Trả lời một lời nâng cấp bị từ chối rồi đóng socket. */
+/** Answer a refused upgrade request, then destroy the socket. */
 function refuse(socket: Duplex, status: number, reason: string): void {
   socket.write(`HTTP/1.1 ${String(status)} ${reason}\r\nConnection: close\r\n\r\n`)
   socket.destroy()
 }
 
 /**
- * Mở route `/hdw/shell`.
- * @param ctx - context của plugin; cần `webServer`.
- * @returns bề mặt cho tầng tool, và hàm dọn.
+ * Open the `/hdw/shell` route.
+ * @param ctx - the plugin's context; needs `webServer`.
+ * @returns the surface for the tool layer, and a disposer.
  */
 export function registerShotRoutes(ctx: Context): { link: ShotLink, dispose: () => void } {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
@@ -86,7 +87,7 @@ export function registerShotRoutes(ctx: Context): { link: ShotLink, dispose: () 
     shell = [...clients].find((ws) => ws.readyState === ws.OPEN)
   }
 
-  /** Xoá khỏi bảng và tắt đồng hồ TRƯỚC khi settle — xem `bus-routes.ts`. */
+  /** Remove from the table and clear the timer BEFORE settling — see `bus-routes.ts`. */
   const settle = (id: number, ok: boolean, value: Shot | Error): void => {
     const entry = pending.get(id)
     if (entry === undefined) return

@@ -1,26 +1,25 @@
 /**
- * Terminal thật cho tab Terminal: một tiến trình shell trên máy, nối với giao
- * diện bằng một WebSocket.
+ * A real terminal for the Terminal tab: a shell process on the machine, joined to the
+ * client by one WebSocket.
  *
- * **Vì sao không dùng `ctx.terminals` của upstream.** Service đó tồn tại, nhưng
- * nó là bề mặt PTY dành cho *model* chứ không cho *người*: gửi theo từng dòng
- * chứ không theo từng phím, không có luồng dữ liệu chảy về, không có `resize`,
- * và chủ sở hữu bắt buộc phải là một `Agent`. Gõ `vim` hay bấm Ctrl+C vào đó là
- * không được. Nên tab này mở PTY riêng bằng `node-pty`, khai làm phụ thuộc của
- * chính plugin.
+ * **Why upstream's `ctx.terminals` is not used.** That service exists, but it is a PTY
+ * surface built for a *model*, not for a *person*: it sends line by line rather than
+ * key by key, there is no data stream flowing back, there is no `resize`, and the owner
+ * has to be an `Agent`. Typing `vim` or pressing Ctrl+C into it does not work. So this
+ * tab opens its own PTY through `node-pty`, declared as the plugin's own dependency.
  *
- * **Giao thức, một biệt hoá duy nhất và không base64:**
- * - khung **nhị phân** = byte thô của terminal, chảy hai chiều
- * - khung **văn bản** = JSON điều khiển (`resize` lên, `ready`/`exit`/`error` xuống)
+ * **The protocol, one single specialization and no base64:**
+ * - **binary** frames = the terminal's raw bytes, flowing both ways
+ * - **text** frames = control JSON (`resize` upward, `ready`/`exit`/`error` downward)
  *
- * Tách theo *loại khung* chứ không theo tiền tố trong nội dung, nên không có
- * chuỗi nào của người dùng bị hiểu nhầm thành lệnh, và không tốn 33% băng thông
- * cho base64.
+ * Split by *frame type* rather than by a prefix inside the content, so no string a user
+ * types is ever mistaken for a command, and no 33% of the bandwidth goes to base64.
  *
- * **Xác thực — nói thẳng giới hạn.** Rào ở đây ngang bằng rào của upstream cho
- * `/api`, tức là nơi agent đã chạy được lệnh shell từ trước. Nó chặn trang web
- * lạ và tiện ích trình duyệt đi lạc; nó KHÔNG chặn một tiến trình khác đang
- * chạy trên cùng máy. Route này vì vậy không làm rộng thêm mặt tấn công vốn có.
+ * **Authentication — the limit stated plainly.** The gate here is the equal of
+ * upstream's gate on `/api`, which is where the agent could already run shell commands.
+ * It blocks foreign web pages and stray browser extensions; it does NOT block another
+ * process running on the same machine. This route therefore does not widen the attack
+ * surface that already exists.
  * @module
  */
 
@@ -36,23 +35,23 @@ import { resolveWorkspaceRoot } from './workspace-guard.ts'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
 /**
- * Trần số terminal mở cùng lúc. Không phải để hạn chế người dùng — một người
- * không mở nổi tám cái. Nó chặn trường hợp giao diện rơi vào vòng lặp kết nối
- * lại và đẻ ra shell không giới hạn cho tới khi máy đứng.
+ * Ceiling on simultaneously open terminals. Not to limit the user — nobody opens eight
+ * by hand. It stops the case where the client falls into a reconnect loop and spawns
+ * shells without limit until the machine seizes.
  */
 const MAX_TERMINALS = 8
 
-/** Kích thước mặc định khi client không gửi, hoặc gửi số vô nghĩa. */
+/** Default size when the client sends none, or sends a nonsense number. */
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 
-/** Đọc một số nguyên dương trong khoảng cho phép từ query string. */
+/** Read a positive integer within the allowed range from the query string. */
 function positiveInt(value: string | null, fallback: number): number {
   const n = Number(value)
   return Number.isInteger(n) && n >= 1 && n <= 1000 ? n : fallback
 }
 
-/** Shell mặc định của hệ điều hành đang chạy. */
+/** The running operating system's default shell. */
 function defaultShell(): string {
   return process.platform === 'win32'
     ? process.env['ComSpec'] ?? 'cmd.exe'
@@ -60,8 +59,8 @@ function defaultShell(): string {
 }
 
 /**
- * Biến môi trường truyền cho shell: đúng môi trường của engine, đã lọc bỏ khoá
- * không có giá trị (node-pty đòi map toàn chuỗi).
+ * The environment passed to the shell: the engine's own environment, with valueless
+ * keys filtered out (node-pty demands an all-string map).
  */
 function shellEnv(): Record<string, string> {
   const out: Record<string, string> = {}
@@ -71,20 +70,20 @@ function shellEnv(): Record<string, string> {
   return out
 }
 
-/** Trả lời một lời nâng cấp bị từ chối rồi đóng socket. */
+/** Answer a refused upgrade request, then destroy the socket. */
 function refuse(socket: Duplex, status: number, reason: string): void {
   socket.write(`HTTP/1.1 ${String(status)} ${reason}\r\nConnection: close\r\n\r\n`)
   socket.destroy()
 }
 
 /**
- * Mở route WebSocket của terminal.
- * @param ctx - context của plugin; cần `webServer`, `fs`, `workspaceRegistry`.
- * @returns hàm gỡ route và giết mọi shell còn sống.
+ * Open the terminal's WebSocket route.
+ * @param ctx - the plugin's context; needs `webServer`, `fs`, `workspaceRegistry`.
+ * @returns a function that removes the route and kills every surviving shell.
  */
 export function registerPtyRoutes(ctx: Context): () => void {
-  // `noServer`: engine sở hữu HTTP server, ta chỉ nhận cái socket đã được định
-  // tuyến tới đúng đường dẫn của mình.
+  // `noServer`: the engine owns the HTTP server; we only receive the socket already
+  // routed to our own path.
   const wss = new WebSocketServer({ noServer: true })
   const live = new Set<IPty>()
 
@@ -98,12 +97,12 @@ export function registerPtyRoutes(ctx: Context): () => void {
         rows,
         cwd,
         env: shellEnv(),
-        // Dùng conpty.dll kèm sẵn trong gói thay vì bản của Windows. Đường
-        // `kill` của nhánh mặc định fork một tiến trình phụ để liệt kê console,
-        // và tiến trình phụ đó ném "AttachConsole failed" ra stderr mỗi lần
-        // đóng terminal — log engine đầy vệt lỗi giả. Nhánh này không fork.
-        // Đo bằng `scripts/spike-pty.mjs`, chạy có và không có biến
-        // `HDW_CONPTY_DLL=1` là thấy khác biệt.
+        // Use the conpty.dll bundled with the package rather than Windows' own. The
+        // default branch's `kill` path forks a helper process to enumerate consoles, and
+        // that helper throws "AttachConsole failed" onto stderr every time a terminal
+        // closes — filling the engine log with fake error traces. This branch does not
+        // fork. Measured with `scripts/spike-pty.mjs`; running it with and without
+        // `HDW_CONPTY_DLL=1` shows the difference.
         useConptyDll: true,
       }
       term = spawn(shell, [], options)
@@ -120,7 +119,7 @@ export function registerPtyRoutes(ctx: Context): () => void {
       if (ws.readyState === ws.OPEN) ws.send(Buffer.from(data, 'utf8'), { binary: true })
     })
 
-    // Đường dọn 1: shell tự thoát (người dùng gõ `exit`, hoặc nó chết).
+    // Cleanup path 1: the shell exits on its own (the user typed `exit`, or it died).
     term.onExit(({ exitCode, signal }) => {
       live.delete(term)
       if (ws.readyState === ws.OPEN) {
@@ -143,17 +142,17 @@ export function registerPtyRoutes(ctx: Context): () => void {
       if (typeof msg === 'object' && msg !== null && (msg as { t?: unknown }).t === 'resize') {
         const { cols: c, rows: r } = msg as { cols?: unknown, rows?: unknown }
         if (Number.isInteger(c) && Number.isInteger(r) && (c as number) >= 1 && (r as number) >= 1) {
-          // `resize` ném khi PTY đã chết mà onExit chưa kịp chạy tới — một cuộc
-          // đua bình thường khi người dùng kéo panel đúng lúc shell thoát.
-          try { term.resize(c as number, r as number) } catch { /* PTY đã đóng */ }
+          // `resize` throws when the PTY is already dead but onExit has not run yet — an
+          // ordinary race when the user drags the panel exactly as the shell exits.
+          try { term.resize(c as number, r as number) } catch { /* the PTY is already closed */ }
         }
       }
     })
 
-    // Đường dọn 2: người dùng đóng tab, tải lại trang, hoặc mất kết nối.
+    // Cleanup path 2: the user closes the tab, reloads the page, or loses the connection.
     ws.on('close', () => {
       if (live.delete(term)) {
-        try { term.kill() } catch { /* đã chết rồi */ }
+        try { term.kill() } catch { /* already dead */ }
       }
     })
   }
@@ -168,13 +167,14 @@ export function registerPtyRoutes(ctx: Context): () => void {
       const cwd = url.searchParams.get('cwd')
       if (cwd === null) { refuse(socket, 400, 'Missing cwd'); return }
 
-      // Thư mục làm việc do server xác thực lại, không tin client. Sai thì TỪ
-      // CHỐI hẳn, không âm thầm rơi về `process.cwd()` — chỗ đó là thư mục cài
-      // app, và một terminal mở im lặng ở đấy là thứ không ai ngờ tới.
+      // The working directory is re-validated by the server; the client is not trusted.
+      // A wrong one is REFUSED outright rather than silently falling back to
+      // `process.cwd()` — that is the app's install directory, and a terminal quietly
+      // opened there is something nobody expects.
       const target = await resolveWorkspaceRoot(ctx, cwd)
       if (target === undefined) { refuse(socket, 403, 'Not a registered workspace'); return }
 
-      // Socket có thể đã đứt trong lúc chờ phân giải ở trên.
+      // The socket may have dropped while the resolve above was awaited.
       if (socket.destroyed) return
 
       const cols = positiveInt(url.searchParams.get('cols'), DEFAULT_COLS)
@@ -185,12 +185,12 @@ export function registerPtyRoutes(ctx: Context): () => void {
     },
   })
 
-  // Đường dọn 3: plugin bị gỡ, hoặc engine tắt. Không có bước này thì `npm run
-  // dev` nạp lại plugin sẽ để lại một shell mồ côi mỗi lần.
+  // Cleanup path 3: the plugin unloads, or the engine shuts down. Without this step,
+  // every `npm run dev` plugin reload would leave one orphaned shell behind.
   return () => {
     off()
     for (const term of live) {
-      try { term.kill() } catch { /* đã chết rồi */ }
+      try { term.kill() } catch { /* already dead */ }
     }
     live.clear()
     wss.close()

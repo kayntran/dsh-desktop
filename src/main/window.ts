@@ -1,11 +1,11 @@
 /**
- * Cửa sổ chính: màn hình chờ lúc engine đang lên, UI dsh khi engine sẵn sàng,
- * trang lỗi khi không lên được.
+ * The main window: a splash screen while the engine comes up, the dsh UI once it is
+ * ready, and an error page when it cannot start.
  *
- * Hai trang nội bộ (chờ, lỗi) không cần preload hay IPC: tiến trình chính tự
- * bơm nội dung vào bằng `executeJavaScript`, còn các nút bấm báo về bằng cách
- * điều hướng tới một scheme riêng mà `will-navigate` chặn lại. Nhờ vậy cửa sổ
- * giữ nguyên sandbox mặc định của Electron cho UI dsh nạp từ loopback.
+ * The two internal pages (splash, error) need neither a preload nor IPC: the main
+ * process injects their content with `executeJavaScript`, and their buttons report
+ * back by navigating to a private scheme that `will-navigate` intercepts. That keeps
+ * the window on Electron's default sandbox for the dsh UI loaded from loopback.
  * @module
  */
 
@@ -15,23 +15,23 @@ import { resourcePath } from './paths.js'
 import { trackGuest } from './shot-link.js'
 import { restoreState, trackState } from './window-state.js'
 
-/** Tiền tố điều hướng mà các nút trên trang nội bộ dùng để gọi về tiến trình chính. */
+/** The navigation prefix the internal pages' buttons use to call back into the main process. */
 const ACTION_SCHEME = 'harness-action:'
 
 /**
- * Phiên riêng cho mọi trang mở trong tab Browser.
+ * A separate session for every page opened in a Browser tab.
  *
- * `persist:` để cookie sống qua các lần mở app — đăng nhập một lần rồi thôi.
- * Tách khỏi phiên của app để trang web không đọc được gì thuộc về UI dsh, và
- * để nút "xoá dữ liệu duyệt web" sau này không đụng tới phần còn lại.
+ * `persist:` keeps cookies alive across launches — sign in once and be done. Kept
+ * apart from the app's own session so a web page can read nothing belonging to the
+ * dsh UI, and so a future "clear browsing data" button touches nothing else.
  */
 const BROWSER_PARTITION = 'persist:hdw-browser'
 
-/** Nội dung trang lỗi. */
+/** The error page's content. */
 export interface EngineErrorPayload {
-  /** Câu mô tả lỗi cho người dùng. */
+  /** The sentence describing the failure to the user. */
   message: string
-  /** Đoạn log cuối của engine, cho người rành kỹ thuật. */
+  /** The engine's log tail, for someone technical. */
   tail: string
 }
 
@@ -39,27 +39,27 @@ let window: BrowserWindow | undefined
 let quitting = false
 
 /**
- * Gốc của engine (`http://127.0.0.1:<cổng>`), khi engine đã lên.
+ * The engine's origin (`http://127.0.0.1:<port>`), once it is up.
  *
- * Giữ lại để chốt ở {@link blockEngineOrigin} biết phải chặn cái gì. Cổng do
- * engine tự chọn lúc chạy nên không viết cứng được.
+ * Kept so the fourth guard knows what to block. The engine picks its own port at
+ * runtime, so it cannot be hard-coded.
  */
 let engineOrigin: string | undefined
 
-/** Cửa sổ chính, nếu đang tồn tại. */
+/** The main window, if one exists. */
 export function mainWindow(): BrowserWindow | undefined {
   return window
 }
 
 /**
- * Đánh dấu app đang thoát thật, để lần đóng cửa sổ tới không bị chuyển thành
- * thu về khay.
+ * Mark that the app is really quitting, so the next window close is not turned into
+ * a retreat to the tray.
  */
 export function beginQuit(): void {
   quitting = true
 }
 
-/** Hiện và đưa cửa sổ lên trước, khôi phục nếu đang thu nhỏ hoặc đang ẩn. */
+/** Show the window and bring it forward, restoring it if minimized or hidden. */
 export function revealWindow(): void {
   const target = window
   if (target === undefined) return
@@ -68,28 +68,29 @@ export function revealWindow(): void {
   target.focus()
 }
 
-/** Cửa sổ có đang hiện ra trước mặt người dùng không — dùng để quyết định có nên báo. */
+/** Whether the window is in front of the user right now — used to decide whether to notify. */
 export function isWindowActive(): boolean {
   const target = window
   return target !== undefined && target.isVisible() && !target.isMinimized() && target.isFocused()
 }
 
-/** Những việc cửa sổ gọi ngược về tiến trình chính. */
+/** The things the window calls back into the main process. */
 export interface WindowHandlers {
-  /** Nhận tên hành động người dùng bấm trên trang nội bộ. */
+  /** Receives the name of the action the user clicked on an internal page. */
   onAction: (action: string) => void
-  /** Gọi khi cửa sổ vừa được thu về khay thay vì đóng hẳn. */
+  /** Called when the window has just retreated to the tray instead of closing for good. */
   onHiddenToTray: () => void
 }
 
 /**
- * Ghi lại gốc của engine để chốt 4 biết phải chặn cái gì.
+ * Record the engine's origin so guard 4 knows what to block.
  *
- * Tách khỏi {@link showEngine} để bài kiểm gọi được: `scripts/spike-dock-ui.cjs`
- * dựng cửa sổ của riêng nó và dùng **chính** hàm chốt ở dưới, chứ không chép
- * lại. Bản chép là thứ trôi khỏi bản gốc mà không ai biết, và một chốt an toàn
- * được kiểm bằng bản sao của chính nó thì không kiểm gì cả.
- * @param url - địa chỉ engine đang chạy.
+ * Split out of {@link showEngine} so the test suite can call it:
+ * `scripts/spike-dock-ui.cjs` builds its own window and uses **these very** guard
+ * functions rather than copying them. A copy is the thing that drifts away from the
+ * original with nobody noticing, and a guard verified against a copy of itself
+ * verifies nothing.
+ * @param url - the running engine's address.
  */
 export function setEngineOrigin(url: string): void {
   try {
@@ -100,42 +101,42 @@ export function setEngineOrigin(url: string): void {
 }
 
 /**
- * Bốn chốt an toàn cho mọi thẻ `<webview>` mà plugin gắn vào trang.
+ * Four safety guards for every `<webview>` tag the plugin attaches to the page.
  *
- * Chốt phải nằm ở đây, ngoài tầm với của plugin — một chốt mà bên bị chặn tự
- * đặt được thì không phải chốt. Trang web mở trong tab Browser là nội dung
- * không tin được: nó có thể là trang bất kỳ, và agent có thể được chính nó dụ
- * đi tới đó.
+ * The guards have to live here, out of the plugin's reach — a guard the blocked party
+ * can set for itself is not a guard. A web page opened in a Browser tab is untrusted
+ * content: it can be any page at all, and the agent may have been talked into going
+ * there by that very page.
  *
- * Mọi giá trị dưới đây đã được `scripts/spike-webview.cjs` đo là có hiệu lực
- * thật (mục 2 đọc lại `getLastWebPreferences()` của guest để xác nhận).
- * @param win - cửa sổ chính.
+ * Every value below was measured by `scripts/spike-webview.cjs` as actually taking
+ * effect (check 2 reads the guest's `getLastWebPreferences()` back to confirm).
+ * @param win - the main window.
  */
 export function guardWebviews(win: BrowserWindow): void {
-  // Chốt 1 — ép cấu hình guest, bỏ qua mọi thuộc tính trang tự khai.
+  // Guard 1 — force the guest's configuration, ignoring anything the page declares.
   win.webContents.on('will-attach-webview', (_event, prefs, params) => {
     delete prefs.preload
     prefs.nodeIntegration = false
     prefs.contextIsolation = true
     prefs.sandbox = true
-    // Trang nền vẫn chạy đúng nhịp. Không có dòng này thì Chromium bóp timer
-    // của tab không hiện, và lệnh "chờ tới khi phần tử xuất hiện" của agent sẽ
-    // hết giờ oan trên chính những tab nó vừa mở.
+    // Background pages keep running at full pace. Without this line Chromium throttles
+    // the timers of a tab that is not on screen, and the agent's "wait until an element
+    // appears" would time out unfairly on the very tabs it just opened.
     prefs.backgroundThrottling = false
-    // Ép phiên: quyết định trang web dùng chung kho cookie nào là quyết định
-    // của lớp vỏ, không phải của thẻ HTML.
+    // Force the session: which cookie jar a web page shares is the shell's decision,
+    // not the HTML tag's.
     params.partition = BROWSER_PARTITION
-    // Không cho trang nhúng mở popup. Bỏ thuộc tính này là chặn từ sớm, trước
-    // cả khi handler ở chốt 2 kịp chạy.
+    // No popups from an embedded page. Deleting this attribute blocks it early, before
+    // guard 2's handler even gets a chance to run.
     delete params.allowpopups
   })
 
-  // Chốt 2 — trang nhúng không đẻ được cửa sổ mới. `target=_blank` và
-  // `window.open` đều về đây; link ngoài mở bằng trình duyệt mặc định.
+  // Guard 2 — an embedded page cannot spawn a new window. `target=_blank` and
+  // `window.open` both arrive here; external links open in the default browser.
   win.webContents.on('did-attach-webview', (_event, guest) => {
-    // Ghi vào danh sách cho phép của đường chụp ảnh. Chỉ những trang lớp vỏ tự
-    // tay gắn vào mới chụp được — không ai chụp được giao diện engine hay cửa
-    // sổ nào khác của app.
+    // Record it on the screenshot path's allow list. Only pages the shell attached
+    // itself can be captured — nobody can capture the engine UI or any other window
+    // of the app.
     trackGuest(guest)
     guest.setWindowOpenHandler(({ url }) => {
       if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url)
@@ -143,32 +144,32 @@ export function guardWebviews(win: BrowserWindow): void {
     })
   })
 
-  // Chốt 3 — từ chối thẳng camera, micro, vị trí và các quyền nhạy cảm khác
-  // trên phiên duyệt web. Người dùng không có cách nào bật nhầm, vì không có
-  // hộp thoại nào để bấm.
+  // Guard 3 — flatly refuse camera, microphone, location and every other sensitive
+  // permission on the browsing session. The user has no way to enable one by mistake,
+  // because there is no dialog to click.
   const browserSession = session.fromPartition(BROWSER_PARTITION)
-  browserSession.setPermissionRequestHandler((_wc, _quyen, callback) => {
+  browserSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(false)
   })
 
-  // Chốt 4 — không tab web nào được mở giao diện của chính engine.
+  // Guard 4 — no web tab may open the engine's own UI.
   //
-  // Lỗ này là lỗ leo thang nguy hiểm nhất, và nó không đi qua đường mà rào địa
-  // chỉ canh: agent đưa một địa chỉ công cộng hợp lệ, trang đó trả về lệnh
-  // chuyển hướng sang `http://127.0.0.1:<cổng engine>/`. Phép kiểm lúc mở đã
-  // chạy xong và đã cho qua; cú chuyển hướng xảy ra sau đó. Kết quả: agent có
-  // một tab điều khiển được đứng ngay TRONG giao diện engine, và nó tự bấm nút
-  // thay người dùng được.
+  // This is the most dangerous escalation hole, and it does not travel the path the
+  // address gate watches: the agent supplies a perfectly valid public address, and
+  // that page returns a redirect to `http://127.0.0.1:<engine port>/`. The check at
+  // open time already ran and already allowed it; the redirect happens afterwards. The
+  // result: the agent holds a controllable tab standing INSIDE the engine UI, and it
+  // can press buttons there on the user's behalf.
   //
-  // Chặn ở tầng request nên bắt được cả ba đường — mở thẳng, chuyển hướng của
-  // máy chủ, và trang tự đổi địa chỉ bằng script.
+  // Blocking at the request layer catches all three routes — a direct open, a server
+  // redirect, and the page changing its own address by script.
   //
-  // Chốt này nằm ở lớp vỏ chứ không ở plugin, và đó là chủ ý: một chốt mà bên
-  // bị chặn tự đặt được thì bên đó cũng tự gỡ được. Lớp vỏ bảo vệ engine mà
-  // chính nó khởi động.
+  // This guard lives in the shell rather than the plugin, deliberately: a guard the
+  // blocked party can set for itself is a guard that party can also remove. The shell
+  // protects the engine it started.
   //
-  // Cái giá cho người dùng bằng không: không ai có lý do mở giao diện engine
-  // bên trong tab Browser của chính engine đó.
+  // The cost to the user is zero: nobody has a reason to open the engine UI inside a
+  // Browser tab of that same engine.
   browserSession.webRequest.onBeforeRequest((details, callback) => {
     if (engineOrigin === undefined) { callback({}); return }
     try {
@@ -177,16 +178,16 @@ export function guardWebviews(win: BrowserWindow): void {
         callback({ cancel: true })
         return
       }
-    } catch { /* URL lạ (data:, blob:) — không phải gốc engine */ }
+    } catch { /* an unusual URL (data:, blob:) — not the engine's origin */ }
     callback({})
   })
 }
 
-/** Tạo cửa sổ và hiện màn hình chờ ngay lập tức. */
+/** Create the window and show the splash screen immediately. */
 export function createWindow({ onAction, onHiddenToTray }: WindowHandlers): BrowserWindow {
-  // Menu mặc định của Electron (File/Edit/View/Window/Help) không thuộc về app
-  // này — nó còn trỏ Help sang trang của Electron. Chức năng cửa sổ nằm ở menu
-  // khay hệ thống thay vì một thanh menu chiếm chỗ.
+  // Electron's default menu (File/Edit/View/Window/Help) does not belong to this app —
+  // its Help even points at Electron's own site. Window functions live in the system
+  // tray menu instead of a menu bar taking up space.
   Menu.setApplicationMenu(null)
 
   const state = restoreState()
@@ -195,25 +196,25 @@ export function createWindow({ onAction, onHiddenToTray }: WindowHandlers): Brow
     minWidth: 900,
     minHeight: 600,
     show: false,
-    // Nền cùng tông với hai trang nội bộ, để lúc chuyển trang không loé trắng.
+    // A background matching the two internal pages, so page transitions do not flash white.
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#16161a' : '#fbfbfd',
     title: app.getName(),
     icon: resourcePath('icon.ico'),
     webPreferences: {
-      // Cho phép plugin dùng thẻ `<webview>` — nền tảng của tab Browser.
+      // Lets the plugin use `<webview>` tags — the foundation of the Browser tab.
       //
-      // Đây KHÔNG phải nới lỏng bảo mật của trang chủ: `webviewTag` chỉ mở ra
-      // khả năng *nhúng* một trang khác, và mọi quyền của trang nhúng đó do
-      // `will-attach-webview` bên dưới quyết định, không do trang nhúng tự khai.
-      // Không API nào cho phép trang tự bật cờ này.
+      // This is NOT a relaxation of the host page's security: `webviewTag` only opens
+      // the ability to *embed* another page, and every permission that embedded page
+      // gets is decided by `will-attach-webview` below, not declared by the page
+      // itself. No API lets a page turn this flag on for itself.
       webviewTag: true,
     },
   })
 
   guardWebviews(created)
 
-  // Link ngoài (tài liệu, GitHub…) mở bằng trình duyệt mặc định chứ không đẻ
-  // thêm một cửa sổ Electron trần không có thanh địa chỉ.
+  // External links (docs, GitHub…) open in the default browser rather than spawning
+  // another bare Electron window with no address bar.
   created.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url)
     return { action: 'deny' }
@@ -225,18 +226,18 @@ export function createWindow({ onAction, onHiddenToTray }: WindowHandlers): Brow
     onAction(url.slice(ACTION_SCHEME.length))
   })
 
-  // UI thượng nguồn tự đặt tiêu đề tài liệu là "DeepSeek Harness". App này
-  // không phải bản chính chủ của DeepSeek nên thanh tiêu đề mang tên app;
-  // phần ghi công thượng nguồn nằm ở màn hình Giới thiệu.
+  // Upstream's UI sets the document title to "DeepSeek Harness" itself. This app is
+  // not DeepSeek's official build, so the title bar carries the app's own name;
+  // upstream's credit lives in the About window.
   created.on('page-title-updated', (event) => {
     event.preventDefault()
     created.setTitle(app.getName())
   })
 
-  // Không có thanh menu thì cũng không còn phím tắt mặc định. Giữ lại hai cái
-  // cần cho việc hỗ trợ người dùng từ xa: xem console và nạp lại trang. Chặn
-  // luôn phím đã xử lý, nếu không UI thượng nguồn cũng nhận được nó và một lần
-  // bấm thành hai hành động.
+  // With no menu bar there are no default shortcuts either. Two are kept for
+  // supporting a user remotely: open the console and reload the page. The handled key
+  // is swallowed as well, or upstream's UI would receive it too and one press would
+  // become two actions.
   created.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return
     if (input.key === 'F12') {
@@ -248,8 +249,9 @@ export function createWindow({ onAction, onHiddenToTray }: WindowHandlers): Brow
     }
   })
 
-  // Bấm X thu app về khay chứ không tắt: agent có thể đang chạy một việc dài,
-  // và đóng cửa sổ không phải là ý định dừng nó. Chỉ lệnh Thoát mới dừng thật.
+  // Clicking X retreats to the tray rather than quitting: the agent may be part way
+  // through a long job, and closing a window is not an intent to stop it. Only Quit
+  // really stops it.
   created.on('close', (event) => {
     if (quitting) return
     event.preventDefault()
@@ -269,18 +271,18 @@ export function createWindow({ onAction, onHiddenToTray }: WindowHandlers): Brow
   return created
 }
 
-/** Quay lại màn hình chờ (dùng khi người dùng bấm Thử lại). */
+/** Go back to the splash screen (used when the user presses Retry). */
 export async function showSplash(): Promise<void> {
   await window?.loadFile(resourcePath('splash.html'))
 }
 
-/** Chuyển cửa sổ sang UI dsh. */
+/** Switch the window to the dsh UI. */
 export async function showEngine(url: string): Promise<void> {
   setEngineOrigin(url)
   await window?.loadURL(url)
 }
 
-/** Nội dung màn hình Giới thiệu. */
+/** The About window's content. */
 export interface AboutInfo {
   name: string
   appVersion: string
@@ -293,8 +295,9 @@ export interface AboutInfo {
 let aboutWindow: BrowserWindow | undefined
 
 /**
- * Mở màn hình Giới thiệu — nơi ghi công thượng nguồn và nói rõ đây không phải
- * sản phẩm chính chủ. Một cửa sổ riêng, nhỏ, không thay thế UI đang chạy.
+ * Open the About window — where upstream is credited and it is stated plainly that
+ * this is not an official product. A small separate window; it does not replace the
+ * running UI.
  */
 export async function showAbout(info: AboutInfo): Promise<void> {
   if (aboutWindow !== undefined && !aboutWindow.isDestroyed()) {
@@ -324,12 +327,13 @@ export async function showAbout(info: AboutInfo): Promise<void> {
   await created.webContents.executeJavaScript(`window.__setAbout(${JSON.stringify(info)})`)
 }
 
-/** Chuyển cửa sổ sang trang lỗi, kèm mô tả và đoạn log cuối. */
+/** Switch the window to the error page, with a description and the log tail. */
 export async function showError(payload: EngineErrorPayload): Promise<void> {
   const target = window
   if (target === undefined) return
   await target.loadFile(resourcePath('error.html'))
-  // Trang lỗi là tài nguyên của chính app và payload do ta dựng, nên bơm thẳng
-  // qua một lời gọi hàm là đủ — không cần cầu IPC cho hai nút bấm.
+  // The error page is the app's own resource and the payload is built by us, so
+  // injecting it through one function call is enough — two buttons do not need an IPC
+  // bridge.
   await target.webContents.executeJavaScript(`window.__setError(${JSON.stringify(payload)})`)
 }

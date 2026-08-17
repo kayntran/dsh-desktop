@@ -1,33 +1,34 @@
 /**
- * Báo khi có bản mới. App KHÔNG tự cài — chỉ nói cho biết và mở trang tải.
+ * Report when a new version exists. The app does NOT install it — it only says so
+ * and opens the download page.
  *
- * Việc này quan trọng hơn vẻ ngoài của nó: engine dsh đang ở giai đoạn rc và
- * thượng nguồn nói thẳng là sẽ có thay đổi phá vỡ tương thích, nên người dùng
- * kẹt ở một bản cũ có lỗi mà không biết là chuyện dễ xảy ra.
+ * This matters more than it looks: the dsh engine is in its rc phase and upstream
+ * states plainly that breaking changes are coming, so a user stuck on an old buggy
+ * version without knowing it is an easy outcome.
  * @module
  */
 
 import { app, Notification, shell } from 'electron'
 
 /**
- * Kho phát hành trên GitHub, dạng `chu-so-huu/ten-kho`.
+ * The GitHub release repository, as `owner/repo`.
  *
- * Chưa có kho thì để nguyên: mọi việc kiểm tra sẽ bị bỏ qua chứ không gọi mạng
- * và cũng không báo lỗi. Điền vào đây là tính năng tự bật.
+ * Leave it empty until a repository exists: every check is then skipped rather than
+ * calling the network or reporting an error. Filling this in switches the feature on.
  */
 const REPOSITORY = ''
 
-/** Chờ một lúc sau khi app mở rồi mới hỏi — lúc khởi động còn nhiều việc hơn. */
+/** Wait a while after launch before asking — startup has more important work. */
 const FIRST_CHECK_DELAY_MS = 10_000
 
-/** Nhịp hỏi lại khi app chạy dài ngày. */
+/** How often to re-ask when the app runs for days. */
 const RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000
 
-/** Bản mới đã tìm thấy, nếu có. */
+/** The new version that was found, if any. */
 export interface AvailableUpdate {
-  /** Số hiệu bản mới, ví dụ `1.2.0`. */
+  /** The new version number, e.g. `1.2.0`. */
   version: string
-  /** Trang phát hành để người dùng tải về. */
+  /** The release page the user downloads from. */
   url: string
 }
 
@@ -36,7 +37,7 @@ let available: AvailableUpdate | undefined
 let announced = false
 let onFound: ((update: AvailableUpdate) => void) | undefined
 
-/** Tách `v1.2.3-rc.4` thành các số để so sánh; hậu tố tiền phát hành bị bỏ qua. */
+/** Split `v1.2.3-rc.4` into comparable numbers; the pre-release suffix is ignored. */
 function parseVersion(raw: string): { parts: number[]; prerelease: boolean } | undefined {
   const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec(raw.trim())
   if (match === null) return undefined
@@ -47,11 +48,12 @@ function parseVersion(raw: string): { parts: number[]; prerelease: boolean } | u
 }
 
 /**
- * `candidate` có mới hơn `current` không.
+ * Whether `candidate` is newer than `current`.
  *
- * So ba số chính trước; bằng nhau thì bản chính thức được coi là mới hơn bản
- * tiền phát hành cùng số. Không so sâu vào hậu tố tiền phát hành: người dùng
- * bản phát hành công khai không cần biết rc.3 hay rc.4.
+ * The three main numbers are compared first; when they are equal, a final release
+ * counts as newer than a pre-release carrying the same numbers. The pre-release
+ * suffix is not compared any deeper: a user on a public release does not need to
+ * know rc.3 from rc.4.
  */
 function isNewer(candidate: string, current: string): boolean {
   const next = parseVersion(candidate)
@@ -65,7 +67,7 @@ function isNewer(candidate: string, current: string): boolean {
   return now.prerelease && !next.prerelease
 }
 
-/** Hỏi GitHub một lần. Mọi lỗi đều im lặng — đây không phải việc đáng làm phiền. */
+/** Ask GitHub once. Every failure stays silent — this is not worth bothering anyone about. */
 async function check(): Promise<void> {
   if (REPOSITORY === '') return
   try {
@@ -82,7 +84,7 @@ async function check(): Promise<void> {
 
     available = { version: tag.replace(/^v/, ''), url }
     onFound?.(available)
-    // Nói đúng một lần mỗi phiên chạy; nhắc lại mỗi sáu tiếng là quấy rầy.
+    // Say it exactly once per run; repeating every six hours is harassment.
     if (announced) return
     announced = true
     if (!Notification.isSupported()) return
@@ -93,14 +95,14 @@ async function check(): Promise<void> {
     notification.on('click', () => { openReleasePage() })
     notification.show()
   } catch {
-    // Mất mạng, GitHub giới hạn tốc độ, JSON lạ — đều không phải việc của
-    // người dùng.
+    // No network, GitHub rate limiting, unexpected JSON — none of it is the user's
+    // problem.
   }
 }
 
 /**
- * Bắt đầu theo dõi bản mới.
- * @param onUpdateFound - gọi khi tìm thấy bản mới, để menu khay thêm mục tải về.
+ * Start watching for new versions.
+ * @param onUpdateFound - called when one is found, so the tray menu can add a download entry.
  */
 export function startUpdateChecks(onUpdateFound: (update: AvailableUpdate) => void): void {
   onFound = onUpdateFound
@@ -108,17 +110,17 @@ export function startUpdateChecks(onUpdateFound: (update: AvailableUpdate) => vo
   timers.push(setInterval(() => { void check() }, RECHECK_INTERVAL_MS))
 }
 
-/** Bản mới đang chờ, nếu đã tìm thấy. */
+/** The pending new version, if one was found. */
 export function pendingUpdate(): AvailableUpdate | undefined {
   return available
 }
 
-/** Mở trang phát hành của bản mới. */
+/** Open the new version's release page. */
 export function openReleasePage(): void {
   if (available !== undefined) void shell.openExternal(available.url)
 }
 
-/** Dừng theo dõi khi thoát. */
+/** Stop watching on quit. */
 export function stopUpdateChecks(): void {
   for (const timer of timers) clearTimeout(timer)
   timers = []

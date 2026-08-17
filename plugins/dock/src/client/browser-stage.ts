@@ -1,41 +1,42 @@
 /**
- * Sân khấu chứa các thẻ `<webview>` — sống **ngoài** cây React, cố ý.
+ * The stage holding the `<webview>` tags — living **outside** the React tree, on purpose.
  *
- * Ba sự thật buộc phải làm vậy:
+ * Three facts force that:
  *
- * 1. Gỡ một `<webview>` khỏi DOM rồi cắm lại là **nạp lại trang từ đầu**: mất
- *    cuộn, mất nội dung form, mất trạng thái JS, mất cả đăng nhập chưa lưu.
- * 2. React reconcile là chuyên gia gỡ-và-cắm-lại. Một thay đổi ở tổ tiên, một
- *    lần đổi thứ tự danh sách, một `key` khác đi — đều có thể làm điều đó, và
- *    không có gì báo cho ai biết.
- * 3. `partition` (kho cookie) chỉ đặt được **trước** lần điều hướng đầu tiên.
- *    Dựng lại thẻ là mất luôn cơ hội đó.
+ * 1. Detaching a `<webview>` from the DOM and reattaching it **reloads the page from
+ *    scratch**: scroll position gone, form content gone, JS state gone, and any unsaved
+ *    login gone with them.
+ * 2. React reconciliation is an expert at detach-and-reattach. A change in an ancestor,
+ *    a list reorder, a different `key` — each of them can do it, and nothing reports it.
+ * 3. `partition` (the cookie jar) can only be set **before** the first navigation.
+ *    Rebuilding the tag forfeits that chance for good.
  *
- * Nên React chỉ vẽ khung — dải pill, thanh địa chỉ — và chừa một ô trống. Mỗi
- * lần bố cục đổi, nó đo ô trống đó rồi báo toạ độ sang đây; sân khấu bám theo.
- * Đúng cách app tham chiếu đặt `bounds` cho `WebContentsView` của họ.
+ * So React draws only the frame — the pill strip, the address bar — and leaves an empty
+ * slot. On every layout change it measures that slot and reports the coordinates across;
+ * the stage follows. Exactly how the reference app sets `bounds` on its
+ * `WebContentsView`.
  *
- * ## Vì sao tab nền bị CHE chứ không bị ẩn
+ * ## Why a background tab is COVERED rather than hidden
  *
- * `scripts/spike-webview.cjs` đo được: `capturePage()` **treo vĩnh viễn** khi
- * webview bị `visibility: hidden` hoặc bị đẩy ra ngoài khung nhìn — không lỗi,
- * không timeout, Promise không bao giờ giải quyết. Cách ẩn duy nhất vẫn chụp
- * được là **bị một lớp khác che kín**. Nên mọi tab xếp chồng đúng một chỗ, tab
- * đang xem nằm trên; tab nền bị chính nó che, và vẫn chụp được.
+ * `scripts/spike-webview.cjs` measured it: `capturePage()` **hangs forever** when a
+ * webview is `visibility: hidden` or pushed outside the viewport — no error, no timeout,
+ * the Promise simply never settles. The only way of hiding one that still captures is
+ * **being completely covered by another layer**. So every tab stacks in one place with
+ * the viewed one on top; a background tab is covered by that one, and stays capturable.
  *
- * Kế hoạch ban đầu ghi `visibility: hidden`. Nếu làm theo, lệnh chụp ảnh của
- * agent nhắm vào tab nền sẽ treo cứng cả lượt hội thoại.
+ * The original plan said `visibility: hidden`. Had it been followed, an agent screenshot
+ * aimed at a background tab would have hard-locked the whole conversation turn.
  * @module
  */
 
 import { isPublicUrl, withScheme } from '../net-policy.ts'
 
 /**
- * Phần API của thẻ `<webview>` mà panel dùng tới.
+ * The part of the `<webview>` tag's API the panel actually uses.
  *
- * Khai tay thay vì kéo `@types/electron` vào plugin: plugin không phụ thuộc
- * Electron, và nó chạy trong trang chứ không trong tiến trình chính. Danh sách
- * ngắn này cũng là bản khai đầy đủ những gì ta thật sự động vào.
+ * Declared by hand rather than pulling `@types/electron` into the plugin: the plugin
+ * does not depend on Electron, and it runs inside the page rather than the main process.
+ * This short list doubles as a complete statement of what we really touch.
  */
 export interface WebviewTag extends HTMLElement {
   src: string
@@ -48,35 +49,36 @@ export interface WebviewTag extends HTMLElement {
   goForward: () => void
   executeJavaScript: (code: string) => Promise<unknown>
   /**
-   * Id tiến trình của trang khách.
+   * The guest page's process id.
    *
-   * Con số này là cầu nối duy nhất giữa nửa giao diện và lớp vỏ Electron: lệnh
-   * chụp ảnh chạy ở lớp vỏ, và lớp vỏ nhận diện trang cần chụp bằng id này.
+   * This number is the only bridge between the client half and the Electron shell: the
+   * screenshot command runs in the shell, and the shell identifies the page to capture by
+   * this id.
    */
   getWebContentsId: () => number
   /**
-   * Gửi chuột/phím thật vào trang khách.
+   * Send real mouse and key events into the guest page.
    *
-   * Đo được (mục 15e): đường này tới nơi. Và mục 15a đo thêm một điều quan
-   * trọng hơn — nó tới nơi **kể cả khi cửa sổ app không ở trước mặt**, ngược với
-   * ghi chú trong tài liệu Electron. Nhờ vậy agent làm việc được trong lúc người
-   * dùng đang dùng app khác.
+   * Measured (check 15e): this path arrives. And check 15a measured something more
+   * important — it arrives **even when the app window is not in front**, contrary to a
+   * note in Electron's documentation. That is what lets the agent work while the user is
+   * busy in another app.
    */
   sendInputEvent: (event: InputEvent) => void
-  /** Gõ chữ vào phần tử đang giữ con trỏ. Nhanh và đúng hơn gõ từng phím. */
+  /** Type text into whatever holds the caret. Faster and more correct than key by key. */
   insertText: (text: string) => Promise<void>
   setUserAgent: (ua: string) => void
   setZoomFactor: (factor: number) => void
   /**
-   * ĐỪNG GỌI. Trên trang https thật, gọi từ trong trang chủ làm **treo cứng
-   * vòng lặp sự kiện của cả trang chủ** — `setTimeout` bọc ngoài cũng không nổ,
-   * nên không có cách nào tự cứu. Khai ra để người đọc biết nó tồn tại và biết
-   * vì sao không dùng. Đường chụp ảnh duy nhất lành là từ tiến trình chính.
+   * DO NOT CALL. On a real https page, calling this from inside the host page
+   * **hard-locks the host page's entire event loop** — even a wrapping `setTimeout` never
+   * fires, so there is no way to rescue it. Declared so a reader knows it exists and knows
+   * why it is not used. The only healthy screenshot path is from the main process.
    */
   capturePage: () => Promise<{ toDataURL: () => string }>
 }
 
-/** Một sự kiện chuột hoặc phím gửi vào trang khách. */
+/** One mouse or key event sent into the guest page. */
 export interface InputEvent {
   type: string
   x?: number
@@ -90,7 +92,7 @@ export interface InputEvent {
   canScroll?: boolean
 }
 
-/** Những gì panel cần biết về một tab để vẽ thanh địa chỉ và pill. */
+/** What the panel needs to know about a tab to draw the address bar and the pill. */
 export interface TabStatus {
   url: string
   title: string
@@ -105,32 +107,32 @@ interface Tab {
   el: WebviewTag
   status: TabStatus
   /**
-   * Số mục lịch sử đã đi qua và vị trí hiện tại.
+   * How many history entries have been visited, and the current position.
    *
-   * Tự đếm thay vì hỏi `canGoBack()`: hàm đó đã bị đánh dấu lỗi thời trên
-   * `webContents` và đường thay thế (`navigationHistory`) không lộ ra trên thẻ
-   * `<webview>`. Đếm theo sự kiện điều hướng là thứ chắc chắn có.
+   * Counted by hand rather than asking `canGoBack()`: that function is deprecated on
+   * `webContents`, and its replacement (`navigationHistory`) is not exposed on a
+   * `<webview>` tag. Counting navigation events is the thing that definitely exists.
    */
   historyLength: number
   historyIndex: number
-  /** Ai mở tab này. Quyết định rào địa chỉ có áp cho nó không. */
+  /** Who opened this tab. It decides whether the address gate applies to it. */
   owner: TabOwner
-  /** Vòng đệm console, cắt đuôi ở `MAX_CONSOLE_LINES`. */
+  /** The console ring buffer, trimmed at `MAX_CONSOLE_LINES`. */
   consoleLines: ConsoleLine[]
 }
 
 /**
- * Số dòng console giữ lại cho mỗi tab.
+ * How many console lines are kept per tab.
  *
- * Đủ để lần ra một lỗi vừa xảy ra, và đủ nhỏ để một trang spam `console.log`
- * trong vòng lặp không ăn hết bộ nhớ của cửa sổ.
+ * Enough to trace an error that just happened, and small enough that a page spamming
+ * `console.log` in a loop cannot eat the window's memory.
  */
 const MAX_CONSOLE_LINES = 200
 
-/** Bốn mức của `console-message`, theo thứ tự Chromium đánh số. */
+/** The four `console-message` levels, in the order Chromium numbers them. */
 const CONSOLE_LEVELS: readonly ConsoleLine['level'][] = ['debug', 'info', 'warn', 'error']
 
-/** Ô mà sân khấu phải bám theo, tính theo toạ độ khung nhìn. */
+/** The slot the stage has to follow, in viewport coordinates. */
 export interface StageRect {
   x: number
   y: number
@@ -139,17 +141,17 @@ export interface StageRect {
 }
 
 export interface Stage {
-  /** Tạo tab nếu chưa có, rồi trả về nó. */
+  /** Create the tab if it does not exist yet. */
   ensure: (id: string, url?: string, owner?: TabOwner) => void
   remove: (id: string) => void
   /**
-   * Tab nào nằm trên. `undefined` là không tab nào (dải rỗng).
-   * @param giveKeyboard - true khi chính người dùng vừa chọn tab này, để trao
-   * luôn bàn phím cho trang. Mặc định false: lúc app tự dựng lại panel mà giành
-   * bàn phím là cướp nó khỏi ô nhập hội thoại.
+   * Which tab sits on top. `undefined` means none (an empty strip).
+   * @param giveKeyboard - true when the user themselves just picked this tab, so the
+   * keyboard goes to the page as well. Defaults to false: grabbing the keyboard while the
+   * app rebuilds the panel by itself steals it from the conversation input.
    */
   setActive: (id: string | undefined, giveKeyboard?: boolean) => void
-  /** Đặt vị trí sân khấu; `undefined` là ẩn hẳn. */
+  /** Set the stage's position; `undefined` hides it entirely. */
   setRect: (rect: StageRect | undefined) => void
   status: (id: string) => TabStatus | undefined
   navigate: (id: string, url: string) => void
@@ -157,55 +159,56 @@ export interface Stage {
   goForward: (id: string) => void
   reload: (id: string) => void
   stop: (id: string) => void
-  /** Trao bàn phím cho trang của tab này. */
+  /** Hand the keyboard to this tab's page. */
   focus: (id: string) => void
   element: (id: string) => WebviewTag | undefined
   destroy: () => void
 
-  // --- Bề mặt cho tầng tool của agent ---
+  // --- The surface for the agent's tool layer ---
 
-  /** Mọi tab đang có, theo đúng thứ tự trên dải pill. */
+  /** Every existing tab, in the pill strip's own order. */
   list: () => TabInfo[]
-  /** Tab này do agent mở hay do người dùng mở. */
+  /** Whether this tab was opened by the agent or by the user. */
   openedBy: (id: string) => TabOwner | undefined
-  /** Ghi chủ nhân lúc tạo tab. Mặc định là người dùng. */
+  /** Record the owner at tab creation. Defaults to the user. */
   claim: (id: string, owner: TabOwner) => void
   /**
-   * Chạy mã trong trang khách và nhận lại giá trị.
-   * @throws khi không có tab đó, hoặc mã ném trong trang.
+   * Run code inside the guest page and get a value back.
+   * @throws when that tab does not exist, or the code throws inside the page.
    */
   evaluate: (id: string, code: string) => Promise<unknown>
-  /** Gửi một sự kiện chuột/phím thật vào trang. */
+  /** Send one real mouse or key event into the page. */
   sendInput: (id: string, event: InputEvent) => void
-  /** Gõ chữ vào phần tử đang giữ con trỏ trong trang. */
+  /** Type text into whatever holds the caret inside the page. */
   insertText: (id: string, text: string) => Promise<void>
   /**
-   * Trang có ĐANG ĐƯỢC VẼ không.
+   * Whether the page is BEING PAINTED.
    *
-   * Bài học đắt nhất chép từ dự án tham chiếu: một tab không được vẽ **vẫn nhận
-   * cú bấm và vẫn trả lời "xong"**, nhưng không làm gì cả. Không kiểm chỗ này
-   * thì agent báo thành công cho những thao tác chưa từng xảy ra.
+   * The most expensive lesson copied from the reference project: a tab that is not being
+   * painted **still accepts a click and still answers "done"**, while doing nothing at
+   * all. Without checking this, the agent reports success for actions that never happened.
    */
   isDrawable: (id: string) => Promise<boolean>
   /**
-   * Tạm đưa tab lên trước để nó được vẽ, rồi trả về hàm khôi phục.
+   * Briefly raise the tab so it gets painted, then return a restore function.
    *
-   * Gọi ở đầu mọi lệnh thao tác. Hàm trả về đưa mọi thứ về đúng chỗ cũ, nên
-   * agent làm việc ở tab nền mà người dùng không bị nhảy màn hình.
+   * Called at the start of every action command. The returned function puts everything
+   * back where it was, so the agent can work in a background tab without the user's screen
+   * jumping.
    */
   revealForInput: (id: string) => Promise<() => void>
-  /** Vài trăm dòng console gần nhất của trang. */
+  /** The page's few hundred most recent console lines. */
   consoleLog: (id: string) => readonly ConsoleLine[]
-  /** Id tiến trình trang khách, để lớp vỏ biết chụp cái nào. */
+  /** The guest page's process id, so the shell knows which one to capture. */
   webContentsId: (id: string) => number | undefined
-  /** Đổi kích thước khung nhìn mà trang tin là mình đang có. */
+  /** Change the viewport size the page believes it has. */
   setViewport: (id: string, size: ViewportSize | undefined) => void
 }
 
-/** Tab do ai mở — quyết định rào địa chỉ có áp cho nó không. */
+/** Who opened a tab — it decides whether the address gate applies to it. */
 export type TabOwner = 'user' | 'agent'
 
-/** Một tab, gọt cho tầng tool. */
+/** One tab, trimmed for the tool layer. */
 export interface TabInfo {
   id: string
   url: string
@@ -215,7 +218,7 @@ export interface TabInfo {
   openedBy: TabOwner
 }
 
-/** Một dòng console của trang khách. */
+/** One console line from the guest page. */
 export interface ConsoleLine {
   level: 'debug' | 'info' | 'warn' | 'error'
   text: string
@@ -225,12 +228,12 @@ export interface ConsoleLine {
 }
 
 /**
- * Khung nhìn giả lập.
+ * An emulated viewport.
  *
- * Panel hẹp hơn nhiều so với một màn hình desktop, nên không thể đặt bề rộng
- * thật là 1280px. Cách làm: đặt bề rộng BỐ CỤC là 1280 rồi thu nhỏ hình cho vừa
- * ô. Trang tin nó đang ở 1280px — media query, breakpoint, bố cục đều theo đó —
- * còn người dùng vẫn thấy trọn vẹn trong panel.
+ * The panel is far narrower than a desktop screen, so a real width of 1280px is
+ * impossible. The approach: set the LAYOUT width to 1280 and scale the picture down to
+ * fit the slot. The page believes it is at 1280px — media queries, breakpoints and layout
+ * all follow that — while the user still sees the whole of it inside the panel.
  */
 export interface ViewportSize {
   width: number
@@ -238,21 +241,21 @@ export interface ViewportSize {
 }
 
 /**
- * Thêm `https://` khi người dùng gõ thiếu, và từ chối thứ không thành URL.
+ * Add `https://` when the user leaves it out, and refuse anything that is not a URL.
  *
- * Dùng chung phép nhận biết scheme với rào địa chỉ (`withScheme`), và đó là chủ
- * ý: hai đường vào cùng một trình duyệt mà hiểu địa chỉ khác nhau thì sớm muộn
- * người dùng gõ được một thứ mà agent không mở được, hoặc ngược lại. Bản trước
- * mỗi bên một kiểu, và cả hai cùng từ chối oan `example.com:8080` — dấu hai
- * chấm ở đó là cổng, không phải scheme.
+ * The scheme detection is shared with the address gate (`withScheme`), deliberately: two
+ * entrances into the same browser that understand addresses differently eventually mean
+ * the user can type something the agent cannot open, or the reverse. An earlier version
+ * had one of each, and both wrongly refused `example.com:8080` — that colon is a port,
+ * not a scheme.
  */
 export function normalizeUrl(raw: string): string | undefined {
   const text = raw.trim()
   if (text === '') return undefined
   try {
     const url = new URL(withScheme(text))
-    // Chỉ http/https. `javascript:` gõ vào thanh địa chỉ là một cách kinh điển
-    // để tự bắn script vào trang mình đang mở.
+    // http/https only. `javascript:` typed into an address bar is a classic way to fire a
+    // script into the page you already have open.
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined
   } catch {
     return undefined
@@ -260,9 +263,9 @@ export function normalizeUrl(raw: string): string | undefined {
 }
 
 /**
- * Dựng sân khấu và gắn vào `document.body`.
- * @param onChange - gọi mỗi khi trạng thái một tab đổi, để React vẽ lại.
- * @returns tay điều khiển sân khấu.
+ * Build the stage and attach it to `document.body`.
+ * @param onChange - called whenever a tab's status changes, so React re-renders.
+ * @returns the stage's controls.
  */
 export function createStage(onChange: (id: string, status: TabStatus) => void): Stage {
   const root = document.createElement('div')
@@ -270,27 +273,27 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
   root.dataset['plugin'] = 'harness-desktop-dock'
 
   /**
-   * Giấu sân khấu bằng cách DÌM NÓ XUỐNG DƯỚI giao diện app — tuyệt đối không
-   * dùng `display: none`.
+   * Hide the stage by SINKING IT BENEATH the app UI — never by using `display: none`.
    *
-   * Đã trả giá để học điều này: một `<webview>` bị gắn vào lúc ô chứa đang
-   * `display: none` thì **bề mặt hiển thị không bao giờ được cấp**. Mọi thứ
-   * khác vẫn chạy — sự kiện điều hướng nổ, tiêu đề lan sang pill, trang tự vẽ
-   * trong bộ nhớ (ảnh CDP chụp từ guest vẫn đầy đủ) — chỉ màn hình là trắng.
-   * Vì mọi phép đo "trang có vẽ không" trước đây đều đo bộ nhớ của guest, lỗi
-   * này lọt qua cả 13 mục kiểm và chỉ lộ khi chụp màn hình thật bằng
+   * This was paid for: a `<webview>` attached while its container is `display: none`
+   * **never gets a display surface allocated**. Everything else still runs — navigation
+   * events fire, the title reaches the pill, the page paints itself in memory (a CDP
+   * capture from the guest comes back complete) — only the screen is blank. Because every
+   * earlier "is the page painting" measurement measured the guest's memory, this bug walked
+   * through all 13 checks and only surfaced in a real screen capture taken with
    * PrintWindow.
    *
-   * Dìm bằng `z-index: -1` thì phần tử vẫn được vẽ (chỉ là bị các lớp sơn sau
-   * che mất — panel có nền đục), nên bề mặt guest vẫn sống. Đây chính là điều
-   * `spike-webview.cjs` mục 6b đo được từ đầu: *"bị che kín"* là cách ẩn duy
-   * nhất mà webview vẫn hoạt động đầy đủ.
+   * Sunk with `z-index: -1` the element is still painted (it is merely covered by the
+   * layers painted after it — the panel has an opaque background), so the guest's surface
+   * stays alive. This is exactly what `spike-webview.cjs` check 6b measured from the
+   * start: *"completely covered"* is the only way of hiding a webview that leaves it fully
+   * functional.
    */
   const sink = (): void => {
     root.style.zIndex = '-1'
     root.style.pointerEvents = 'none'
   }
-  /** Nổi lên đúng tầng của nó (z-index 5, khai trong CSS). */
+  /** Raise it back to its own layer (z-index 5, declared in the CSS). */
   const raise = (): void => {
     root.style.zIndex = ''
     root.style.pointerEvents = ''
@@ -306,34 +309,35 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
   const restack = (giveKeyboard = false): void => {
     for (const [id, tab] of tabs) {
-      // Tab đang xem nằm trên; tab nền bị nó che kín. Đây là cách ẩn DUY NHẤT
-      // còn chụp ảnh được — xem chú thích đầu file.
+      // The viewed tab sits on top; a background tab is completely covered by it. This is
+      // the ONLY way of hiding one that still captures — see the module comment.
       tab.el.style.zIndex = id === activeId ? '1' : '0'
     }
     handOffFocus(giveKeyboard)
   }
 
   /**
-   * Bàn giao tiêu điểm bàn phím khi tab đang xem đổi.
+   * Hand over keyboard focus when the viewed tab changes.
    *
-   * Phải làm tường minh: `z-index` chỉ đổi thứ tự sơn, nó KHÔNG lấy lại tiêu
-   * điểm. Mà ở đây tab nền không bị ẩn, chỉ bị che — nên thiếu bước này thì
-   * người dùng bấm vào trang ở tab A, chuyển sang tab khác, gõ phím, và phím đi
-   * thẳng vào một trang web vô hình đang nằm dưới. Không có gì báo; người dùng
-   * chỉ thấy "gõ mà không có gì xảy ra".
+   * This has to be explicit: `z-index` only changes paint order, it does NOT move focus.
+   * And here a background tab is not hidden, only covered — so without this step the user
+   * clicks into the page on tab A, switches to another tab, types, and the keys go straight
+   * into an invisible web page sitting underneath. Nothing reports it; the user only sees
+   * "I type and nothing happens".
    *
-   * Chỉ GIÀNH bàn phím khi CHÍNH NGƯỜI DÙNG vừa chọn tab — `giveKeyboard`. Giành
-   * vô điều kiện thì mở app lên, panel tự dựng lại một tab web, và bàn phím bị
-   * cướp khỏi ô nhập hội thoại; đó là đổi một lỗi lấy một lỗi khó chịu hơn.
+   * The keyboard is only TAKEN when the USER THEMSELVES just picked the tab —
+   * `giveKeyboard`. Taking it unconditionally means opening the app, the panel rebuilding a
+   * web tab by itself, and the keyboard being stolen from the conversation input; that
+   * trades one bug for a more irritating one.
    *
-   * Ý định phải được KHAI BÁO chứ không suy đoán. Bản trước đoán bằng cách xem
-   * tiêu điểm có đang nằm trong panel không — nghe hợp lý, nhưng sai ngay ở một
-   * đường thường gặp: gọi `.click()` bằng mã (và vài cách chọn bằng bàn phím)
-   * không hề dời tiêu điểm, nên ý định thật bị đọc thành "không phải người dùng".
+   * The intent has to be DECLARED, not inferred. An earlier version inferred it by checking
+   * whether focus was currently inside the panel — plausible, and wrong on a common path:
+   * calling `.click()` from code (and several keyboard selections) does not move focus at
+   * all, so a genuine intent was read as "not the user".
    *
-   * Chiều NHẢ thì làm vô điều kiện: một trang đang bị che mà vẫn giữ bàn phím
-   * thì luôn là sai.
-   * @param giveKeyboard - người dùng vừa tự chọn tab này.
+   * RELEASING it is unconditional: a covered page still holding the keyboard is always
+   * wrong.
+   * @param giveKeyboard - the user just picked this tab themselves.
    */
   const handOffFocus = (giveKeyboard: boolean): void => {
     const top = activeId === undefined ? undefined : tabs.get(activeId)
@@ -346,28 +350,31 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
   }
 
   const create = (id: string, url?: string, owner: TabOwner = 'user'): Tab => {
-    // `document.createElement('webview')` chứ không phải JSX: thẻ này phải nằm
-    // ngoài tầm tay của React, và nó không bao giờ được dựng lại.
+    // `document.createElement('webview')` rather than JSX: this tag has to stay out of
+    // React's reach, and it must never be rebuilt.
     const el = document.createElement('webview') as WebviewTag
     el.setAttribute('src', url ?? BLANK_PAGE)
-    // `partition` bị lớp vỏ ép lại ở `will-attach-webview` bất kể ghi gì ở đây;
-    // ghi ra cho người đọc thấy ý định, và để thẻ đúng ngay cả khi chốt đổi.
+    // `partition` is forced by the shell at `will-attach-webview` regardless of what is
+    // written here; it is written out so a reader sees the intent, and so the tag stays
+    // correct even if that guard changes.
     el.setAttribute('partition', 'persist:hdw-browser')
-    // KHÔNG khai `allowpopups`. Nó là thuộc tính boolean của HTML: có mặt là
-    // BẬT, kể cả khi giá trị là chuỗi "false". Bản trước ghi `allowpopups="false"`
-    // với ý tắt popup, và nó nói ngược đúng điều nó định nói. Không gây hậu quả
-    // thật vì lớp vỏ xoá thuộc tính này ở `will-attach-webview` rồi chặn tiếp ở
-    // `setWindowOpenHandler` — nhưng để lại là để lại một cái bẫy đọc hiểu.
-    // `tabindex="-1"` để `focus()` gọi được bằng mã.
+    // `allowpopups` is deliberately NOT declared. It is an HTML boolean attribute:
+    // present means ON, even when its value is the string "false". An earlier version wrote
+    // `allowpopups="false"` intending to disable popups, and it stated the exact opposite of
+    // what it meant. No real consequence followed, because the shell deletes this attribute
+    // at `will-attach-webview` and blocks again at `setWindowOpenHandler` — but leaving it
+    // would leave a reading trap.
     //
-    // Không có nó thì thẻ `<webview>` không phải phần tử nhận tiêu điểm, và
-    // `el.focus()` im lặng không làm gì — đo được: sau khi gọi focus, trang chủ
-    // vẫn báo `activeElement=BODY` và trang khách vẫn `hasFocus=false`. Đúng
-    // loại hỏng im lặng mà bộ luật này sinh ra để chống.
+    // `tabindex="-1"` is what makes `focus()` callable from code.
     //
-    // Chọn `-1` chứ không phải `0`: trang web không nên chen vào vòng Tab của
-    // giao diện app — người dùng bấm Tab trong panel là để đi giữa các nút của
-    // panel, không phải để rơi vào trong trang.
+    // Without it a `<webview>` tag is not a focusable element and `el.focus()` silently does
+    // nothing — measured: after calling focus, the host page still reported
+    // `activeElement=BODY` and the guest page still had `hasFocus=false`. Exactly the kind
+    // of silent failure this project's rules exist to catch.
+    //
+    // `-1` rather than `0`: a web page should not push into the app UI's Tab cycle — a user
+    // pressing Tab inside the panel means to move between the panel's buttons, not to fall
+    // into the page.
     el.setAttribute('tabindex', '-1')
     el.className = 'hdw-webview'
 
@@ -393,21 +400,21 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
     el.addEventListener('did-navigate', (event) => {
       const address = (event as unknown as { url: string }).url
 
-      // Tab của AGENT vừa đáp xuống một địa chỉ nội bộ: kéo nó ra ngay.
+      // An AGENT tab has just landed on a private address: pull it out immediately.
       //
-      // Đường tới đây không phải lệnh mở của agent — lệnh đó đã bị rào địa chỉ
-      // ở nửa Node chặn từ trước. Đây là đường vòng: agent đưa một địa chỉ công
-      // cộng hợp lệ, trang đó trả về lệnh chuyển hướng sang mạng nội bộ. Phép
-      // kiểm lúc mở đã chạy xong và đã cho qua.
+      // The route here is not the agent's open command — that command was already blocked
+      // by the address gate in the Node half. This is the detour: the agent supplies a
+      // perfectly valid public address, and that page returns a redirect into the local
+      // network. The check at open time already ran and already allowed it.
       //
-      // Thành thật về giới hạn: tới được đây nghĩa là ĐÚNG MỘT request đã kịp
-      // bay tới địa chỉ nội bộ đó. Cái chặn được là mọi thứ sau đó — agent
-      // không đọc được nội dung, không thao tác được, và tab không sống lại ở
-      // lần mở app sau. Bịt luôn cả request đầu tiên thì phải tách kho cookie
-      // riêng cho tab agent, và chủ dự án đã chọn dùng chung.
+      // Honest about the limit: reaching this point means EXACTLY ONE request already flew
+      // to that private address. What is blocked is everything after it — the agent cannot
+      // read the content, cannot act on it, and the tab does not come back to life on the
+      // next launch. Blocking even the first request would require a separate cookie jar
+      // for agent tabs, and the project owner chose to share one.
       //
-      // Địa chỉ của chính engine thì không tới được đây: lớp vỏ đã chặn cứng ở
-      // tầng request cho MỌI tab (`window.ts`, chốt 4).
+      // The engine's own address cannot reach this point: the shell blocks it hard at the
+      // request layer for EVERY tab (`window.ts`, guard 4).
       if (tab.owner === 'agent' && !isPublicUrl(address)) {
         el.stop()
         void el.loadURL(BLANK_PAGE)
@@ -419,7 +426,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
         return
       }
 
-      // Điều hướng mới cắt bỏ nhánh "tiến" phía trước, đúng như trình duyệt.
+      // A new navigation truncates the "forward" branch ahead, exactly as a browser does.
       tab.historyIndex += 1
       tab.historyLength = tab.historyIndex + 1
       patchStatus({ url: address, canBack: tab.historyIndex > 0, canForward: false })
@@ -428,8 +435,8 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       const e = event as unknown as { url: string, isMainFrame: boolean }
       if (e.isMainFrame) patchStatus({ url: e.url })
     })
-    // Console của trang. Hứng liên tục chứ không bật khi cần: lỗi mà agent muốn
-    // đọc thường đã xảy ra TRƯỚC lúc nó nghĩ tới việc đi đọc.
+    // The page's console. Collected continuously rather than switched on when needed: the
+    // error the agent wants to read has usually already happened BEFORE it thinks to look.
     el.addEventListener('console-message', (event) => {
       const e = event as unknown as { level: number, message: string, line: number, sourceId: string }
       tab.consoleLines.push({
@@ -443,14 +450,14 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
         tab.consoleLines.splice(0, tab.consoleLines.length - MAX_CONSOLE_LINES)
       }
     })
-    // Điều hướng sang trang khác thì console cũ không còn nói về trang đang xem.
-    // Giữ lại là đưa cho agent bằng chứng của một trang đã đi mất.
+    // After navigating elsewhere, the old console no longer describes the page being
+    // viewed. Keeping it would hand the agent evidence from a page that is gone.
     el.addEventListener('did-navigate', () => { tab.consoleLines.length = 0 })
 
     el.addEventListener('did-fail-load', (event) => {
       const e = event as unknown as { errorCode: number, isMainFrame: boolean }
-      // -3 là ERR_ABORTED: người dùng bấm dừng, hoặc trang tự chuyển hướng giữa
-      // chừng. Đó không phải hỏng, và báo nó ra là báo động giả.
+      // -3 is ERR_ABORTED: the user pressed stop, or the page redirected itself mid-way.
+      // That is not a failure, and reporting it would be a false alarm.
       if (e.isMainFrame && e.errorCode !== -3) patchStatus({ loading: false })
     })
 
@@ -484,8 +491,8 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
     setRect: (rect) => {
       if (rect === undefined) {
-        // Giữ nguyên vị trí và kích thước — chỉ dìm xuống. Đổi kích thước lúc
-        // này là bắt mọi trang nền bố trí lại vô ích.
+        // Keep the position and the size — only sink it. Resizing at this moment would
+        // force every background page into a pointless re-layout.
         sink()
         return
       }
@@ -531,7 +538,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       root.remove()
     },
 
-    // --- Bề mặt cho tầng tool ---
+    // --- The surface for the tool layer ---
 
     list: () => [...tabs].map(([id, tab]) => ({
       id,
@@ -566,19 +573,19 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       const tab = tabs.get(id)
       if (tab === undefined) return false
       try {
-        // Hỏi ĐÚNG MỘT câu: `requestAnimationFrame` có chạy không.
+        // Ask EXACTLY ONE question: does `requestAnimationFrame` run?
         //
-        // Bản trước hỏi thêm `document.visibilityState`, và từ chối ngay nếu nó
-        // không phải `visible`. Đó là một phép kiểm SAI, và chính bộ kiểm này đã
-        // đo ra: mục 13 thấy một tab báo `visibility=hidden` trong khi vẫn được
-        // cấp 167 khung hình mỗi giây. Hậu quả cho người dùng: agent mở một tab,
-        // trang hiện ra rành rành trước mắt, mà mọi lệnh bấm và mọi lệnh chụp
-        // ảnh đều bị từ chối với câu "trang này đang không được vẽ".
+        // An earlier version also asked `document.visibilityState` and refused outright
+        // whenever it was not `visible`. That was a WRONG test, and this very suite measured
+        // it: check 13 found a tab reporting `visibility=hidden` while still being given 167
+        // frames per second. The consequence for the user: the agent opens a tab, the page
+        // appears plainly in front of them, and every click and every screenshot is refused
+        // with "this page is not being painted".
         //
-        // Vòng `requestAnimationFrame` trả lời thẳng câu hỏi thật: Chromium
-        // ngừng gọi nó khi ngừng vẽ trang. Trang có được vẽ thì nó chạy trong
-        // khoảng một phần sáu mươi giây; trang không được vẽ thì nó không bao
-        // giờ chạy, và hết giờ chính là câu trả lời "không".
+        // A `requestAnimationFrame` loop answers the real question directly: Chromium stops
+        // calling it when it stops painting the page. A painted page runs it within about a
+        // sixtieth of a second; an unpainted page never runs it, and the timeout is itself
+        // the answer "no".
         const drawn = await Promise.race([
           tab.el.executeJavaScript(`new Promise((res) => {
             requestAnimationFrame(() => { res(true) })
@@ -598,8 +605,9 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       const wasSunk = root.style.zIndex === '-1'
 
       if (activeId !== id) { activeId = id; restack() }
-      // `raise()` khôi phục đúng vị trí và kích thước cũ, vì `sink()` cố ý chỉ
-      // đổi tầng chứ không đụng tới hình học — xem chú thích của `sink`.
+      // `raise()` restores the exact previous position and size, because `sink()`
+      // deliberately changes only the layer and never touches the geometry — see `sink`'s
+      // comment.
       if (wasSunk) raise()
       await waitFrames(tab.el, 2)
 
@@ -617,8 +625,8 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       try {
         return tab.el.getWebContentsId()
       } catch {
-        // Thẻ chưa gắn xong thì chưa có id. Đây là trạng thái bình thường ngay
-        // sau khi mở tab, không phải sự cố.
+        // A tag that has not finished attaching has no id yet. That is a normal state
+        // immediately after opening a tab, not a failure.
         return undefined
       }
     },
@@ -633,11 +641,11 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
         tab.el.style.transformOrigin = ''
         return
       }
-      // Đặt bề rộng BỐ CỤC theo đúng con số agent yêu cầu, rồi thu nhỏ hình cho
-      // vừa ô. Trang tin nó đang ở kích thước đó — media query, breakpoint, bố
-      // cục responsive đều theo con số này — còn người dùng vẫn thấy trọn vẹn
-      // trong panel hẹp. Đổi kích thước thật thì không được: panel chỉ rộng tối
-      // đa 720px, không chứa nổi một khung nhìn desktop 1280px.
+      // Set the LAYOUT width to exactly the number the agent asked for, then scale the
+      // picture down to fit the slot. The page believes it is at that size — media queries,
+      // breakpoints and responsive layout all follow this number — while the user still sees
+      // the whole of it inside a narrow panel. A real resize is impossible: the panel is at
+      // most 720px wide and cannot hold a 1280px desktop viewport.
       const box = root.getBoundingClientRect()
       const scale = Math.min(1, box.width / size.width, box.height / size.height)
       tab.el.style.width = `${String(size.width)}px`
@@ -649,14 +657,14 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 }
 
 /**
- * Chờ trang khách vẽ xong vài khung hình.
+ * Wait for the guest page to paint a few frames.
  *
- * Chờ theo KHUNG HÌNH CỦA CHÍNH TRANG KHÁCH, không phải `setTimeout` ở trang
- * chủ. Khác biệt quan trọng: một khoảng ngủ chỉ nói "đã trôi qua ngần này mili
- * giây", còn thứ cần biết là "trang đã kịp vẽ chưa" — và hai điều đó tách nhau
- * ra đúng lúc máy bận, tức đúng lúc dễ hỏng nhất.
- * @param el - thẻ trang khách.
- * @param count - số khung hình cần chờ.
+ * The wait is on THE GUEST PAGE'S OWN FRAMES, not a `setTimeout` in the host page. The
+ * difference matters: a sleep only says "this many milliseconds have passed", while what
+ * needs to be known is "has the page managed to paint yet" — and those two come apart
+ * exactly when the machine is busy, which is exactly when things break.
+ * @param el - the guest page's tag.
+ * @param count - how many frames to wait for.
  */
 async function waitFrames(el: WebviewTag, count: number): Promise<void> {
   try {
@@ -666,12 +674,12 @@ async function waitFrames(el: WebviewTag, count: number): Promise<void> {
         const step = () => { left -= 1; if (left <= 0) res(1); else requestAnimationFrame(step) }
         requestAnimationFrame(step)
       })`),
-      // Trang không được vẽ thì `requestAnimationFrame` không bao giờ chạy. Chờ
-      // vô hạn ở đây là treo cả lệnh của agent; hết giờ rồi để phép kiểm
-      // `isDrawable` nói ra sự thật đó.
+      // On an unpainted page `requestAnimationFrame` never runs. Waiting forever here would
+      // hang the agent's whole command; time out instead and let the `isDrawable` check state
+      // that truth.
       new Promise((r) => { setTimeout(r, 1200) }),
     ])
   } catch {
-    // Trang đóng giữa chừng. Chỗ gọi sẽ tự phát hiện khi thao tác thật.
+    // The page closed mid-way. The caller finds out for itself on the real action.
   }
 }

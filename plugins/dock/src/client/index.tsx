@@ -1,12 +1,12 @@
 /**
- * Nửa giao diện của panel phải. Engine phục vụ file này cho trình duyệt tại
+ * The right-hand panel's client half. The engine serves this file to the browser at
  * `/plugins/harness-desktop-dock/client.js`.
  *
- * **Mức 1 — chỉ cộng thêm.** Hai đăng ký, cả hai vào slot loại `list` đang
- * trống mà upstream chừa sẵn: `shell.overlay` (lớp nổi trên mọi cột) và
- * `conversation.session.header.utilities` (nhóm tiện ích canh phải trên hàng
- * tiêu đề phiên). Không chiếm slot nào có chủ, nên mọi cập nhật tương lai của
- * DeepSeek vẫn về đủ.
+ * **Level 1 — additive only.** Two registrations, both into empty `list` slots upstream
+ * leaves open: `shell.overlay` (the layer floating above every column) and
+ * `conversation.session.header.utilities` (the right-aligned utility group on the
+ * session header row). No slot with an owner is taken, so every future DeepSeek update
+ * still arrives intact.
  * @module
  */
 
@@ -23,9 +23,9 @@ import { createStageHolder } from './stage-holder.ts'
 import { createDock } from './store.ts'
 import styles from './styles.css'
 
-// Kéo khai báo slot của upstream vào chương trình. Không có hai dòng này thì
-// `shell.overlay` và `conversation.session.header.utilities` không tồn tại về
-// mặt kiểu.
+// Pull upstream's slot declarations into the program. Without these lines
+// `shell.overlay` and `conversation.session.header.utilities` do not exist as far as the
+// type system is concerned.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -36,13 +36,12 @@ export const name = 'harness-desktop-dock'
 export const inject = ['slots']
 
 /**
- * Tiêm CSS của plugin, có nhãn sở hữu theo đúng quy ước upstream dùng cho CSS
- * của plugin — nhờ nhãn đó vòng đời gỡ module nhận ra được thẻ này là của ai.
+ * Inject the plugin's CSS with an ownership tag, following upstream's convention for
+ * plugin stylesheets — that tag is how the module teardown knows whose the tag is.
  *
- * Gồm cả stylesheet của xterm. Nó chỉ nhắm các class `.xterm*` nên không chạm
- * được vào giao diện của upstream, và đi cùng một thẻ nên gỡ plugin là sạch cả
- * hai.
- * @returns hàm gỡ thẻ style.
+ * xterm's stylesheet rides along. It only targets `.xterm*` classes so it cannot reach
+ * upstream's UI, and it shares one tag, so unloading the plugin cleans up both.
+ * @returns the disposer that removes the style tag.
  */
 function injectStyles(): () => void {
   const tag = document.createElement('style')
@@ -54,19 +53,19 @@ function injectStyles(): () => void {
 }
 
 /**
- * Thân plugin phía trình duyệt.
- * @param ctx - context gốc phía client.
+ * Plugin body on the browser side.
+ * @param ctx - the client-side root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(injectStyles, 'hdw-dock: css')
 
-  // Một kho duy nhất cho cả hai đăng ký. Chuyền qua `inject` chứ không qua
-  // `store`: hai slot này ở hai phạm vi khác nhau (cửa sổ và phiên), mà `store`
-  // phát cho mỗi phạm vi một bản sao riêng — xem chú thích đầu `store.ts`.
+  // One store shared by both registrations. Passed through `inject` rather than
+  // `store`: these two slots sit in different scopes (window and session), and `store`
+  // hands each scope its own copy — see the module comment in `store.ts`.
   const dock = createDock()
 
-  // Ô chứa sân khấu webview. Dựng ở đây vì cầu cần nó NGAY, còn sân khấu thì
-  // mãi tới lúc panel mount mới có — xem `stage-holder.ts`.
+  // The holder for the webview stage. Built here because the bridge needs it NOW, while
+  // the stage itself only exists once the panel mounts — see `stage-holder.ts`.
   const stageHolder = createStageHolder()
 
   const share = (): {
@@ -75,14 +74,14 @@ export function apply(ctx: ClientContext): void {
     stageHolder: typeof stageHolder
   } => ({ hooks: { dock: dock.store }, actions: dock.actions, stageHolder })
 
-  // Cầu nối với nửa Node. Đặt ở ĐÂY chứ không trong `DockPanel`: slot có thể
-  // remount component bất cứ lúc nào, và cầu remount là cầu chết — im lặng, chỉ
-  // biểu hiện ở chỗ nửa Node nhờ gì cũng hết giờ.
+  // The bridge to the Node half. Placed HERE rather than inside `DockPanel`: a slot may
+  // remount a component at any time, and a remounted bridge is a dead bridge — silently,
+  // showing up only as every Node-half request timing out.
   ctx.effect(() => openBridge(dock.actions, stageHolder, dock.store), 'hdw-dock: bridge to the Node half')
 
-  // `ctx.slots.inject` là bắt buộc, không phải cẩn thận thừa: đăng ký thẳng vào
-  // một slot chưa được khai báo sẽ ném. `inject` chờ tới khi chủ slot mount,
-  // và tự đăng ký lại nếu chủ đó sập rồi lên lại.
+  // `ctx.slots.inject` is required, not surplus caution: registering straight into a
+  // slot that has not been declared throws. `inject` waits until the slot's owner mounts,
+  // and re-registers if that owner crashes and comes back.
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'hdw-dock',
@@ -90,8 +89,8 @@ export function apply(ctx: ClientContext): void {
     inject: share,
   }, DockPanel))
 
-  // Đặt cuối nhóm tiện ích, đúng chỗ app tham chiếu để nút này: phần tử sau
-  // cùng bên phải header phiên.
+  // Last in the utility group, exactly where the reference app puts this button: the
+  // rightmost element of the session header.
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
     name: 'conversation.session.header.utilities',
     id: 'hdw-dock-toggle',
@@ -99,9 +98,9 @@ export function apply(ctx: ClientContext): void {
     inject: share,
   }, DockToggle))
 
-  // Công tắc quyền của agent, trong mục General. Đặt sau các dòng của upstream
-  // (ngôn ngữ order 0, giao diện 10, phím Enter 20): đây là tuỳ chọn của một
-  // tính năng thêm vào, không phải tuỳ chọn cốt lõi của app.
+  // The agent's permission switch, in the General section. Placed after upstream's own
+  // rows (language order 0, appearance 10, Enter key 20): this is an option belonging to
+  // an added feature, not a core option of the app.
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
     id: 'hdw-agent-control',
@@ -109,12 +108,12 @@ export function apply(ctx: ClientContext): void {
     inject: share,
   }, AgentControlRow))
 
-  // Thẻ kết quả của lệnh chụp ảnh.
+  // The screenshot command's result card.
   //
-  // **Mức 1.** Slot này khoá theo tên tool, và khoá ở đây là tool của chính
-  // chúng ta — upstream ghi rõ đó là cộng thêm. Mười một tool còn lại cố ý
-  // KHÔNG nhận: hàng mặc định của họ vẽ chúng đủ dùng, và nhận thêm là tự gánh
-  // việc bảo trì một cái hàng mà không đổi lại được gì.
+  // **Level 1.** This slot is keyed by tool name, and the key here is our own tool —
+  // upstream states plainly that this counts as additive. The other eleven tools are
+  // deliberately NOT claimed: upstream's default row draws them well enough, and
+  // claiming more would mean maintaining a row of our own for nothing in return.
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview',
     key: SCREENSHOT_TOOL,

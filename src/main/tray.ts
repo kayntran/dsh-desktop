@@ -1,8 +1,8 @@
 /**
- * Icon khay hệ thống và menu chuột phải.
+ * The system tray icon and its context menu.
  *
- * Khay là nơi app sống khi cửa sổ đã đóng: agent có thể đang chạy một việc dài,
- * và đóng cửa sổ không nên giết nó.
+ * The tray is where the app lives once the window is closed: the agent may be part
+ * way through a long job, and closing a window should not kill it.
  * @module
  */
 
@@ -11,21 +11,21 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dshHome, resourcePath } from './paths.js'
 
-/** Những việc menu khay gọi ngược về tiến trình chính. */
+/** The things the tray menu calls back into the main process. */
 export interface TrayHandlers {
-  /** Hiện và focus cửa sổ. */
+  /** Show and focus the window. */
   open: () => void
-  /** Mở thư mục dữ liệu của dsh. */
+  /** Open dsh's data folder. */
   openDataDir: () => void
-  /** Mở file log của engine. */
+  /** Open the engine's log file. */
   openLog: () => void
-  /** Mở file log của lớp vỏ app. */
+  /** Open the app shell's log file. */
   openShellLog: () => void
-  /** Mở màn hình Giới thiệu. */
+  /** Open the About window. */
   openAbout: () => void
-  /** Mở trang tải bản mới. */
+  /** Open the download page for a new release. */
   openRelease: () => void
-  /** Thoát hẳn, dừng cả engine. */
+  /** Quit for real, stopping the engine too. */
   quit: () => void
 }
 
@@ -59,33 +59,34 @@ function refresh(): void {
   tray?.setContextMenu(buildMenu())
 }
 
-/** Dựng icon khay. Gọi một lần sau khi app sẵn sàng. */
+/** Build the tray icon. Called once, after the app is ready. */
 export function createTray(trayHandlers: TrayHandlers): void {
   handlers = trayHandlers
-  // Electron tự chọn tray@2x.png trên màn hình DPI cao.
+  // Electron picks tray@2x.png by itself on a high-DPI display.
   tray = new Tray(resourcePath('tray.png'))
   tray.on('click', () => { trayHandlers.open() })
   tray.on('double-click', () => { trayHandlers.open() })
   refresh()
 }
 
-/** Cập nhật dòng trạng thái trong menu và tooltip. */
+/** Update the status line in the menu and the tooltip. */
 export function setTrayStatus(text: string): void {
   status = text
   refresh()
 }
 
-/** Thêm mục tải bản mới vào menu khay. */
+/** Add the download-a-new-version entry to the tray menu. */
 export function setTrayUpdate(version: string): void {
   updateVersion = version
   refresh()
 }
 
 /**
- * Giải thích một lần duy nhất rằng app lui về khay chứ không tắt.
+ * Explain exactly once that the app retreats to the tray rather than quitting.
  *
- * Người dùng bấm X và thấy cửa sổ biến mất mà tiến trình vẫn còn sẽ tưởng app
- * treo; nói rõ đúng một lần rồi thôi, những lần sau đã là hành vi quen thuộc.
+ * A user who clicks X, sees the window vanish and finds the process still running
+ * assumes the app has hung; say it clearly once and then stop, because by the next
+ * time the behaviour is familiar.
  */
 export function hintHiddenToTray(): void {
   const marker = join(app.getPath('userData'), 'tray-hint-shown')
@@ -93,7 +94,7 @@ export function hintHiddenToTray(): void {
   try {
     writeFileSync(marker, '')
   } catch {
-    // Không ghi được thì cùng lắm là lần sau nhắc lại — không đáng chặn luồng.
+    // A failed write means at worst the hint appears once more — not worth blocking on.
   }
   tray?.displayBalloon({
     title: `${app.getName()} is still running`,
@@ -102,7 +103,7 @@ export function hintHiddenToTray(): void {
   })
 }
 
-/** Gỡ icon khay khi thoát. */
+/** Remove the tray icon on quit. */
 export function destroyTray(): void {
   tray?.destroy()
   tray = undefined

@@ -1,5 +1,6 @@
 /**
- * Điểm vào của app: dựng cửa sổ và khay, đưa engine lên, nối chúng lại.
+ * The app's entry point: build the window and the tray, bring the engine up, wire
+ * them together.
  * @module
  */
 
@@ -19,41 +20,42 @@ import {
 } from './window.js'
 
 /**
- * Chỉ cho phép một bản app chạy. Hai bản sẽ dựng hai engine cùng ghi vào một
- * thư mục dữ liệu — hỏng lịch sử phiên, nhân đôi job nền, nhân đôi thông báo.
- * Bản thứ hai nhường chỗ và đánh thức bản đang chạy.
+ * Allow only one copy of the app to run. Two copies would build two engines writing
+ * into the same data folder — corrupted session history, duplicated background jobs,
+ * duplicated notifications. The second copy steps aside and wakes the running one.
  */
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   /**
-   * Tắt phép dò che khuất cửa sổ của Chromium trên Windows.
+   * Turn off Chromium's window-occlusion detection on Windows.
    *
-   * Phép dò này đánh dấu cửa sổ "bị che hoàn toàn" là ẩn để tiết kiệm pin, và
-   * nó có một lỗi đã thành kinh điển: trạng thái ẩn KẸT lại kể cả khi cửa sổ đã
-   * lên tiền cảnh. Đo được trên chính app này: cửa sổ đang bày trên màn hình mà
-   * trang chính báo `document.visibilityState === 'hidden'` và
-   * `requestAnimationFrame` không bao giờ nổ — trong khi cả bốn webview con
-   * đều tự thấy mình "visible". Hậu quả người dùng nhìn thấy: vùng trang web
-   * trong panel trắng trơn dù trang đã nạp xong và tự vẽ được trong bộ nhớ
-   * (ảnh chụp qua CDP vẫn đầy đủ), vì trang chủ ngừng phát khung hình nên bề
-   * mặt của guest không bao giờ được ghép lên màn.
+   * That detection marks a "fully covered" window as hidden to save battery, and it
+   * carries a by-now classic bug: the hidden state STICKS even after the window
+   * comes to the foreground. Measured on this very app: the window was on screen
+   * while the host page reported `document.visibilityState === 'hidden'` and
+   * `requestAnimationFrame` never fired — while all four child webviews considered
+   * themselves "visible". What the user saw: the web area inside the panel was blank
+   * even though the page had loaded and was painting itself in memory (a CDP capture
+   * came back complete), because the host page stopped producing frames and so the
+   * guest's surface was never composited onto the screen.
    *
-   * Phải đặt TRƯỚC `app.whenReady()` — sau đó Chromium đã đọc xong cờ.
+   * Must be set BEFORE `app.whenReady()` — after that Chromium has already read the
+   * flags.
    */
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
   app.setName('Harness Desktop')
-  // Windows gắn thông báo vào một AppUserModelID; không đặt thì toast hiện
-  // dưới tên tiến trình Electron thay vì tên app.
+  // Windows attaches notifications to an AppUserModelID; without setting one, the
+  // toast appears under the Electron process name instead of the app's name.
   app.setAppUserModelId('com.harness-desktop.app')
   app.on('second-instance', () => { revealWindow() })
 
   void app.whenReady().then(async () => {
     logShell(`app: starting ${app.getName()} ${app.getVersion()} (packaged: ${String(app.isPackaged)})`)
-    // Lần chạy trước có thể bị tắt cứng và để lại engine giữ cổng.
+    // The previous run may have been killed hard, leaving an engine holding the port.
     reapOrphanEngine()
-    // Phải xong TRƯỚC khi engine lên: engine quét cây plugin lúc khởi động.
+    // Must finish BEFORE the engine starts: the engine scans the plugin tree at boot.
     linkPlugins()
     createTray({
       open: revealWindow,
@@ -78,7 +80,7 @@ if (!app.requestSingleInstanceLock()) {
     await boot()
   })
 
-  // Cửa sổ đóng chỉ là thu về khay, nên nhánh này chỉ chạy khi thoát thật.
+  // Closing the window only retreats to the tray, so this branch only runs on a real quit.
   app.on('window-all-closed', () => {})
 
   app.on('before-quit', () => {
@@ -91,7 +93,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 }
 
-/** Khởi động engine rồi trỏ cửa sổ vào nó; hỏng thì hiện trang lỗi. */
+/** Start the engine and point the window at it; on failure, show the error page. */
 async function boot(): Promise<void> {
   setTrayStatus('Starting…')
   try {
@@ -103,8 +105,8 @@ async function boot(): Promise<void> {
     })
     setTrayStatus('Running')
     startNotifier(engine.url, { isWindowActive, reveal: revealWindow })
-    // Đường chụp ảnh trang web cho agent. Lớp vỏ gọi ĐI tới engine, không mở
-    // thêm cổng nào trên máy — xem `shot-link.ts`.
+    // The screenshot path the agent uses. The shell calls OUT to the engine and opens
+    // no extra port on the machine — see `shot-link.ts`.
     startShotLink(engine.url)
     await showEngine(engine.url)
   } catch (error) {
@@ -115,13 +117,13 @@ async function boot(): Promise<void> {
   }
 }
 
-/** Thoát hẳn: dừng engine rồi đóng app. */
+/** Quit for real: stop the engine, then close the app. */
 function quitApp(): void {
   beginQuit()
   app.quit()
 }
 
-/** Các nút trên trang lỗi. */
+/** The buttons on the error page. */
 function handleAction(action: string): void {
   if (action === 'open-log') {
     void shell.openPath(engineLogPath())

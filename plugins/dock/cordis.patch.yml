@@ -1,10 +1,10 @@
-# Bật panel bên phải của Harness Desktop.
+# Enables Harness Desktop's right-hand panel.
 #
-# `name` phải là TÊN GÓI, không phải đường dẫn file. Engine phân giải nửa giao
-# diện bằng `createRequire(<thư mục profile>).resolve('<name>/package.json')`;
-# một đường dẫn tuyệt đối vẫn nạp được nửa Node nhưng nửa giao diện sẽ không bao
-# giờ được phục vụ, và không có lỗi nào báo ra. Junction trong cây phân giải của
-# profile do `src/main/plugin-link.ts` dựng.
+# `name` must be the PACKAGE NAME, not a file path. The engine resolves the client half
+# through `createRequire(<profile dir>).resolve('<name>/package.json')`; an absolute path
+# still loads the Node half, but the client half is never served and nothing reports an
+# error. The junction inside the profile's resolution tree is built by
+# `src/main/plugin-link.ts`.
 - insert:
     - id: hdw-dock
       name: harness-desktop-dock

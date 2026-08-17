@@ -1,44 +1,44 @@
 /**
- * Đường chụp ảnh trang web cho agent: lớp vỏ **tự gọi vào** engine.
+ * The agent's screenshot path: the shell **calls out** to the engine.
  *
- * ## Vì sao phải là lớp vỏ, không phải plugin
+ * ## Why the shell and not the plugin
  *
- * Đo được (mục kiểm 15b): gọi `capturePage()` từ trong trang chủ làm **treo cứng
- * vòng lặp sự kiện của cả cửa sổ** trên trang https thật — `setTimeout` bọc
- * ngoài cũng không nổ, nên không có cách nào tự cứu. Đường tiến trình chính thì
- * chạy 23KB trong 5ms. Cùng một tên hàm, hai vị trí gọi, hai kết quả.
+ * Measured (check 15b): calling `capturePage()` from inside the host page
+ * **hard-locks the whole window's event loop** on a real https page — even a wrapping
+ * `setTimeout` never fires, so there is no way to rescue it. The main-process path
+ * runs 23KB in 5ms. Same function name, two call sites, two outcomes.
  *
- * Nên lệnh chụp ảnh không đi được đường của plugin. Nó phải chạy ở đây.
+ * So the screenshot command cannot travel the plugin's route. It has to run here.
  *
- * ## Vì sao lớp vỏ GỌI ĐI chứ không ĐỨNG CHỜ
+ * ## Why the shell CALLS OUT rather than LISTENING
  *
- * Cách dễ hơn là mở một cổng nghe trong lớp vỏ cho plugin gọi vào. Không làm
- * thế: một cổng nghe là một cánh cửa mới trên máy người dùng, và mọi tiến trình
- * khác trên máy đó cũng gõ được cửa ấy.
+ * The easier design is to open a listening port in the shell for the plugin to call
+ * into. Not done: a listening port is a new door on the user's machine, and every
+ * other process on that machine can knock on it too.
  *
- * Lớp vỏ vốn đã nối tới engine để hiện thông báo Windows (`notifier.ts`), nên
- * nối thêm một đường nữa là việc nó vẫn làm. Lớp vỏ là bên gọi đi; không có cửa
- * nào mới mở ra.
+ * The shell already connects to the engine to show Windows notifications
+ * (`notifier.ts`), so one more outbound connection is work it already does. The shell
+ * is the caller; no new door opens.
  *
- * ## Chỉ chụp được đúng những trang web trong panel
+ * ## Only the web pages inside the panel can be captured
  *
- * Lớp vỏ giữ danh sách `webContents` của các thẻ `<webview>` mà nó tự tay gắn
- * vào (`did-attach-webview`). Yêu cầu chụp mang theo một id, và id không nằm
- * trong danh sách đó thì bị từ chối — không ai chụp được giao diện engine, cửa
- * sổ Giới thiệu, hay bất cứ thứ gì khác.
+ * The shell keeps a list of the `webContents` of the `<webview>` tags it attached
+ * itself (`did-attach-webview`). A capture request carries an id, and an id outside
+ * that list is refused — nobody can capture the engine UI, the About window, or
+ * anything else.
  * @module
  */
 
 import { type WebContents } from 'electron'
 import { logShell } from './log.js'
 
-/** Đường dẫn WebSocket mà plugin mở sẵn cho lớp vỏ. */
+/** The WebSocket path the plugin leaves open for the shell. */
 const SHOT_PATH = '/hdw/shell'
 
-/** Các mốc chờ khi kết nối rớt, tính bằng mili giây. Cùng khuôn với `notifier.ts`. */
+/** Backoff steps after a dropped connection, in milliseconds. Same shape as `notifier.ts`. */
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000]
 
-/** Trần thời gian cho một lần chụp. Quá đây thì trả lời "không chụp được". */
+/** Time ceiling for one capture. Past it the answer is "could not capture". */
 const CAPTURE_TIMEOUT_MS = 8_000
 
 let socket: WebSocket | undefined
@@ -47,19 +47,19 @@ let attempt = 0
 let running = false
 
 /**
- * Những trang khách mà lớp vỏ tự tay gắn vào cửa sổ chính.
+ * The guest pages the shell attached to the main window itself.
  *
- * Đây là danh sách cho phép, không phải bộ nhớ đệm: chỉ id trong đây mới chụp
- * được. Dùng `Map` theo id để tra nhanh và để dọn khi trang chết.
+ * This is an allow list, not a cache: only ids in here can be captured. A `Map` keyed
+ * by id gives a fast lookup and a place to clean up when a page dies.
  */
 const guests = new Map<number, WebContents>()
 
 /**
- * Ghi nhận một trang khách vừa được gắn vào cửa sổ.
+ * Record a guest page that was just attached to the window.
  *
- * Gọi từ `did-attach-webview` của lớp vỏ. Tự dọn khi trang bị huỷ, nên danh
- * sách không phình theo số tab người dùng đã mở rồi đóng.
- * @param guest - `webContents` của thẻ `<webview>`.
+ * Called from the shell's `did-attach-webview`. It cleans itself up when the page is
+ * destroyed, so the list does not grow with every tab the user opened and closed.
+ * @param guest - the `<webview>` tag's `webContents`.
  */
 export function trackGuest(guest: WebContents): void {
   const id = guest.id
@@ -67,7 +67,7 @@ export function trackGuest(guest: WebContents): void {
   guest.once('destroyed', () => { guests.delete(id) })
 }
 
-/** Ảnh đã chụp, dạng base64 PNG, cộng kích thước thật. */
+/** The captured image, as base64 PNG, plus its real dimensions. */
 interface Shot {
   data: string
   width: number
@@ -75,19 +75,19 @@ interface Shot {
 }
 
 /**
- * Chụp một trang khách theo id.
- * @param id - id `webContents` của trang khách.
- * @returns ảnh PNG dạng base64.
- * @throws khi id không thuộc danh sách cho phép, hoặc chụp quá lâu.
+ * Capture one guest page by id.
+ * @param id - the guest page's `webContents` id.
+ * @returns the PNG image as base64.
+ * @throws when the id is not on the allow list, or the capture takes too long.
  */
 async function capture(id: number): Promise<Shot> {
   const guest = guests.get(id)
   if (guest === undefined || guest.isDestroyed()) {
     throw new Error('no web page in the panel carries that id')
   }
-  // Hết giờ là bắt buộc, không phải cẩn thận thừa: `capturePage` đã từng treo
-  // vĩnh viễn ở đường khác, và một Promise không bao giờ giải quyết sẽ giữ chỗ
-  // trong bảng chờ của cầu cho tới khi hết trần.
+  // The timeout is mandatory, not surplus caution: `capturePage` has hung forever on
+  // another path, and a Promise that never settles holds a slot in the bridge's
+  // pending table until the ceiling is reached.
   const image = await Promise.race([
     guest.capturePage(),
     new Promise<undefined>((resolve) => {
@@ -100,7 +100,7 @@ async function capture(id: number): Promise<Shot> {
   return { data: image.toPNG().toString('base64'), width: size.width, height: size.height }
 }
 
-/** Nối tới engine và phục vụ các yêu cầu chụp ảnh. */
+/** Connect to the engine and serve capture requests. */
 function connect(baseUrl: string): void {
   if (!running) return
   const url = new URL(SHOT_PATH, baseUrl)
@@ -145,14 +145,14 @@ function connect(baseUrl: string): void {
     timer.unref()
   })
 
-  // Mọi đường hỏng đều kết thúc bằng `close`, nên nối lại ở đây nữa là nối lại
-  // hai lần.
+  // Every failure path ends in `close`, so reconnecting here as well would reconnect
+  // twice.
   ws.addEventListener('error', () => {})
 }
 
 /**
- * Bật đường chụp ảnh. Gọi sau khi engine đã lên.
- * @param baseUrl - địa chỉ engine.
+ * Turn the screenshot path on. Called once the engine is up.
+ * @param baseUrl - the engine's address.
  */
 export function startShotLink(baseUrl: string): void {
   if (running) return
@@ -162,21 +162,22 @@ export function startShotLink(baseUrl: string): void {
 }
 
 /**
- * Chụp một trang khách, dùng cho bài kiểm.
+ * Capture a guest page, for the test suite.
  *
- * Lộ ra để `scripts/spike-dock-ui.cjs` đo được CHÍNH hàm này, thay vì chép lại
- * một bản gần giống. Bài học của mục 17a: một chốt được kiểm bằng bản sao của
- * chính nó thì không kiểm được gì.
+ * Exported so `scripts/spike-dock-ui.cjs` measures THIS function rather than a
+ * near-copy of it. The lesson from check 17a: a guard verified against a copy of
+ * itself verifies nothing.
  *
- * Không dùng trong app: ở đó lời gọi luôn tới từ engine qua WebSocket.
- * @param webContentsId - id trang khách.
- * @returns ảnh PNG base64.
+ * Not used by the app: there, the call always arrives from the engine over the
+ * WebSocket.
+ * @param webContentsId - the guest page's id.
+ * @returns the PNG image as base64.
  */
 export async function captureForSpike(webContentsId: number): Promise<Shot> {
   return capture(webContentsId)
 }
 
-/** Tắt đường chụp ảnh và dọn sạch. */
+/** Turn the screenshot path off and clean up. */
 export function stopShotLink(): void {
   running = false
   if (timer !== undefined) clearTimeout(timer)

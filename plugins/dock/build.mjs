@@ -1,14 +1,14 @@
 /**
- * Dựng hai nửa của plugin.
+ * Builds the plugin's two halves.
  *
- * - `lib/index.js`  — nửa Node, chạy trong tiến trình engine.
- * - `lib/client.js` — nửa giao diện, engine phục vụ cho trình duyệt tại
+ * - `lib/index.js`  — the Node half, running inside the engine process.
+ * - `lib/client.js` — the client half, served to the browser by the engine at
  *   `/plugins/harness-desktop-dock/client.js`.
  *
- * Nửa giao diện phải theo đúng một định dạng mà trình nạp module của upstream
- * quy định (xem `_upstream_dsh/packages/client/tsdown.client.ts:262-272`):
- * classic script, thân CJS, chỉ ĐĂNG KÝ một factory chứ không chạy thân module.
- * Thân chạy sau, lúc module được materialize.
+ * The client half has to follow exactly one format that upstream's module loader
+ * dictates (see `_upstream_dsh/packages/client/tsdown.client.ts:262-272`): a classic
+ * script with a CJS body that only REGISTERS a factory rather than running the module
+ * body. The body runs later, when the module is materialized.
  *
  *   node build.mjs
  */
@@ -17,18 +17,18 @@ import * as esbuild from 'esbuild'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** Phải khớp `name` trong package.json VÀ `name` trong cordis.patch.yml. */
+/** Must match `name` in package.json AND `name` in cordis.patch.yml. */
 const ID = 'harness-desktop-dock'
 
 /**
- * Những module KHÔNG được nhồi vào bundle: trình nạp cấp chúng qua bảng module
- * đóng băng của shell, và bảng đó là bản duy nhất trong trang.
+ * Modules that must NOT be bundled in: the loader supplies them through the shell's
+ * frozen module table, and that table is the page's only copy.
  *
- * Nguồn sự thật: `PLATFORM_MODULES` ở
- * `_upstream_dsh/packages/client/web/src/platform.ts:8-15`, cộng ngoại lệ có
- * tài liệu `RUNTIME_STORE_EXEMPTION` ở `tsdown.client.ts:62`.
+ * Source of truth: `PLATFORM_MODULES` in
+ * `_upstream_dsh/packages/client/web/src/platform.ts:8-15`, plus the documented
+ * `RUNTIME_STORE_EXEMPTION` exception at `tsdown.client.ts:62`.
  *
- * RÀ LẠI DANH SÁCH NÀY SAU MỖI LẦN `/nang-cap-engine`.
+ * RE-CHECK THIS LIST AFTER EVERY `/nang-cap-engine`.
  */
 const CLIENT_EXTERNALS = [
   'react',
@@ -45,20 +45,20 @@ const CLIENT_EXTERNALS = [
 ]
 
 /**
- * Nhét file CSS vào bundle dưới dạng chuỗi.
+ * Pull CSS files into the bundle as strings.
  *
- * esbuild mặc định tách `.css` ra một file riêng, mà bundle giao diện bắt buộc
- * phải là MỘT file script duy nhất. Nạp dưới dạng `text` rồi để code tự tiêm
- * thẻ `<style>` có nhãn sở hữu — đúng cách upstream làm cho CSS của plugin.
+ * esbuild splits `.css` into its own file by default, while the client bundle has to be
+ * ONE single script file. Loading it as `text` lets the code inject a `<style>` tag with
+ * an ownership marker — exactly how upstream handles a plugin's CSS.
  */
 const cssAsText = { '.css': 'text' }
 
 const shared = { bundle: true, sourcemap: true, logLevel: 'warning' }
 
 /**
- * Nội dung mọi file nguồn dưới một thư mục, đệ quy.
- * @param {string} dir - thư mục gốc.
- * @returns {string[]} nội dung từng file.
+ * The contents of every source file under a directory, recursively.
+ * @param {string} dir - the root directory.
+ * @returns {string[]} each file's contents.
  */
 function docSources(dir) {
   const out = []
@@ -70,7 +70,7 @@ function docSources(dir) {
   return out
 }
 
-// ---------------------------------------------------------------- nửa Node
+// ---------------------------------------------------------------- Node half
 
 await esbuild.build({
   ...shared,
@@ -79,12 +79,12 @@ await esbuild.build({
   format: 'esm',
   platform: 'node',
   target: 'node22',
-  // `node-pty` và `ws` phải ở ngoài: một cái là addon nhị phân, cái kia không
-  // có lý do gì để nhồi. Chúng đi kèm plugin trong `node_modules/`.
+  // `node-pty` and `ws` have to stay outside: one is a binary addon, and the other has no
+  // reason to be bundled. They ship with the plugin in `node_modules/`.
   packages: 'external',
 })
 
-// ------------------------------------------------------------ nửa giao diện
+// -------------------------------------------------------------- client half
 
 await esbuild.build({
   ...shared,
@@ -97,57 +97,57 @@ await esbuild.build({
   external: CLIENT_EXTERNALS,
   loader: cssAsText,
   define: { 'process.env.NODE_ENV': '"production"' },
-  // esbuild không có `intro` nên gộp vào banner. `"use strict"` phải là câu
-  // lệnh đầu tiên trong thân arrow function mới có tác dụng.
+  // esbuild has no `intro`, so this folds into the banner. `"use strict"` only takes
+  // effect as the first statement inside the arrow function's body.
   banner: {
     js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(ID)}, factory: (require) => { "use strict"; var module = { exports: {} }; var exports = module.exports;`,
   },
   footer: { js: 'return module.exports; } });' },
 })
 
-// ------------------------------------------------------------- chốt chặn
+// ------------------------------------------------------------------- guards
 //
-// Ba lỗi dưới đây đều KHÔNG gây ra lỗi nào lúc chạy — chúng chỉ làm màn hình
-// trắng hoặc làm panel im lặng biến mất. Bắt chúng ở đây để build đỏ trước khi
-// app trắng.
+// None of the three mistakes below produce any runtime error — they only blank the screen
+// or make the panel silently vanish. Catching them here turns the build red before the
+// app turns white.
 
 const out = readFileSync('lib/client.js', 'utf8')
-const loi = []
+const problems = []
 
 if (!out.startsWith('window.__ModuleLoader__.load(')) {
-  loi.push('bundle không mở đầu bằng lời gọi __ModuleLoader__.load — trình nạp sẽ bỏ qua nó')
+  problems.push('bundle does not open with a __ModuleLoader__.load call — the loader will ignore it')
 }
 
-// Mỗi external ĐANG ĐƯỢC DÙNG phải còn nguyên dạng `require(...)` trong bản
-// dựng. Nếu esbuild nhồi được nó vào thì trang sẽ có hai bản React, và hook vỡ
-// theo kiểu không đọc ra được nguyên nhân.
+// Every external THAT IS ACTUALLY USED has to survive as a `require(...)` in the build.
+// If esbuild managed to bundle one in, the page would carry two copies of React, and
+// hooks would break in a way whose cause is unreadable from the symptom.
 //
-// Quét cả cây `src/client/` chứ không riêng file entry: các import nằm rải ở
-// từng component, và chỉ kiểm file entry thì chốt chặn này gần như luôn im.
-// Bỏ hẳn các câu `import type ... from '...'` trước khi tìm: chúng không sinh
-// mã nên không có `require` nào để mà đòi. Cắt theo câu lệnh chứ không theo
-// dòng, vì một import có thể trải nhiều dòng — và không dò bằng dấu chấm phẩy,
-// vì mã ở đây không viết chấm phẩy cuối dòng.
+// The whole `src/client/` tree is scanned rather than the entry file alone: the imports
+// are spread across individual components, and checking only the entry would leave this
+// guard almost permanently silent. `import type ... from '...'` statements are stripped
+// first: they emit no code, so there is no `require` to demand. Cut by statement rather
+// than by line, because one import can span several lines — and not by semicolon, because
+// the code here does not write trailing semicolons.
 const src = docSources('src/client').join('\n')
   .replace(/import\s+type\s[\s\S]*?from\s*['"][^'"]+['"]/g, '')
 
 for (const mod of CLIENT_EXTERNALS) {
-  const dungThat = src.includes(`'${mod}'`) || src.includes(`"${mod}"`)
-  if (dungThat && !out.includes(`require("${mod}")`)) {
-    loi.push(`external bị nhồi vào bundle thay vì để trình nạp cấp: ${mod}`)
+  const used = src.includes(`'${mod}'`) || src.includes(`"${mod}"`)
+  if (used && !out.includes(`require("${mod}")`)) {
+    problems.push(`external got bundled instead of being supplied by the loader: ${mod}`)
   }
 }
 
-for (const dauVet of ['Invalid hook call', '__SECRET_INTERNALS', 'react-dom.production']) {
-  if (out.includes(dauVet)) {
-    loi.push(`bundle mang theo một bản React thứ hai (thấy chuỗi "${dauVet}")`)
+for (const trace of ['Invalid hook call', '__SECRET_INTERNALS', 'react-dom.production']) {
+  if (out.includes(trace)) {
+    problems.push(`bundle carries a second copy of React (found the string "${trace}")`)
   }
 }
 
-if (loi.length > 0) {
-  console.error('\nBUILD HỎNG:')
-  for (const dong of loi) console.error(`  - ${dong}`)
+if (problems.length > 0) {
+  console.error('\nBUILD FAILED:')
+  for (const line of problems) console.error(`  - ${line}`)
   process.exit(1)
 }
 
-console.log(`lib/index.js + lib/client.js đã dựng (${(out.length / 1024).toFixed(1)} KB giao diện)`)
+console.log(`lib/index.js + lib/client.js built (${(out.length / 1024).toFixed(1)} KB client)`)

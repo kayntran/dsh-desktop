@@ -1,18 +1,18 @@
 /*
- * Mọi màu, khoảng cách, bo góc đều lấy từ biến `--dsw-*` của upstream, không
- * có một mã màu cứng nào — nhờ vậy panel tự theo chế độ sáng/tối và tự đi theo
- * mỗi lần DeepSeek tinh chỉnh bảng màu.
+ * Every color, spacing value and corner radius comes from upstream's `--dsw-*`
+ * variables, with not one hard-coded color — which is what makes the panel follow
+ * light and dark mode, and follow along every time DeepSeek retunes the palette.
  *
- * Tiền tố `hdw-` cho mọi class: bundle này chèn vào cùng một document với CSS
- * của upstream, nên tên chung chung là va chạm.
+ * The `hdw-` prefix on every class: this bundle is injected into the same document as
+ * upstream's CSS, so a generic name is a collision.
  */
 
 /*
- * Quy tắc duy nhất chạm tới phần tử của upstream, và nó chỉ CỘNG THÊM một
- * thuộc tính chưa ai đặt. `#root` chỉ khai `height: 100%`, không position,
- * không transform — nên chèn padding vào đây làm khung ba cột của app co lại
- * đúng bằng bề rộng panel. Panel không đè lên gì cả; nhìn ra là bốn cột nằm
- * cạnh nhau. Đóng panel thì biến về `0px` và app trở lại y nguyên.
+ * The only rule that touches an upstream element, and it only ADDS a property nobody
+ * had set. `#root` declares just `height: 100%`, no position, no transform — so adding
+ * padding here shrinks the app's three-column frame by exactly the panel's width. The
+ * panel covers nothing; it reads as four columns side by side. Closing the panel returns
+ * the variable to `0px` and the app looks exactly as it did.
  */
 #root {
   box-sizing: border-box;
@@ -20,39 +20,40 @@
   transition: padding-right var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
-/* Lúc đang kéo thì tắt chuyển động, nếu không panel sẽ chạy sau con trỏ. Đúng
-   cách `.frame[data-dragging]` của upstream làm với các cột của họ. */
+/* During a drag the transition is off, or the panel would trail behind the pointer.
+   Exactly what upstream's `.frame[data-dragging]` does for their own columns. */
 #root[data-hdw-dragging] {
   transition: none;
 }
 
 /*
- * `position: fixed` để thoát khỏi `overflow: hidden` của khung app. An toàn vì
- * không tổ tiên nào tạo containing block (không transform/filter/contain) —
- * chính Tooltip của upstream đã dựa vào đúng tính chất này trong cùng cây DOM.
+ * `position: fixed` to escape the app frame's `overflow: hidden`. Safe because no
+ * ancestor creates a containing block (no transform/filter/contain) — upstream's own
+ * Tooltip relies on that same property inside this same DOM tree.
  */
 /*
- * KHÔNG ĐẶT NỀN ĐỤC Ở ĐÂY, VÀ KHÔNG BẮT CHUỘT Ở ĐÂY. Cả hai thứ đó thuộc về
- * từng phần con, không thuộc về cả cột.
+ * DO NOT PUT AN OPAQUE BACKGROUND HERE, AND DO NOT CAPTURE THE MOUSE HERE. Both belong
+ * to the individual children, not to the column as a whole.
  *
- * Lý do chung: panel này sống trong lớp `overlayLayer` của upstream, và lớp đó
- * khai `z-index: 20`. Sân khấu webview thì gắn thẳng vào `document.body` và
- * khai `z-index: 5`. Hai con số tranh nhau trong cùng một bối cảnh xếp lớp, nên
- * 20 thắng: cả cột panel nằm ĐÈ LÊN trang web.
+ * The shared reason: this panel lives inside upstream's `overlayLayer`, and that layer
+ * declares `z-index: 20`. The webview stage attaches straight to `document.body` and
+ * declares `z-index: 5`. The two numbers compete inside the same stacking context, so 20
+ * wins: the whole panel column sits ON TOP OF the web page.
  *
- * Từ một nguyên nhân đó ra HAI lỗi riêng biệt, và sửa cái này không sửa cái kia:
+ * That one cause produces TWO separate bugs, and fixing one does not fix the other:
  *
- *   1. Nền đục sơn phủ trang → người dùng thấy một khoảng trắng.
- *   2. Phần tử phủ lên trang vẫn NUỐT CHUỘT dù đã trong suốt → bấm và gõ không
- *      tới được trang. Trong suốt là chuyện của mắt; `pointer-events` mới là
- *      chuyện của tay.
+ *   1. An opaque background paints over the page → the user sees a blank area.
+ *   2. An element covering the page still SWALLOWS THE MOUSE even when transparent →
+ *      clicks and keys never reach the page. Transparency is a matter for the eye;
+ *      `pointer-events` is the matter for the hand.
  *
- * Lỗi 1 sửa xong rồi tưởng là hết, và lỗi 2 vẫn còn nguyên thêm một thời gian.
- * Nên hai chú thích này nằm cạnh nhau: ai đụng tới một cái phải thấy cái kia.
+ * Bug 1 was fixed and assumed to be the whole story, and bug 2 stayed for a while
+ * afterwards. So these two notes sit next to each other: anyone touching one has to see
+ * the other.
  *
- * Vì sao không nâng sân khấu lên trên 20 cho xong: menu, tooltip, hộp thoại của
- * upstream cũng nằm trong đúng lớp đó. Nâng sân khấu lên là mỗi lần mở menu "+"
- * nó lại chui xuống dưới trang web.
+ * Why not simply raise the stage above 20: upstream's menus, tooltips and dialogs live
+ * in that very layer too. Raising the stage would mean the "+" menu slides under the web
+ * page every time it opens.
  */
 .hdw-dock {
   position: fixed;
@@ -70,24 +71,25 @@
 }
 
 /*
- * Ba khối bao ngoài ô trang web đều phải thôi bắt chuột — không chỉ riêng
- * `.hdw-slot`. Trước đây chỉ `.hdw-slot` khai `none`, và cú bấm rơi xuống đúng
- * cha nó là `.hdw-browser`; đo bằng `elementFromPoint` giữa ô trang thì thấy
- * `.hdw-browser` chứ không thấy thẻ webview.
+ * All three blocks wrapping the web slot have to stop capturing the mouse — not just
+ * `.hdw-slot`. Previously only `.hdw-slot` declared `none`, and the click landed on its
+ * parent `.hdw-browser`; measuring with `elementFromPoint` at the middle of the page slot
+ * returned `.hdw-browser` rather than the webview tag.
  *
- * Khai đích danh từng khối thay vì để kế thừa từ `.hdw-dock` lan xuống: phần tử
- * mới thêm sau này vào trong `.hdw-tabbar`/`.hdw-files`/… vẫn bấm được, còn thứ
- * đặt thẳng dưới `.hdw-dock` thì không — và "không bấm được" là lỗi thấy ngay,
- * khác hẳn một lỗ rò im lặng.
+ * Each block is named explicitly rather than letting inheritance spread down from
+ * `.hdw-dock`: an element added later inside `.hdw-tabbar`/`.hdw-files`/… stays clickable,
+ * while something placed directly under `.hdw-dock` does not — and "it cannot be clicked"
+ * is a bug seen at once, unlike a silent leak.
  */
 .hdw-body,
 .hdw-browser {
   pointer-events: none;
 }
 
-/* Và những phần thật sự cần bấm thì nhận lại. Con cháu của chúng theo cùng, vì
-   `pointer-events` là thuộc tính kế thừa — nên không phải kể tên nút đóng trên
-   pill, ô địa chỉ, hàng file hay nút trong thanh trạng thái terminal. */
+/* And the parts that genuinely need clicking take it back. Their descendants come along,
+   because `pointer-events` is an inherited property — so there is no need to name the
+   pill's close button, the address input, a file row, or a button in the terminal's
+   status bar. */
 .hdw-tabbar,
 .hdw-navbar,
 .hdw-files,
@@ -99,7 +101,7 @@
 
 /* ------------------------------------------------------------- thanh tab */
 
-/* Nền nằm ở đây chứ không ở `.hdw-dock` — xem chú thích ở đó. */
+/* The background lives here rather than on `.hdw-dock` — see the note there. */
 .hdw-tabbar {
   display: flex;
   align-items: center;
@@ -110,7 +112,7 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-/* Dải pill cuộn ngang khi mở nhiều tab; nút đóng panel luôn ở lại bên phải. */
+/* The pill strip scrolls sideways once many tabs are open; the panel's close button always stays on the right. */
 .hdw-pills {
   display: flex;
   align-items: center;
@@ -125,8 +127,8 @@
   display: none;
 }
 
-/* Nút đóng nằm NGOÀI `Pill` (một <button> lồng trong <button> là HTML không
-   hợp lệ), rồi đặt chồng lên mép phải để nhìn ra vẫn là một pill duy nhất. */
+/* The close button sits OUTSIDE the `Pill` (a <button> nested in a <button> is invalid
+   HTML), then overlays the right edge so it still reads as one single pill. */
 .hdw-pillwrap {
   position: relative;
   flex: 0 0 auto;
@@ -139,7 +141,7 @@
   max-width: 168px;
 }
 
-/* Chừa chỗ cho nút đóng, để chữ không chui xuống dưới nó. */
+/* Leave room for the close button, so the text does not slide underneath it. */
 .hdw-pillwrap:has(.hdw-pill-x) .hdw-pill {
   padding-right: 22px;
 }
@@ -172,8 +174,8 @@
   background: transparent;
   color: var(--dsw-alias-label-caption);
   cursor: pointer;
-  /* Chỉ hiện khi rê chuột tới pill hoặc khi chính nó có tiêu điểm bàn phím —
-     ẩn hẳn thì người dùng bàn phím không bao giờ tới được. */
+  /* Shown only on hover over the pill or when it holds keyboard focus itself — fully
+     hidden, a keyboard user could never reach it. */
   opacity: 0;
   transition: opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out);
 }
@@ -188,12 +190,12 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* --------------------------------------------------------------- thân tab */
+/* ---------------------------------------------------------------- tab body */
 
-/* Cột dọc chứ không phải khối cuộn: tab Files và tab Terminal đều tự lo phần
-   cuộn bên trong, và terminal cần một ô có chiều cao xác định để đo ra số dòng.
-   Một khối `overflow: auto` bọc ngoài thì chiều cao là do nội dung quyết định,
-   và xterm sẽ không bao giờ dừng ở đúng kích thước nào. */
+/* A vertical column rather than a scrolling block: the Files tab and the Terminal tab
+   each handle their own internal scrolling, and the terminal needs a box of definite
+   height to derive its row count from. With an `overflow: auto` block wrapping it, the
+   height is decided by the content and xterm would never settle at any size. */
 .hdw-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -202,8 +204,8 @@
   flex-direction: column;
 }
 
-/* `flex: 1 1 auto` để nó phủ kín phần thân: `.hdw-dock` không còn nền, nên chỗ
-   nào không có phần con nào phủ thì thủng ra giao diện app phía sau. */
+/* `flex: 1 1 auto` so it covers the body completely: `.hdw-dock` no longer has a
+   background, so anywhere no child covers shows straight through to the app UI behind. */
 .hdw-empty {
   flex: 1 1 auto;
   padding: 24px 16px;
@@ -214,12 +216,13 @@
 }
 
 /*
- * Panel đóng, và pane không được xem: ẩn bằng `display: none` chứ KHÔNG tháo
- * khỏi cây React. Tháo là đóng WebSocket, mà đóng WebSocket là giết shell.
+ * A closed panel, and a pane that is not being viewed: hidden with `display: none` and
+ * NOT unmounted from the React tree. Unmounting closes the WebSocket, and closing the
+ * WebSocket kills the shell.
  *
- * Ba dòng này bắt buộc: mỗi phần tử dưới đây đều có `display: flex` riêng, và
- * `display` trong stylesheet mạnh hơn `display: none` mà thuộc tính `hidden`
- * mang sẵn. Thiếu chúng thì `hidden` không có tác dụng gì cả.
+ * These three lines are mandatory: each element below has its own `display: flex`, and
+ * a `display` in a stylesheet outranks the `display: none` the `hidden` attribute brings
+ * with it. Without them, `hidden` does nothing at all.
  */
 .hdw-dock[hidden],
 .hdw-files[hidden],
@@ -227,7 +230,7 @@
   display: none;
 }
 
-/* ------------------------------------------------------------- trình duyệt */
+/* ----------------------------------------------------------------- browser */
 
 .hdw-browser {
   flex: 1 1 auto;
@@ -236,8 +239,9 @@
   flex-direction: column;
 }
 
-/* Có nền riêng vì `.hdw-dock` không còn nền — xem chú thích ở đó. Thanh này
-   nằm ngay trên ô trang web, nên thiếu nền là chữ đè lên trang. */
+/* It carries its own background because `.hdw-dock` no longer has one — see the note
+   there. This bar sits directly above the web slot, so without a background its text
+   would overlay the page. */
 .hdw-navbar {
   display: flex;
   align-items: center;
@@ -255,31 +259,32 @@
 }
 
 /*
- * Ô trống mà trang web được vẽ đè lên. Nó phải rỗng và không bắt chuột: thứ
- * người dùng thấy ở đây là sân khấu webview nằm bên trên, không phải phần tử
- * này.
+ * The empty slot the web page is painted over. It has to be empty and it has to not
+ * capture the mouse: what the user sees here is the webview stage sitting above, not this
+ * element.
  */
 .hdw-slot {
   flex: 1 1 auto;
   min-height: 0;
-  /* Một mình dòng này KHÔNG đủ để cú bấm tới được trang web — nó chỉ bỏ qua
-     đúng phần tử này, rồi cú bấm rơi vào cha. Xem `.hdw-browser` ở trên. */
+  /* This line ALONE is not enough for a click to reach the web page — it only skips this
+     one element, and the click then lands on the parent. See `.hdw-browser` above. */
   pointer-events: none;
 }
 
 /*
- * Sân khấu webview — gắn thẳng vào `document.body`, ngoài cây React.
+ * The webview stage — attached straight to `document.body`, outside the React tree.
  *
- * KHÔNG BAO GIỜ có quy tắc `display: none` cho nó. Webview gắn vào lúc ô chứa
- * đang display:none thì bề mặt hiển thị không bao giờ được cấp — trang tự vẽ
- * trong bộ nhớ nhưng màn hình trắng trơn, và không lỗi nào báo. Khi cần giấu,
- * `browser-stage.ts` dìm nó xuống `z-index: -1` để thứ khác che đi — phần tử
- * vẫn được vẽ, bề mặt guest vẫn sống.
+ * There must NEVER be a `display: none` rule for it. A webview attached while its
+ * container is display:none never gets a display surface allocated — the page paints
+ * itself in memory while the screen stays blank, and nothing reports an error. When it
+ * needs hiding, `browser-stage.ts` sinks it to `z-index: -1` so something else covers it —
+ * the element is still painted and the guest's surface stays alive.
  *
- * Thứ che nó là gì: panel đóng thì giao diện app che, bấm sang tab khác thì
- * chính tab Files hoặc Terminal che. KHÔNG còn là nền của `.hdw-dock` — cột đó
- * nay trong suốt, vì nền của nó từng sơn đè lên trang web (xem `.hdw-dock`).
- * Nên mỗi tab phải tự có nền đục; thiếu là tab nền lộ ra dưới tab đang xem.
+ * What covers it: with the panel closed, the app UI covers it; after switching to
+ * another tab, the Files or Terminal tab itself covers it. NOT `.hdw-dock`'s background
+ * any more — that column is transparent now, because its background used to paint over
+ * the web page (see `.hdw-dock`). So each tab has to carry its own opaque background;
+ * without one, a background tab shows through beneath the viewed one.
  */
 .hdw-stage {
   position: fixed;
@@ -288,13 +293,13 @@
 }
 
 /*
- * Mọi tab xếp chồng đúng một chỗ. Tab đang xem có `z-index: 1`, tab nền có 0 —
- * tức tab nền BỊ CHE chứ không bị ẩn.
+ * Every tab stacks in exactly one place. The viewed tab gets `z-index: 1` and a
+ * background tab gets 0 — meaning a background tab is COVERED rather than hidden.
  *
- * Đây không phải chuyện thẩm mỹ. `scripts/spike-webview.cjs` đo được:
- * `capturePage()` treo vĩnh viễn trên một webview bị `visibility: hidden` hoặc
- * bị đẩy ra ngoài khung nhìn — Promise không bao giờ giải quyết. Bị che kín là
- * cách ẩn duy nhất còn chụp ảnh được.
+ * This is not a matter of looks. `scripts/spike-webview.cjs` measured it:
+ * `capturePage()` hangs forever on a webview that is `visibility: hidden` or pushed
+ * outside the viewport — the Promise never settles. Being completely covered is the only
+ * way of hiding one that still captures.
  */
 .hdw-webview {
   position: absolute;
@@ -305,21 +310,21 @@
   background: var(--dsw-alias-bg-base);
 }
 
-/* ---------------------------------------------------------------- tay kéo */
+/* -------------------------------------------------------------- drag handle */
 
 /*
- * Chép đúng cách upstream làm tay kéo cho cột phải của họ
- * (`ui-layout/src/client/AppFrame.module.css`): một dải bắt chuột rộng 8px
- * KHÔNG sơn màu, cưỡi lên đường viền cột, cộng một viên thuốc 12×32 ở giữa
- * chiều cao chỉ hiện ra khi rê chuột tới hoặc đang kéo.
+ * Copied from exactly how upstream builds the handle for their right column
+ * (`ui-layout/src/client/AppFrame.module.css`): an 8px-wide mouse-capturing strip with NO
+ * paint at all, straddling the column's border, plus a 12×32 pill at mid-height that only
+ * appears on hover or during a drag.
  *
- * Bản trước tô cả một vạch chạy suốt chiều cao bằng `--dsw-alias-brand-primary`
- * — biến đó ở chế độ sáng quy về gần như đen tuyền, nên panel có một vệt đen
- * dọc mà không chỗ nào khác trong app có. Sai tông, đã bỏ.
+ * An earlier version painted a full-height line in `--dsw-alias-brand-primary` — in
+ * light mode that variable resolves to nearly pure black, so the panel carried a vertical
+ * black streak nothing else in the app had. Off-key, and removed.
  *
- * `position: fixed` chứ không `absolute`: panel có `overflow: hidden` nên một
- * phần tử con cưỡi lên mép sẽ bị cắt mất nửa ngoài. `fixed` thoát khỏi vùng cắt
- * của tổ tiên, đúng tính chất panel đang dựa vào.
+ * `position: fixed` rather than `absolute`: the panel has `overflow: hidden`, so a child
+ * straddling its edge would lose its outer half to clipping. `fixed` escapes the
+ * ancestor's clip region — the same property the panel itself relies on.
  */
 .hdw-resizer {
   position: fixed;
@@ -328,8 +333,8 @@
   right: calc(var(--hdw-dock-w, 0px) - 4px);
   width: 8px;
   cursor: col-resize;
-  /* Trên sân khấu webview (z-index 5). Thấp hơn thì kéo đổi bề rộng sẽ bị
-     trang web nuốt mất cú bấm ngay khi con trỏ chạm mép. */
+  /* Above the webview stage (z-index 5). Any lower and a resize drag loses its click to
+     the web page the moment the pointer touches the edge. */
   z-index: 6;
   touch-action: none;
   transition: right var(--ds-transition-duration-slow) var(--ds-ease-in-out);
@@ -353,14 +358,14 @@
     background var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
-/* Lúc đang kéo thì tắt chuyển động, nếu không dải kéo bò theo sau con trỏ. */
+/* During a drag the transition is off, or the strip crawls along behind the pointer. */
 #root[data-hdw-dragging] .hdw-resizer {
   transition: none;
 }
 
-/* Hiện viên thuốc khi con trỏ ở trong panel, ở trên chính dải kéo, hoặc đang
-   kéo — đúng ba điều kiện upstream dùng. Dải kéo là con của panel nên đây là
-   quan hệ cha–con, không phải anh em như bên upstream. */
+/* Show the pill when the pointer is inside the panel, over the strip itself, or during a
+   drag — the same three conditions upstream uses. Our strip is a child of the panel, so
+   this is a parent–child relationship rather than upstream's sibling one. */
 .hdw-dock:hover .hdw-resizer::after,
 .hdw-resizer:hover::after,
 .hdw-resizer[data-dragging]::after {
@@ -382,8 +387,8 @@
 
 /* ------------------------------------------------------------------ Files */
 
-/* Nền đục ở đây là BẮT BUỘC, không phải trang trí: `.hdw-dock` không còn nền,
-   và chính tab này là thứ che sân khấu webview khi người dùng bấm sang Files. */
+/* The opaque background here is MANDATORY, not decoration: `.hdw-dock` no longer has one,
+   and this tab is what covers the webview stage when the user switches to Files. */
 .hdw-files {
   display: flex;
   flex-direction: column;
@@ -453,14 +458,16 @@
 /* --------------------------------------------------------------- Terminal */
 
 /*
- * Ba biến này cố ý lấy từ nhóm `--dsw-static-*` chứ không phải `--dsw-alias-*`:
- * nhóm static KHÔNG đổi theo sáng/tối, và ở đây đó chính là điều mong muốn.
+ * These three variables come deliberately from the `--dsw-static-*` group rather than
+ * `--dsw-alias-*`: the static group does NOT change with light and dark, and here that is
+ * exactly what is wanted.
  *
- * Lý do đầy đủ nằm ở đầu `TerminalTab.tsx`, tóm tắt: bảng 16 màu ANSI mà `npm`,
- * `git`, `dir` dùng không có trong hệ token của DeepSeek (thiếu hẳn cyan và
- * magenta). Nên hoặc tự bịa một bảng màu, hoặc dùng bảng mặc định của xterm —
- * vốn được vẽ cho nền tối. Chọn cách không bịa màu nào, và giữ mặt terminal tối
- * để bảng đó đọc được. Khung viền, thanh trạng thái quanh nó vẫn theo chủ đề.
+ * The full reasoning is at the top of `TerminalTab.tsx`; in short: the 16-color ANSI
+ * palette `npm`, `git` and `dir` use does not exist in DeepSeek's token system (cyan and
+ * magenta are missing entirely). So either invent a palette, or use xterm's default one —
+ * which was drawn for a dark background. The choice was to invent no colors and keep the
+ * terminal's face dark so that palette stays readable. The border and the status bar
+ * around it still follow the theme.
  */
 .hdw-termwrap {
   --hdw-term-bg: var(--dsw-static-neutral-bluish-875);
@@ -473,8 +480,9 @@
   background: var(--hdw-term-bg);
 }
 
-/* `display: flex` ở trên mạnh hơn `display: none` mà thuộc tính `hidden` mang
-   sẵn, nên phải nói lại — thiếu dòng này thì terminal vẫn hiện đè lên tab khác. */
+/* The `display: flex` above outranks the `display: none` the `hidden` attribute brings
+   with it, so it has to be restated — without this line the terminal still shows on top of
+   another tab. */
 .hdw-termwrap[hidden] {
   display: none;
 }
@@ -485,7 +493,7 @@
   padding: 6px 0 6px 8px;
 }
 
-/* Dải báo khi shell đã thoát, kèm nút mở lại. */
+/* The notice bar shown once the shell has exited, with a reopen button. */
 .hdw-termbar {
   display: flex;
   align-items: center;
@@ -501,21 +509,21 @@
   padding: 0;
 }
 
-/* Lật ngang một icon có sẵn của upstream. Bộ icon chỉ có `IconPanelLeftOutline16`
-   mà panel nay nằm bên phải; lật lại vẫn là dùng vật liệu của hệ thống, đúng
-   nét và đúng cỡ, thay vì tự vẽ một icon mới. */
+/* Mirror one of upstream's existing icons. The set only has `IconPanelLeftOutline16`
+   while our panel sits on the right; mirroring it is still using the system's material,
+   with the right stroke and the right size, rather than drawing a new icon. */
 .hdw-flip {
   display: inline-flex;
   transform: scaleX(-1);
 }
 
-/* --------------------------------------------------- dòng trong Cài đặt */
+/* ------------------------------------------------------ a Settings row */
 
 /*
- * Một dòng trong Cài đặt → General. Hình dạng chép theo dòng của upstream
- * (`EnterBehaviorRow`): chữ bên trái co giãn, nút chọn bên phải cố định.
- * Không viết cứng màu nào — tất cả đi qua biến `--dsw-alias-*` nên chế độ
- * sáng/tối tự theo.
+ * One row in Settings > General. Its shape is copied from upstream's own row
+ * (`EnterBehaviorRow`): flexible text on the left, a fixed chooser on the right. No
+ * hard-coded colors — everything goes through `--dsw-alias-*` variables, so light and
+ * dark mode follow by themselves.
  */
 .hdw-setting {
   display: flex;
@@ -544,7 +552,7 @@
   color: var(--dsw-alias-label-caption);
 }
 
-/* Icon cảnh báo không được co lại khi chữ dài xuống dòng. */
+/* The warning icon must not shrink when long text wraps. */
 .hdw-setting-warn {
   flex: 0 0 auto;
   margin-top: 1px;
@@ -570,11 +578,11 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
-/* --------------------------------------------------- thẻ kết quả chụp ảnh */
+/* ------------------------------------------------- screenshot result card */
 
-/* Khung hàng tự dựng: gói `dsh-client-ui-tool` không xuất `ToolRow` ra ngoài,
-   nên phần khung buộc phải tự viết. Mọi màu vẫn là biến của hệ thống, để thẻ
-   này đổi theo sáng/tối y như các hàng bên cạnh. */
+/* A hand-built row frame: the `dsh-client-ui-tool` package does not export `ToolRow`, so
+   the frame has to be written here. Every color is still a system variable, so this card
+   follows light and dark mode exactly like the rows beside it. */
 .hdw-shot-card {
   display: flex;
   flex-direction: column;
@@ -610,9 +618,9 @@
   display: flex;
 }
 
-/* Lưới an toàn, KHÔNG phải phần tạo dáng: khi CSS riêng của `MessageImage` có
-   mặt, ảnh đã nằm gọn trong ô 240px của nó và dòng này là vô hiệu. Khi vì lý do
-   nào đó nó vắng, dòng này giữ tấm ảnh 800px khỏi phá vỡ cả khung hội thoại. */
+/* A safety net, NOT styling: when `MessageImage`'s own CSS is present, the image already
+   fits inside its 240px box and this line has no effect. If for some reason that CSS is
+   absent, this line keeps an 800px image from breaking the whole conversation frame. */
 .hdw-shot-image img {
   max-width: 100%;
 }

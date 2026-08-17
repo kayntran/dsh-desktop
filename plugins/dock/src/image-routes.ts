@@ -1,39 +1,41 @@
 /**
- * Đường lấy byte của một ảnh đã lưu, để thẻ kết quả hiển thị được: `/hdw/image`.
+ * The route that fetches a stored image's bytes so the result card can display it:
+ * `/hdw/image`.
  *
- * ## Vì sao phải tự mở đường này
+ * ## Why this route has to exist at all
  *
- * Engine đã có sẵn một đường cho giao diện đọc ảnh (`session.readAttachment`),
- * và nó **từ chối** ảnh của chúng ta. Đã đo trong một lượt chạy thật với model
- * thật; câu từ chối là *"Image is not referenced by this session."*
+ * The engine already has a route for the UI to read images (`session.readAttachment`),
+ * and it **refuses** ours. Measured during a real run with a real model; the refusal
+ * reads *"Image is not referenced by this session."*
  *
- * Luật của họ, đọc từ `packages/host/apiproxy/src/api-proxy.ts`: giao diện chỉ
- * được đọc một ảnh nếu nhật ký phiên có một khối `image` **mà model nhìn thấy**.
- * Và một khối như thế chỉ được phép tồn tại khi tuyến model đọc được ảnh — chính
- * upstream ghi rõ lý do ở `tool-fs/src/read-image.ts`: một kết quả tool đi vào
- * lịch sử phiên, nên nhét ảnh vào một tuyến không chở được ảnh là làm hỏng mọi
- * lượt hỏi sau của tuyến đó.
+ * Their rule, read from `packages/host/apiproxy/src/api-proxy.ts`: the UI may only
+ * read an image when the session transcript holds an `image` block **the model can
+ * see**. And such a block is only allowed to exist when the model route can read
+ * images — upstream states the reason itself in `tool-fs/src/read-image.ts`: a tool
+ * result enters the session history, so pushing an image into a route that cannot
+ * carry images corrupts every later turn on that route.
  *
- * Hai luật đó cộng lại thành một ràng buộc cứng: **model DeepSeek không đọc được
- * ảnh, nên tấm ảnh không bao giờ vào được nhật ký, nên giao diện không bao giờ
- * xin đọc được nó qua đường của họ.** Không có cách nào lách trong khuôn đó mà
- * không nói dối về khả năng của model.
+ * Those two rules add up to a hard constraint: **DeepSeek's models cannot read
+ * images, so the image never enters the transcript, so the UI can never ask to read it
+ * through their route.** There is no way around that within their frame without lying
+ * about the model's capabilities.
  *
- * Nên ảnh vẫn lưu vào kho đính kèm của engine — content-addressed, bền qua lần
- * khởi động sau, không phình nhật ký — còn phần đọc ra thì đi đường này.
+ * So the image is still saved into the engine's attachment store — content-addressed,
+ * durable across restarts, no transcript bloat — while reading it back travels this
+ * route.
  *
- * ## Đánh đổi, nói thẳng
+ * ## The trade-off, stated plainly
  *
- * Đường này **không** kiểm ảnh có thuộc phiên đang xem hay không, tức là bỏ đúng
- * phép kiểm mà upstream đặt ra. Hai thứ thay chỗ nó:
+ * This route does **not** check whether the image belongs to the session being viewed,
+ * which is exactly the check upstream imposes. Two things stand in its place:
  *
- * - `isTrustedRequest`, y như mọi route `/hdw/*` khác;
- * - và mã ảnh là **sha256 của chính nội dung ảnh** — muốn lấy được một ảnh thì
- *   phải biết trước băm của nó, mà biết băm nghĩa là đã có ảnh.
+ * - `isTrustedRequest`, the same as every other `/hdw/*` route;
+ * - and the image id is the **sha256 of the image's own content** — fetching an image
+ *   requires knowing its hash first, and knowing the hash means already having the image.
  *
- * Nên thứ mất đi không phải "ai cũng đọc được ảnh", mà là "một trang trong app
- * đọc được ảnh của phiên khác nếu nó đã biết băm". Đổi lại là chủ dự án nhìn
- * thấy được thứ agent vừa nhìn.
+ * So what is given up is not "anyone can read images", it is "a page inside the app
+ * could read another session's image if it already knew the hash". What is gained is
+ * that the project owner can see what the agent just saw.
  * @module
  */
 
@@ -42,16 +44,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { isTrustedRequest } from './trust.ts'
 
-/** Kiểu ảnh kho đính kèm nhận. Không nằm trong danh sách thì không phục vụ. */
+/** Image types the attachment store accepts. Anything not listed is not served. */
 const MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
-/** Trả lỗi dạng chữ. Ảnh hỏng thì thẻ `<img>` chỉ cần biết là hỏng. */
+/** Answer an error as plain text. When an image fails, an `<img>` tag only needs to know it failed. */
 function fail(res: ServerResponse, status: number, reason: string): void {
   res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
   res.end(reason)
 }
 
-/** Đọc một số nguyên dương từ query, hoặc undefined. */
+/** Read a positive integer from the query, or undefined. */
 function positiveInt(raw: string | null): number | undefined {
   if (raw === null) return undefined
   const value = Number(raw)
@@ -59,9 +61,9 @@ function positiveInt(raw: string | null): number | undefined {
 }
 
 /**
- * Mở route `/hdw/image`.
- * @param ctx - context của plugin; cần service `attachments`.
- * @returns hàm gỡ route.
+ * Open the `/hdw/image` route.
+ * @param ctx - the plugin's context; needs the `attachments` service.
+ * @returns a function that removes the route.
  */
 export function registerImageRoutes(ctx: Context): () => void {
   return ctx.webServer.register({
@@ -80,9 +82,9 @@ export function registerImageRoutes(ctx: Context): () => void {
       if (id === null || id === '') { fail(res, 400, 'missing id'); return }
       if (!MEDIA_TYPES.has(mediaType)) { fail(res, 400, `unsupported image type: ${mediaType}`); return }
       if (bytes === undefined || width === undefined || height === undefined) {
-        // Kho đính kèm đối chiếu byte với đúng tham chiếu đã ghi, nên nó cần đủ
-        // cả năm trường. Thiếu thì từ chối ở đây cho câu lỗi còn đọc được, thay
-        // vì để nó vỡ sâu bên trong.
+        // The attachment store checks the bytes against the exact reference it recorded,
+        // so it needs all five fields. Refuse here while the error is still readable
+        // rather than letting it break deep inside.
         fail(res, 400, 'missing bytes/w/h')
         return
       }
@@ -100,8 +102,8 @@ export function registerImageRoutes(ctx: Context): () => void {
         res.writeHead(200, {
           'content-type': mediaType,
           'content-length': String(body.length),
-          // Mã ảnh là băm của nội dung, nên nội dung không bao giờ đổi dưới một
-          // mã. Đệm lâu là đúng, và nó cắt hẳn việc tải lại mỗi lần cuộn qua.
+          // The image id is a hash of the content, so the content behind an id never
+          // changes. A long cache is correct, and it eliminates a refetch on every scroll.
           'cache-control': 'private, max-age=31536000, immutable',
         })
         res.end(body)

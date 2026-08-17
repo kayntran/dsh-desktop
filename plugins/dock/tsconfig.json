@@ -1,14 +1,14 @@
 {
   "// ": [
-    "Chỉ để kiểm lỗi kiểu — bản dựng thật do build.mjs (esbuild) sinh ra.",
+    "Type checking only — the real build is produced by build.mjs (esbuild).",
     "",
-    "`paths` là cách duy nhất cho TypeScript thấy được type của upstream: plugin",
-    "phân giải module từ chính thư mục của nó, và ở đó không có, cũng không được",
-    "có, một bản sao nào của @deepseek-ai/*. Trỏ thẳng vào cây type trong engine",
-    "đã cài thì luôn khớp đúng phiên bản engine đang chạy.",
+    "`paths` is the only way TypeScript can see upstream's types: the plugin resolves",
+    "modules from its own directory, and there is no copy of @deepseek-ai/* there, nor",
+    "should there be. Pointing straight at the type tree inside the installed engine",
+    "always matches the engine version actually running.",
     "",
-    "Mục có `*` lo các tên gói trần; các mục tường minh lo subpath `/client`,",
-    "và mục tường minh luôn thắng mẫu có `*` nên không có chỗ nhập nhằng."
+    "The `*` entry covers bare package names; the explicit entries cover the `/client`",
+    "subpath, and an explicit entry always beats a `*` pattern, so nothing is ambiguous."
   ],
   "compilerOptions": {
     "target": "ES2023",

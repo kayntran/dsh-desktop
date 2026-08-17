@@ -1,9 +1,9 @@
 /**
- * Log của lớp vỏ app — tách khỏi log của engine.
+ * The app shell's log — kept separate from the engine's log.
  *
- * App phát hành cho nhiều người, và những sự cố hay gặp nhất ("thông báo không
- * hiện", "mở lên trắng bóc") không để lại dấu vết nào trên màn hình. Không có
- * file này thì mọi báo lỗi của người dùng đều thành phỏng đoán.
+ * The app ships to many people, and its most common failures ("notifications never
+ * appear", "it opens completely blank") leave no trace on screen. Without this file
+ * every bug report from a user turns into guesswork.
  * @module
  */
 
@@ -11,21 +11,21 @@ import { app } from 'electron'
 import { appendFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** Cắt log khi vượt ngưỡng này, để nó không phình vô hạn trên máy chạy dài ngày. */
+/** Truncate the log past this size, so it cannot grow forever on a long-running machine. */
 const MAX_BYTES = 1_000_000
 
-/** Đường dẫn log của lớp vỏ, để menu khay mở ra được. */
+/** Path to the shell's log, so the tray menu can open it. */
 export function shellLogPath(): string {
   return join(app.getPath('userData'), 'shell.log')
 }
 
-/** Ghi một dòng kèm dấu thời gian. Không bao giờ ném lỗi. */
+/** Append one timestamped line. Never throws. */
 export function logShell(message: string): void {
   const path = shellLogPath()
   try {
     if ((statSync(path, { throwIfNoEntry: false })?.size ?? 0) > MAX_BYTES) writeFileSync(path, '')
     appendFileSync(path, `${new Date().toISOString()}  ${message}\n`)
   } catch {
-    // Không ghi được log thì cũng không được làm hỏng việc đang chạy.
+    // Failing to write the log must never break the work in progress.
   }
 }

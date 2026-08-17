@@ -1,10 +1,10 @@
 /**
- * Hai route chỉ-đọc cho tab Files: liệt kê thư mục và xem nội dung file.
+ * Two read-only routes for the Files tab: list a directory and preview a file.
  *
- * Dùng `ctx.fs` của upstream chứ không dùng `node:fs` thẳng. Lý do kỹ thuật:
- * nó đã lo realpath, kiểm tra chứa/không chứa, giải mã UTF-8, từ chối file nhị
- * phân, và mã lỗi có kiểu. Lý do quan trọng hơn: đó là **đúng cái nhìn mà agent
- * đang có**, nên thứ người dùng thấy trong panel khớp với thứ model thấy.
+ * Uses upstream's `ctx.fs` rather than `node:fs` directly. The technical reason: it
+ * already handles realpath, containment checks, UTF-8 decoding, refusing binary files,
+ * and typed error codes. The more important reason: it is **exactly the view the agent
+ * has**, so what the user sees in the panel matches what the model sees.
  * @module
  */
 
@@ -14,25 +14,25 @@ import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import { isTrustedRequest } from './trust.ts'
 import { resolveWorkspaceRoot } from './workspace-guard.ts'
 
-// Nạp phần khai báo bổ sung của hai gói này: chúng gắn `webServer` và
-// `workspaceRegistry` vào `Context` bằng declaration merging, mà merge chỉ có
-// hiệu lực khi module được kéo vào chương trình.
+// Pull in these two packages' extra declarations: they attach `webServer` and
+// `workspaceRegistry` to `Context` through declaration merging, and the merge only
+// applies when the module is part of the program.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-workspace'
 
-/** Trần nội dung xem trước. Quá ngưỡng thì cắt và nói rõ là đã cắt. */
+/** Preview content ceiling. Past it, the content is cut and the answer says so. */
 const MAX_PREVIEW_BYTES = 512 * 1024
 
-/** Trần số mục một thư mục trả về, để một thư mục khổng lồ không treo giao diện. */
+/** Ceiling on entries returned per directory, so an enormous one cannot hang the UI. */
 const MAX_ENTRIES = 2000
 
 /**
- * Thư mục không bao giờ hiện trong cây. Đây là những chỗ có hàng chục nghìn
- * file mà người dùng gần như không bao giờ muốn duyệt bằng tay.
+ * Directories that never appear in the tree. These are the places holding tens of
+ * thousands of files that a user almost never wants to browse by hand.
  */
 const HIDDEN_DIRS = new Set(['node_modules', '.git', '.hg', '.svn', '__pycache__', '.venv'])
 
-/** Một mục con trong cây thư mục, đã gọt cho giao diện. */
+/** One child entry in the directory tree, trimmed for the UI. */
 interface DirEntryView {
   name: string
   type: 'file' | 'directory' | 'other'
@@ -49,22 +49,22 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(text)
 }
 
-/** Mã lỗi có kiểu của `ctx.fs`, hoặc undefined nếu không phải lỗi của nó. */
+/** `ctx.fs`'s typed error code, or undefined when the error is not one of its own. */
 function fsCode(error: unknown): string | undefined {
   const code = (error as { code?: unknown }).code
   return typeof code === 'string' && code.startsWith('FS_') ? code : undefined
 }
 
 /**
- * Kiểm tra và phân giải một cặp (root, path) từ query string.
+ * Validate and resolve a (root, path) pair from the query string.
  *
- * Thứ tự các bước ở đây là có chủ ý và không được đảo:
- * 1. `root` phải là một workspace đã đăng ký — rào này do **server** quyết
- *    định, client không tự khai được thư mục gốc, nên không ai duyệt được cả ổ
- *    đĩa bằng cách sửa URL.
- * 2. `lstat` chạy TRƯỚC `resolve` — `resolve` đi theo symlink, nên hỏi sau thì
- *    đã muộn: một symlink trỏ ra ngoài workspace sẽ được hợp thức hoá.
- * 3. `contains` chốt lại lần cuối.
+ * The order of the steps here is deliberate and must not be swapped:
+ * 1. `root` has to be a registered workspace — this gate is the **server's**
+ *    decision; the client cannot declare its own root, so nobody browses the whole
+ *    drive by editing a URL.
+ * 2. `lstat` runs BEFORE `resolve` — `resolve` follows symlinks, so asking afterwards
+ *    is too late: a symlink pointing outside the workspace would be legitimized.
+ * 3. `contains` seals it at the end.
  */
 async function resolveInsideWorkspace(
   ctx: Context,
@@ -91,9 +91,9 @@ async function resolveInsideWorkspace(
 }
 
 /**
- * Đăng ký hai route chỉ-đọc của tab Files.
- * @param ctx - context của plugin; cần các service `webServer`, `fs`, `workspaceRegistry`.
- * @returns hàm gỡ cả hai route.
+ * Register the Files tab's two read-only routes.
+ * @param ctx - the plugin's context; needs the `webServer`, `fs` and `workspaceRegistry` services.
+ * @returns a function that removes both routes.
  */
 export function registerFsRoutes(ctx: Context): () => void {
   const guard = (req: IncomingMessage, res: ServerResponse): URL | undefined => {
@@ -145,8 +145,8 @@ export function registerFsRoutes(ctx: Context): () => void {
         const info = await ctx.fs.stat(resolved.target)
         if (info?.type !== 'file') { json(res, 400, { reason: 'not a file' }); return }
         const size = info.size ?? 0
-        // File lớn: chỉ lấy phần đầu. `readBytes` có chặn trên cứng nên đây là
-        // đường duy nhất không kéo cả trăm megabyte vào bộ nhớ.
+        // A large file: take only the beginning. `readBytes` has a hard ceiling, so this
+        // is the only path that does not pull hundreds of megabytes into memory.
         if (size > MAX_PREVIEW_BYTES) {
           const bytes = await ctx.fs.readBytes(resolved.target, undefined, MAX_PREVIEW_BYTES)
           json(res, 200, {
@@ -160,8 +160,8 @@ export function registerFsRoutes(ctx: Context): () => void {
         const text = await ctx.fs.readText(resolved.target)
         json(res, 200, { path: resolved.target.displayPath, size, truncated: false, text })
       } catch (error) {
-        // File nhị phân không phải sự cố — nó là một câu trả lời hợp lệ mà giao
-        // diện cần để hiện "không xem trước được kiểu file này".
+        // A binary file is not a failure — it is a valid answer the UI needs in order to
+        // show "this file type cannot be previewed".
         if (fsCode(error) === 'FS_NOT_TEXT') {
           json(res, 200, { path: resolved.target.displayPath, binary: true })
           return

@@ -1,11 +1,11 @@
 /**
- * Vòng đời tiến trình engine dsh: khởi động, chờ tín hiệu sẵn sàng, dừng sạch,
- * và dọn xác của lần chạy trước.
+ * The dsh engine process lifecycle: start it, wait for the ready signal, stop it
+ * cleanly, and reap the corpse of the previous run.
  *
- * App không nhúng engine vào tiến trình Electron mà spawn nó ra riêng, chạy
- * bằng node.exe đóng gói kèm app (xem `nodeExePath`). Nhờ vậy người dùng không
- * cần cài Node.js, mà engine vẫn chạy đúng như khi gõ `dsh web` trong terminal
- * — trên đúng runtime upstream nhắm tới.
+ * The app does not embed the engine inside the Electron process; it spawns it
+ * separately, running on the node.exe shipped with the app (see `nodeExePath`). That
+ * way the user needs no Node.js installation, while the engine still runs exactly as
+ * it would from `dsh web` in a terminal — on the runtime upstream actually targets.
  * @module
  */
 
@@ -23,18 +23,19 @@ import {
 } from './paths.js'
 
 /**
- * Dòng dsh in ra stdout sau khi cây plugin đã settle. Upstream coi đây là tín
- * hiệu sẵn sàng chính thức: thấy dòng này thì gọi RPC được ngay.
+ * The line dsh prints to stdout once the plugin tree has settled. Upstream treats
+ * this as the official ready signal: once it appears, RPC calls work.
  */
 const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)/m
 
 /**
- * Hạn chờ engine sẵn sàng. Lần chạy đầu tiên tốn thêm thời gian khởi tạo
- * profile và dựng cây symlink trong `%USERPROFILE%\.dsh`, nên hạn phải rộng.
+ * How long to wait for the engine to be ready. The very first run spends extra time
+ * initializing the profile and building the symlink tree in `%USERPROFILE%\.dsh`, so
+ * the budget has to be generous.
  */
 const READY_TIMEOUT_MS = 180_000
 
-/** Số ký tự log giữ lại trong bộ nhớ để hiển thị khi engine chết. */
+/** How many log characters to keep in memory, to show if the engine dies. */
 const TAIL_LIMIT = 4000
 
 /**
@@ -73,11 +74,11 @@ function ensurePluginState(): void {
   }
 }
 
-/** Engine đang chạy. */
+/** A running engine. */
 export interface Engine {
-  /** URL loopback của Web UI, ví dụ `http://127.0.0.1:53211`. */
+  /** The Web UI's loopback URL, e.g. `http://127.0.0.1:53211`. */
   readonly url: string
-  /** PID tiến trình engine. */
+  /** The engine process's PID. */
   readonly pid: number
 }
 
@@ -86,15 +87,15 @@ let logStream: WriteStream | undefined
 let tail = ''
 
 /**
- * App đang chủ động dừng engine (thoát app, hoặc người dùng bấm Thử lại).
+ * The app is deliberately stopping the engine (quitting, or the user pressed Retry).
  *
- * Không có cờ này thì cái chết do chính ta gây ra cũng đi qua nhánh "engine
- * dừng đột ngột" và bật trang lỗi lên — ngay giữa lúc app đang đóng, hoặc đè
- * lên màn hình chờ của lần khởi động lại.
+ * Without this flag, a death we caused ourselves would also travel the "the engine
+ * stopped unexpectedly" branch and raise the error page — right in the middle of the
+ * app closing, or on top of the splash screen of a restart.
  */
 let stopping = false
 
-/** Lỗi engine chết trước khi kịp sẵn sàng, kèm đoạn log cuối để hiển thị. */
+/** The engine died before it became ready, carrying the log tail to display. */
 export class EngineStartError extends Error {
   constructor(message: string, readonly tail: string) {
     super(message)
@@ -103,57 +104,58 @@ export class EngineStartError extends Error {
 }
 
 /**
- * Diệt cả cây tiến trình. `child.kill()` chỉ hạ tiến trình cha, để lại các
- * worker con của engine chạy tiếp và giữ cổng — trên Windows phải dùng
+ * Kill the whole process tree. `child.kill()` only takes down the parent, leaving the
+ * engine's own workers running and holding the port — on Windows that needs
  * `taskkill /T`.
  */
 function killTree(pid: number): void {
   try {
     execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {})
   } catch {
-    // Tiến trình đã chết rồi thì không còn gì để làm.
+    // If the process is already dead there is nothing left to do.
   }
 }
 
-/** Dấu vết engine của lần chạy trước, đủ để nhận lại đúng tiến trình đó. */
+/** The previous run's engine mark, enough to recognize that exact process again. */
 interface EngineMark {
   pid: number
-  /** Thời điểm app spawn engine, tính bằng mili giây epoch. */
+  /** When the app spawned the engine, in epoch milliseconds. */
   spawnedAt: number
 }
 
 /**
- * Sai số cho phép giữa thời điểm app spawn và thời điểm hệ điều hành ghi nhận
- * tiến trình ra đời. Hai mốc này cách nhau vài mili giây; năm giây là rộng rãi
- * mà vẫn đủ hẹp để loại một tiến trình khác được cấp lại cùng PID — tiến trình
- * đó chỉ có thể ra đời SAU khi engine cũ chết, tức là rất lâu sau mốc đã lưu.
+ * The tolerance between when the app spawned and when the operating system records
+ * the process as born. Those two moments sit milliseconds apart; five seconds is
+ * generous while still narrow enough to rule out another process handed the same PID
+ * — such a process can only be born AFTER the old engine died, which is far later
+ * than the stored moment.
  */
 const MARK_TOLERANCE_MS = 5_000
 
-/** Thời điểm hệ điều hành tạo tiến trình mang PID này, hoặc undefined nếu không tra được. */
+/** When the operating system created the process carrying this PID, or undefined if unknown. */
 function processCreationTime(pid: number): number | undefined {
   try {
-    // Hỏi bằng HAI câu, và kiểm null trước khi gọi phương thức.
+    // Asked as TWO statements, with a null check before calling the method.
     //
-    // Bản một câu `(Get-CimInstance ...).CreationDate.ToFileTimeUtc()` hỏng ở
-    // đúng trường hợp thường gặp nhất: tiến trình engine của lần trước đã chết
-    // rồi. Lúc đó `Get-CimInstance` không lỗi — nó trả về RỖNG — nên
-    // `-ErrorAction Stop` không cứu được gì, và PowerShell in ra sáu dòng đỏ
-    // *"You cannot call a method on a null-valued expression"* ngay giữa màn
-    // hình khởi động của người dùng. Hàm vẫn trả đúng `undefined`, tức là app
-    // vẫn xử lý đúng; chỉ có người dùng là bị doạ.
+    // The one-statement version `(Get-CimInstance ...).CreationDate.ToFileTimeUtc()`
+    // fails in exactly the most common case: the previous run's engine process is
+    // already dead. `Get-CimInstance` does not error there — it returns EMPTY — so
+    // `-ErrorAction Stop` rescues nothing, and PowerShell prints six red lines of
+    // *"You cannot call a method on a null-valued expression"* right across the user's
+    // startup screen. The function still returns the correct `undefined`, so the app
+    // still behaves correctly; only the user gets frightened.
     const query = '$p = Get-CimInstance Win32_Process -Filter "ProcessId=' + String(pid) + '"'
       + ' -ErrorAction SilentlyContinue; if ($p) { $p.CreationDate.ToFileTimeUtc() }'
     const output = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], {
       encoding: 'utf8',
       timeout: 10_000,
       windowsHide: true,
-      // Không cho stderr của PowerShell chảy thẳng ra terminal của người dùng.
+      // Do not let PowerShell's stderr flow straight into the user's terminal.
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim()
     const fileTime = Number(output)
     if (!Number.isFinite(fileTime) || fileTime <= 0) return undefined
-    // FILETIME đếm đơn vị 100 nano giây từ 1601-01-01; quy về epoch mili giây.
+    // FILETIME counts 100-nanosecond units from 1601-01-01; convert to epoch milliseconds.
     return fileTime / 10_000 - 11_644_473_600_000
   } catch {
     return undefined
@@ -161,13 +163,13 @@ function processCreationTime(pid: number): number | undefined {
 }
 
 /**
- * Dọn engine còn sót của lần chạy trước (app bị tắt cứng nên không kịp dừng
- * engine). Chỉ chạy khi lần thoát trước không sạch.
+ * Reap an engine left over from the previous run (the app was killed hard and never
+ * got to stop it). Only does anything when the previous exit was unclean.
  *
- * Windows cấp lại PID của tiến trình đã chết cho tiến trình mới, nên "PID còn
- * sống" KHÔNG đủ để kết luận — diệt nhầm một PID tái sử dụng là giết một tiến
- * trình vô can của người dùng. Cặp (PID, thời điểm tạo) mới là danh tính duy
- * nhất của một tiến trình trên Windows, và đó là thứ được đối chiếu ở đây.
+ * Windows hands a dead process's PID to a new process, so "the PID is alive" is NOT
+ * enough to conclude anything — killing a reused PID by mistake kills an innocent
+ * process of the user's. The pair (PID, creation time) is what uniquely identifies a
+ * process on Windows, and that is what gets compared here.
  */
 export function reapOrphanEngine(): void {
   const pidFile = enginePidPath()
@@ -181,23 +183,23 @@ export function reapOrphanEngine(): void {
       mark = candidate as EngineMark
     }
   } catch {
-    // File hỏng hoặc theo định dạng cũ — không đủ căn cứ để diệt gì cả.
+    // A corrupt file, or the old format — not enough grounds to kill anything.
   }
   rmSync(pidFile, { force: true })
   if (mark === undefined || mark.pid <= 0) return
 
   const createdAt = processCreationTime(mark.pid)
-  // Không tra được thì thà để sót một tiến trình còn hơn diệt nhầm.
+  // If it cannot be looked up, better to leave a process behind than kill the wrong one.
   if (createdAt === undefined) return
   if (Math.abs(createdAt - mark.spawnedAt) > MARK_TOLERANCE_MS) return
   killTree(mark.pid)
 }
 
 /**
- * Khởi động engine và chờ tới khi phục vụ được.
- * @param onExit - gọi khi engine chết ngoài ý muốn SAU khi đã sẵn sàng.
- * @returns engine đang chạy.
- * @throws {EngineStartError} khi engine chết sớm hoặc quá hạn chờ.
+ * Start the engine and wait until it can serve.
+ * @param onExit - called when the engine dies unexpectedly AFTER it became ready.
+ * @returns the running engine.
+ * @throws {EngineStartError} when the engine dies early or the wait runs out.
  */
 export async function startEngine(onExit: (tail: string) => void): Promise<Engine> {
   const bin = dshBinPath()
@@ -276,8 +278,9 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
         settle(() => { ready = true; resolve(found) })
       }
     })
-    // Engine in dòng URL rồi vẫn có thể chết ngay sau đó (một plugin anh em
-    // hỏng lúc mount), nên phải theo dõi exit chứ không tin mỗi dòng URL.
+    // The engine can print the URL line and still die right afterwards (a sibling
+    // plugin failing at mount), so exit has to be watched rather than trusting the
+    // URL line alone.
     child?.on('exit', (code) => {
       if (ready) {
         if (stopping) return
@@ -302,7 +305,7 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   return { url, pid }
 }
 
-/** Dừng engine và xoá dấu vết PID. Gọi được nhiều lần. */
+/** Stop the engine and remove the PID mark. Safe to call repeatedly. */
 export function stopEngine(): void {
   stopping = true
   const pid = child?.pid

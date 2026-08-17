@@ -1,8 +1,9 @@
 /**
- * Ghi nhớ vị trí và kích thước cửa sổ giữa các lần mở app.
+ * Remember the window's position and size between launches.
  *
- * Vị trí đã lưu chỉ được dùng lại khi còn nhìn thấy được: người dùng rút màn
- * hình phụ ra thì cửa sổ không được mở ở một toạ độ nằm ngoài mọi màn hình.
+ * A saved position is only reused while it is still visible: if the user unplugs a
+ * second monitor, the window must not open at coordinates that lie outside every
+ * display.
  * @module
  */
 
@@ -10,20 +11,20 @@ import { app, screen, type BrowserWindow, type Rectangle } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** Kích thước mặc định cho lần chạy đầu tiên. */
+/** Default size for the very first run. */
 const DEFAULT_SIZE = { width: 1280, height: 860 }
 
-/** Kích thước nhỏ nhất chấp nhận được, khớp với `minWidth`/`minHeight` của cửa sổ. */
+/** Smallest acceptable size, matching the window's own `minWidth`/`minHeight`. */
 const MIN_SIZE = { width: 900, height: 600 }
 
-/** Hoãn ghi đĩa trong lúc người dùng còn đang kéo thả cửa sổ. */
+/** Defer the disk write while the user is still dragging the window around. */
 const SAVE_DEBOUNCE_MS = 400
 
-/** Trạng thái cửa sổ được lưu lại. */
+/** The window state that gets saved. */
 interface WindowState {
-  /** Khung cửa sổ ở trạng thái bình thường (không phóng to). */
+  /** The window's bounds in its normal state (not maximized). */
   bounds: Rectangle
-  /** Cửa sổ có đang phóng to hay không. */
+  /** Whether the window is maximized. */
   maximized: boolean
 }
 
@@ -31,12 +32,12 @@ function statePath(): string {
   return join(app.getPath('userData'), 'window-state.json')
 }
 
-/** Khung có nằm trong vùng làm việc của ít nhất một màn hình đang gắn không. */
+/** Whether the bounds fall inside the work area of at least one attached display. */
 function isVisible(bounds: Rectangle): boolean {
   return screen.getAllDisplays().some(({ workArea }) => {
     const overlapX = Math.min(bounds.x + bounds.width, workArea.x + workArea.width) - Math.max(bounds.x, workArea.x)
     const overlapY = Math.min(bounds.y + bounds.height, workArea.y + workArea.height) - Math.max(bounds.y, workArea.y)
-    // Đòi một mảng đủ lớn chứ không chỉ chạm mép: thanh tiêu đề phải với tới được.
+    // Demand a large enough patch rather than a touching edge: the title bar has to be reachable.
     return overlapX > 120 && overlapY > 60
   })
 }
@@ -48,8 +49,9 @@ function isRectangle(value: unknown): value is Rectangle {
 }
 
 /**
- * Đọc trạng thái đã lưu, bỏ qua nếu file hỏng hoặc vị trí không còn nhìn thấy.
- * @returns tuỳ chọn khung để truyền vào `BrowserWindow`, kèm cờ phóng to.
+ * Read the saved state, ignoring it when the file is broken or the position is no
+ * longer visible.
+ * @returns bounds options to pass to `BrowserWindow`, plus the maximized flag.
  */
 export function restoreState(): { bounds: Partial<Rectangle>; maximized: boolean } {
   const fallback = { bounds: DEFAULT_SIZE, maximized: false }
@@ -64,8 +66,8 @@ export function restoreState(): { bounds: Partial<Rectangle>; maximized: boolean
       width: Math.max(state.bounds.width, MIN_SIZE.width),
       height: Math.max(state.bounds.height, MIN_SIZE.height),
     }
-    // Kích thước vẫn dùng lại được kể cả khi toạ độ đã lạc ra ngoài màn hình;
-    // chỉ vị trí là thứ phải bỏ, và bỏ vị trí thì Electron tự canh giữa.
+    // The size is still reusable even when the coordinates have wandered off screen;
+    // only the position has to be dropped, and dropping it lets Electron center.
     if (!isVisible(bounds)) {
       return { bounds: { width: bounds.width, height: bounds.height }, maximized: state.maximized === true }
     }
@@ -75,22 +77,22 @@ export function restoreState(): { bounds: Partial<Rectangle>; maximized: boolean
   }
 }
 
-/** Theo dõi cửa sổ và ghi lại trạng thái mỗi khi người dùng đổi vị trí, kích thước, hoặc đóng. */
+/** Watch the window and save its state whenever the user moves, resizes, or closes it. */
 export function trackState(window: BrowserWindow): void {
   let timer: NodeJS.Timeout | undefined
 
   const save = (): void => {
     if (window.isDestroyed()) return
     const state: WindowState = {
-      // getNormalBounds trả khung trước khi phóng to, nên khôi phục lại đúng
-      // kích thước người dùng từng chọn thay vì kích thước toàn màn hình.
+      // getNormalBounds returns the bounds from before maximizing, so a restore brings
+      // back the size the user actually chose rather than the full-screen size.
       bounds: window.getNormalBounds(),
       maximized: window.isMaximized(),
     }
     try {
       writeFileSync(statePath(), JSON.stringify(state))
     } catch {
-      // Không ghi được thì lần sau mở ở kích thước mặc định — không đáng làm phiền.
+      // If the write fails, the next launch uses the default size — not worth bothering anyone.
     }
   }
 
@@ -103,7 +105,7 @@ export function trackState(window: BrowserWindow): void {
   window.on('move', scheduleSave)
   window.on('maximize', scheduleSave)
   window.on('unmaximize', scheduleSave)
-  // Ghi ngay khi đóng: hẹn giờ sẽ không kịp chạy trước lúc app thoát.
+  // Write immediately on close: the debounce timer would not fire before the app exits.
   window.on('close', () => {
     if (timer !== undefined) clearTimeout(timer)
     save()

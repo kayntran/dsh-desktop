@@ -1,11 +1,11 @@
 /**
- * Nửa Node của panel phải: chạy trong tiến trình engine dsh, phục vụ dữ liệu
- * cho nửa giao diện qua HTTP loopback cùng gốc.
+ * The right-hand panel's Node half: it runs inside the dsh engine process and serves
+ * data to the client half over same-origin loopback HTTP.
  *
- * Nửa giao diện nằm ở `src/client/`, được engine phục vụ tại
- * `/plugins/harness-desktop-dock/client.js`. Hai nửa không dùng IPC của
- * Electron — cửa sổ app trỏ thẳng vào web UI của engine nên `fetch` là cùng
- * gốc, và đường đó cũng chính là đường mà mọi plugin khác của upstream đi.
+ * The client half lives in `src/client/` and is served by the engine at
+ * `/plugins/harness-desktop-dock/client.js`. The two halves do not use Electron's
+ * IPC — the app window points straight at the engine's web UI, so `fetch` is
+ * same-origin, and that is the very path every other upstream plugin takes.
  * @module
  */
 
@@ -21,27 +21,28 @@ import { registerBrowserTools } from './tools.ts'
 export const name = 'harness-desktop-dock'
 
 /**
- * Service cần có trước khi `apply` chạy. Cordis giữ fiber ở trạng thái chờ tới
- * khi đủ, nên không cần tự kiểm tra sự tồn tại của chúng.
+ * Services that must exist before `apply` runs. Cordis keeps the fiber pending until
+ * they all do, so there is no need to check for them.
  */
 export const inject = ['webServer', 'fs', 'workspaceRegistry', 'tools', 'attachments']
 
 /**
- * Thân plugin.
- * @param ctx - context của plugin.
+ * Plugin body.
+ * @param ctx - the plugin's context.
  */
 export function apply(ctx: Context): void {
-  ctx.effect(() => registerFsRoutes(ctx), 'hdw-dock: route Files')
-  ctx.effect(() => registerPtyRoutes(ctx), 'hdw-dock: route Terminal')
+  ctx.effect(() => registerFsRoutes(ctx), 'hdw-dock: Files routes')
+  ctx.effect(() => registerPtyRoutes(ctx), 'hdw-dock: Terminal routes')
   ctx.effect(() => registerImageRoutes(ctx), 'hdw-dock: screenshot image route')
-  // Cầu nối tới nửa giao diện, và bộ tool đứng trên nó.
+  // The bridge to the client half, and the tool set standing on it.
   //
-  // Hai thứ này buộc phải cùng một `effect`: tool giữ tham chiếu tới `bus`, nên
-  // gỡ cầu mà để tool sống là để lại một bộ tool gọi vào hư không — agent nhờ gì
-  // cũng hết giờ, không có lỗi nào báo. Cùng vòng đời thì cùng sống, cùng chết.
+  // These two have to share one `effect`: the tools hold a reference to `bus`, so
+  // disposing the bridge while leaving the tools alive leaves a tool set calling into
+  // nothing — every agent request times out, with no error reported. One lifetime
+  // means they live together and die together.
   ctx.effect(() => {
     const shot = registerShotRoutes(ctx)
-    // Ô rỗng, điền ngay dưới. Cầu phải có trước vì tool giữ tham chiếu tới nó.
+    // An empty slot, filled in just below. The bridge must exist first because the tools hold a reference to it.
     const probe: ToolProbe = {}
     const { bus, dispose } = registerBusRoutes(ctx, async (id) => shot.link.capture(id), probe)
     const { tools, dispose: offTools } = registerBrowserTools(ctx, bus, shot.link)
@@ -51,12 +52,13 @@ export function apply(ctx: Context): void {
       if (tool === undefined) {
         throw new Error(`there is no tool named "${name}" — available: ${tools.map((t) => t.name).join(', ')}`)
       }
-      // Không có agent nào đang chạy ở đường này, và tool nào cũng phải chịu
-      // được điều đó: `modelReadsImages` hỏi qua `exec.agent?` rồi hỏng theo
-      // hướng đóng. Đúng cái nhánh mà model DeepSeek chạy hằng ngày.
+      // No agent is running on this path, and every tool has to withstand that:
+      // `modelReadsImages` asks through `exec.agent?` and then fails closed. That is
+      // exactly the branch DeepSeek's models take every day.
       const exec = { signal: AbortSignal.timeout(90_000) } as unknown as ToolRunContext
-      // `execute` khai trả `unknown`, còn `render` đòi JSON — mà giá trị đi qua
-      // đây LÀ JSON: nó vừa được gửi qua cầu WebSocket. Ép kiểu ở đúng một chỗ.
+      // `execute` is declared to return `unknown` while `render` demands JSON — and the
+      // value passing through here IS JSON: it just travelled over the WebSocket
+      // bridge. The cast lives in exactly one place.
       const value = await tool.execute(args, exec) as never
       const blocks = tool.output.render(args as never, value) as Array<{ type?: string, text?: string }>
       return {

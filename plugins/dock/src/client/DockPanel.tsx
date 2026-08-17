@@ -1,17 +1,18 @@
 /**
- * Panel bên phải. Đăng ký vào `shell.overlay` — slot loại `list` đang trống mà
- * upstream chừa sẵn cho lớp nổi trên mọi cột.
+ * The right-hand panel. Registered into `shell.overlay` — an empty `list` slot upstream
+ * leaves open for the layer floating above every column.
  *
- * Nó nổi lên bằng `position: fixed` bám mép phải, còn khung app co lại nhường
- * chỗ nhờ biến `--hdw-dock-w` ghi trên `<html>` (xem `styles.css`). Nhìn ra là
- * bốn cột nằm cạnh nhau, không cái nào che cái nào.
+ * It floats with `position: fixed` hugging the right edge, while the app frame shrinks
+ * to make room through the `--hdw-dock-w` variable written on `<html>` (see
+ * `styles.css`). What it reads as is four columns side by side, none covering another.
  *
- * ## Panel đóng KHÔNG được tháo nội dung
+ * ## A closed panel must NOT unmount its content
  *
- * Bản trước trả `null` khi đóng. Hậu quả không thấy ngay nhưng nặng: tháo
- * component là đóng WebSocket, mà đóng WebSocket là giết shell — bấm đóng panel
- * một cái là mất `npm run dev` đang chạy dở, và mở lại thì thấy một terminal
- * trắng như chưa từng có gì. Giờ panel chỉ **ẩn**; mọi pane vẫn sống.
+ * An earlier version returned `null` when closed. The consequence was not immediately
+ * visible but severe: unmounting the component closes the WebSocket, and closing the
+ * WebSocket kills the shell — one click to close the panel lost a running `npm run dev`,
+ * and reopening showed a blank terminal as if nothing had ever happened. The panel now
+ * only **hides**; every pane stays alive.
  * @module
  */
 
@@ -28,19 +29,19 @@ import type { StageHolder } from './stage-holder.ts'
 import type { DockActions, DockState } from './store.ts'
 
 export interface DockPanelProps {
-  /** Kho panel, do plugin chuyền vào — cùng một kho với nút ở header phiên. */
+  /** The panel store, passed in by the plugin — the same store the session-header button uses. */
   useDock: SnapshotSelectorHook<DockState>
   actions: DockActions
-  /** Ô chứa sân khấu, để cầu nối ở tầng plugin với tới được trang web. */
+  /** The stage holder, so the plugin-level bridge can reach a web page. */
   stageHolder: StageHolder
   useSessions: SnapshotSelectorHook<SessionListState>
   useWorkspaces: SnapshotSelectorHook<WorkspaceListState>
 }
 
 /**
- * Thân panel.
- * @param props - trạng thái panel cộng bộ chọn dữ liệu toàn cục của framework.
- * @returns phần tử panel.
+ * The panel's body.
+ * @param props - the panel state plus the framework's global data selectors.
+ * @returns the panel element.
  */
 export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorkspaces }: DockPanelProps): React.JSX.Element {
   const open = useDock((s) => s.open)
@@ -48,15 +49,16 @@ export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorks
   const panes = useDock((s) => s.panes)
   const activeId = useDock((s) => s.activeId)
 
-  // Thư mục gốc: cwd của phiên đang mở. Chưa có phiên thì lấy workspace đầu
-  // danh sách — registry xếp workspace mới lên đầu, nên đó là cái vừa dùng —
-  // để mở app lên là đã có cái để nhìn thay vì một panel trống.
+  // The root directory: the open session's cwd. With no session, take the first
+  // workspace in the list — the registry puts the newest workspace first, so that is the
+  // most recently used one — so opening the app already shows something rather than an
+  // empty panel.
   const cwd = useSessions((s) => s.current === undefined ? undefined : s.byId[s.current]?.cwd)
   const firstWorkspace = useWorkspaces((s) => s.items[0]?.path)
   const root = cwd ?? firstWorkspace
 
-  // Sân khấu webview: dựng một lần cho cả panel, sống ngoài React. Xem
-  // `browser-stage.ts` để biết vì sao nó không thể là component.
+  // The webview stage: built once for the whole panel, living outside React. See
+  // `browser-stage.ts` for why it cannot be a component.
   const stageRef = useRef<Stage | undefined>(undefined)
   if (stageRef.current === undefined) {
     stageRef.current = createStage((id, status) => {
@@ -68,12 +70,12 @@ export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorks
   }
   const stage = stageRef.current
 
-  // Trao sân khấu cho tầng plugin, và THU LẠI khi component tháo.
+  // Hand the stage to the plugin level, and TAKE IT BACK when the component unmounts.
   //
-  // Bước thu lại quan trọng ngang bước trao: slot có thể dựng lại component bất
-  // cứ lúc nào, và sân khấu cũ bị `destroy()`. Không xoá khỏi ô thì từ giây đó
-  // cầu cầm một sân khấu đã chết — không lỗi nào báo, chỉ là mọi lệnh của agent
-  // bắt đầu im lặng thất bại.
+  // Taking it back matters as much as handing it over: a slot may rebuild the component
+  // at any time, and the old stage is `destroy()`ed. Without clearing the holder, from
+  // that second on the bridge holds a dead stage — no error reported, just every agent
+  // command starting to fail silently.
   useEffect(() => {
     stageHolder.current = stage
     return () => {
@@ -84,29 +86,30 @@ export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorks
 
   const active = useMemo(() => panes.find((p) => p.id === activeId), [panes, activeId])
 
-  // Người dùng vừa tự bấm chọn tab, hay panel đang tự dựng lại?
+  // Did the user just pick a tab themselves, or is the panel rebuilding itself?
   //
-  // Khác biệt này quyết định có trao bàn phím cho trang web hay không, và nó
-  // KHÔNG suy ra được từ trạng thái: cùng một `activeId` mới, một đằng là cú
-  // bấm, một đằng là app vừa mở lên và đọc lại phiên trước. Nên ý định được ghi
-  // ngay tại chỗ phát sinh rồi tiêu đi khi dùng.
+  // That difference decides whether the keyboard is handed to the web page, and it
+  // CANNOT be derived from state: the same new `activeId` means a click in one case and
+  // the app having just opened and read back the previous session in the other. So the
+  // intent is recorded right where it originates and consumed on use.
   const userPicked = useRef(false)
   const selectTab = useCallback((id: string) => {
     userPicked.current = true
     actions.setActive(id)
   }, [actions])
 
-  // Sân khấu chỉ hiện khi panel mở VÀ pane đang xem là một trang web. Mọi lúc
-  // khác nó ẩn hẳn — nếu không, trang web sẽ nổi đè lên tab Files.
+  // The stage only shows while the panel is open AND the pane being viewed is a web
+  // page. At every other moment it is fully hidden — otherwise the web page would float
+  // over the Files tab.
   useEffect(() => {
     stage.setActive(activeId, userPicked.current)
     userPicked.current = false
     if (!open || active?.kind !== 'browser') stage.setRect(undefined)
   }, [stage, open, activeId, active?.kind])
 
-  // Ghi bề rộng lên `<html>` để CSS của panel và padding của `#root` cùng đọc
-  // một con số. Dọn sạch khi panel gỡ đi — app phải trở lại đúng như chưa có
-  // plugin nào.
+  // Write the width onto `<html>` so the panel's CSS and `#root`'s padding read one
+  // number. Cleaned up when the panel unmounts — the app has to look exactly as it did
+  // with no plugin at all.
   useLayoutEffect(() => {
     const el = document.documentElement
     el.style.setProperty('--hdw-dock-w', open ? `${String(width)}px` : '0px')
