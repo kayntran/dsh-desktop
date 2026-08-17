@@ -1297,8 +1297,11 @@ async function main() {
     } catch (e) {
       refused = e.message
     }
+    // Dò theo câu tiếng Anh của `src/main/shot-link.ts` — mục này đã đỏ suốt từ
+    // lượt dịch giao diện, vì nó còn dò câu tiếng Việt cũ. Bám vào "carries that
+    // id" chứ không bám cả câu: phần đầu câu là chỗ dễ được viết lại nhất.
     record('19d. id lạ bị từ chối, không chụp bừa',
-      refused.includes('không có trang web nào'), refused)
+      refused.includes('carries that id'), refused)
 
     // --- 20. CẢ 12 TOOL, CHẠY QUA ĐÚNG TẦNG MÀ MODEL GỌI
     //

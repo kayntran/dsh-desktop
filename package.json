@@ -33,7 +33,8 @@
     "spike:live": "electron scripts/spike-live.cjs",
     "spike:loader": "node scripts/spike-loader.mjs",
     "spike:guard": "node scripts/spike-plugin-guard.mjs",
-    "spike:manager": "node scripts/spike-manager.mjs"
+    "spike:manager": "node scripts/spike-manager.mjs",
+    "spike:switch": "electron scripts/spike-switch-ui.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

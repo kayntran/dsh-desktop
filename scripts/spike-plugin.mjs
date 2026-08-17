@@ -111,6 +111,30 @@ function kill(child) {
   try { execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* đã chết */ }
 }
 
+/**
+ * Nửa Node của plugin có thật sự chạy `apply()` không.
+ *
+ * Đo bằng DẤU VẾT nó để lại: route `/hdw/bus/probe` chỉ tồn tại nếu `apply()` đã
+ * chạy tới lệnh đăng ký route. Chưa chạy thì engine trả 404.
+ *
+ * Bản trước dò một dòng log trên stdout của engine. Dòng đó không còn tồn tại ở
+ * đâu trong repo — nửa Node của dock không `console.log` gì cả — nên mục kiểm này
+ * đã đỏ suốt mà chẳng chứng minh được điều gì. Bài học lặp lại lần thứ ba trong
+ * dự án: dò dấu vết, đừng dò lời văn.
+ * @param {string} baseUrl - gốc của engine.
+ * @returns {Promise<boolean>} true khi route của plugin có mặt.
+ */
+async function hostHalfRan(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}/hdw/bus/probe`)
+    if (!res.ok) return false
+    const body = await res.json()
+    return typeof body.connected === 'boolean'
+  } catch {
+    return false
+  }
+}
+
 /** Chạy trọn một lượt thử với junction đặt ở `candidate`. */
 async function attempt(candidate) {
   console.log(`\n--- thử junction ở ${candidate.label} ---`)
@@ -125,7 +149,7 @@ async function attempt(candidate) {
     const bundleOk = bundle.ok && body.includes('__ModuleLoader__') && !body.includes('<!doctype')
     return {
       baseUrl, served, bundleOk,
-      hostRan: engine.out().includes('hdw-dock: nửa Node đã chạy'),
+      hostRan: await hostHalfRan(baseUrl),
       bundleDetail: `HTTP ${bundle.status}, ${body.length} bytes`,
       undo,
     }
@@ -171,7 +195,7 @@ if (winner === undefined) {
   record('1. engine nạp plugin ngoài cây', false, 'không vị trí junction nào cho ra nửa giao diện')
 } else {
   record('1. engine nạp plugin ngoài cây', true, `junction ở ${winner.candidate.label}`)
-  record('2. nửa Node chạy apply()', winner.outcome.hostRan, 'dòng log riêng xuất hiện trên stdout engine')
+  record('2. nửa Node chạy apply()', winner.outcome.hostRan, 'route /hdw/bus/probe của plugin có mặt')
   record('3. tên gói nằm trong __DSH_BOOT__', winner.outcome.served, 'nửa giao diện được công bố cho trang')
   record('4. /plugins/<gói>/client.js phục vụ được', winner.outcome.bundleOk, winner.outcome.bundleDetail)
 }

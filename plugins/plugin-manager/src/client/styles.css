@@ -117,6 +117,33 @@
   white-space: nowrap;
 }
 
+/*
+ * Wrapper the tooltip anchors to on a locked row.
+ *
+ * The button itself cannot be the anchor. A `disabled` button suppresses mouse
+ * events outright — and they do not bubble to the parent either — and it cannot
+ * take focus, so a tooltip attached to it has no way to open. The tab's intro
+ * sentence tells the user to hover the button for the reason, so that was a
+ * promise the user could see broken. Caught by `npm run spike:switch`, check 3.
+ *
+ * Two halves, both required: `pointer-events: none` lets the hit test fall
+ * through the button onto this span, and `tabindex` gives keyboard users the same
+ * route, because the tooltip also opens on focus.
+ */
+.hdw-pm-lock {
+  display: inline-flex;
+  border-radius: 8px;
+}
+
+.hdw-pm-lock > button:disabled {
+  pointer-events: none;
+}
+
+.hdw-pm-lock:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l2);
+  outline-offset: 2px;
+}
+
 .hdw-pm-row-id {
   overflow: hidden;
   font-family: var(--dsw-font-mono, ui-monospace, monospace);

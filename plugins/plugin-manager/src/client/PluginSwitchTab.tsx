@@ -219,7 +219,19 @@ export function PluginSwitchTab(_props: PluginSwitchTabProps): React.JSX.Element
         {entry.locked && entry.lockReason !== undefined
           // `top` rather than `left`: the primitive only offers right/bottom/top,
           // and this button sits against the right edge, so the bubble opens upward.
-          ? <Tooltip label={LOCK_TEXT[entry.lockReason]} side="top" maxWidth={280}>{button}</Tooltip>
+          //
+          // The tooltip anchors to a WRAPPER, not to the button. A `disabled`
+          // button fires no mouse events and cannot take focus, so a tooltip on it
+          // never opens — and the intro sentence above tells the user to hover the
+          // button for the reason. Measured by `npm run spike:switch`, check 3; the
+          // other half of the fix is `.hdw-pm-lock` in `styles.css`.
+          ? (
+            <Tooltip label={LOCK_TEXT[entry.lockReason]} side="top" maxWidth={280}>
+              <span className="hdw-pm-lock" tabIndex={0} aria-label={LOCK_TEXT[entry.lockReason]}>
+                {button}
+              </span>
+            </Tooltip>
+            )
           : button}
       </li>
     )
