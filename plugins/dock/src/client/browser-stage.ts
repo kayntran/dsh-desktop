@@ -48,6 +48,13 @@ export interface WebviewTag extends HTMLElement {
   goForward: () => void
   executeJavaScript: (code: string) => Promise<unknown>
   /**
+   * Id tiến trình của trang khách.
+   *
+   * Con số này là cầu nối duy nhất giữa nửa giao diện và lớp vỏ Electron: lệnh
+   * chụp ảnh chạy ở lớp vỏ, và lớp vỏ nhận diện trang cần chụp bằng id này.
+   */
+  getWebContentsId: () => number
+  /**
    * Gửi chuột/phím thật vào trang khách.
    *
    * Đo được (mục 15e): đường này tới nơi. Và mục 15a đo thêm một điều quan
@@ -189,6 +196,8 @@ export interface Stage {
   revealForInput: (id: string) => Promise<() => void>
   /** Vài trăm dòng console gần nhất của trang. */
   consoleLog: (id: string) => readonly ConsoleLine[]
+  /** Id tiến trình trang khách, để lớp vỏ biết chụp cái nào. */
+  webContentsId: (id: string) => number | undefined
   /** Đổi kích thước khung nhìn mà trang tin là mình đang có. */
   setViewport: (id: string, size: ViewportSize | undefined) => void
 }
@@ -587,6 +596,18 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
     },
 
     consoleLog: (id) => tabs.get(id)?.consoleLines ?? [],
+
+    webContentsId: (id) => {
+      const tab = tabs.get(id)
+      if (tab === undefined) return undefined
+      try {
+        return tab.el.getWebContentsId()
+      } catch {
+        // Thẻ chưa gắn xong thì chưa có id. Đây là trạng thái bình thường ngay
+        // sau khi mở tab, không phải sự cố.
+        return undefined
+      }
+    },
 
     setViewport: (id, size) => {
       const tab = tabs.get(id)

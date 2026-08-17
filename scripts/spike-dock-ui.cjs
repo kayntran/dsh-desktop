@@ -1214,6 +1214,95 @@ async function main() {
       `bấm → ${String(clickWhenOff.status)}; đọc → ${String(readWhenOff.status)}`)
   }
 
+  // --- 19. ĐƯỜNG CHỤP ẢNH, BẮC QUA BA TIẾN TRÌNH
+  //
+  // Đây là lệnh duy nhất trong cả bộ không đi hết được bằng đường plugin: gọi
+  // `capturePage()` từ trong trang làm treo cứng cả cửa sổ trên trang https
+  // thật (đo ở 15b), nên nó phải chạy ở lớp vỏ.
+  //
+  // Chuỗi đầy đủ: nửa Node → cầu → giao diện (đưa tab lên trước, lấy id trang)
+  // → nửa Node → route `/hdw/shell` → LỚP VỎ (chụp) → ngược về. Ba tiến trình,
+  // hai đường WebSocket ngược chiều nhau.
+  //
+  // Spike tự đóng vai lớp vỏ ở đây: nó dựng cửa sổ riêng nên chính nó là bên
+  // giữ các trang khách. Dùng ĐÚNG module `shot-link.js` của app trong `dist/`,
+  // không chép lại — bài học của mục 17a.
+  {
+    const shotLink = await import(pathToFileURL(join(root, 'dist', 'main', 'shot-link.js')).href)
+    for (const guest of guests) {
+      if (!guest.isDestroyed()) shotLink.trackGuest(guest)
+    }
+    shotLink.startShotLink(baseUrl)
+
+    // Bật lại công tắc quyền — mục 18f vừa tắt nó, và bật lại ở đây cũng là một
+    // phép kiểm phụ: công tắc phải đổi được cả hai chiều.
+    await win.webContents.executeJavaScript(`(() => {
+      const kho = JSON.parse(localStorage.getItem('hdw.dock') || '{}')
+      kho.agentControl = true
+      localStorage.setItem('hdw.dock', JSON.stringify(kho))
+      return 1
+    })()`)
+    await win.webContents.reload()
+    await doiDenKhi(win, `!!document.querySelector('.hdw-dock')`, 30_000)
+    for (let i = 0; i < 20; i += 1) {
+      if ((await hoiThu(baseUrl)).body.connected === true) break
+      await cho(500)
+    }
+
+    // --- 19a. MỤC QUYẾT ĐỊNH của chụp ảnh: trọn chuỗi ba tiến trình
+    //
+    // Đi đúng đường mà tool thật đi, không tắt đoạn nào: nửa Node hỏi cầu để
+    // giao diện đưa tab lên trước và trao id, rồi nửa Node nhờ LỚP VỎ chụp qua
+    // route `/hdw/shell`, rồi ảnh đi ngược về. Gọi thẳng hàm chụp ở tiến trình
+    // spike thì bỏ qua đúng cái đoạn dễ hỏng nhất.
+    let fullPath = { reason: 'chưa chạy' }
+    for (let i = 0; i < 20; i += 1) {
+      fullPath = (await hoiThu(baseUrl, '?shot=1')).body
+      if (fullPath.ok === true) break
+      await cho(500)
+    }
+    record('19a. trọn chuỗi chụp ảnh chạy được qua ba tiến trình',
+      fullPath.ok === true && fullPath.bytes > 2000,
+      fullPath.ok === true
+        ? `${String(fullPath.width)}x${String(fullPath.height)}, ${String(Math.round(fullPath.bytes / 1024))} KB`
+        : String(fullPath.reason))
+
+    const prepared = await hoiThu(baseUrl, `?cmd=${encodeURIComponent('shot_prepare')}&params=%7B%7D`)
+    const wcId = prepared.body.result?.wc_id
+    record('19b. giao diện trao được id trang khách cho lớp vỏ',
+      prepared.body.ok === true && typeof wcId === 'number',
+      JSON.stringify(prepared.body.result ?? prepared.body))
+
+    if (typeof wcId === 'number') {
+      let shot
+      try {
+        shot = await shotLink.captureForSpike(wcId)
+      } catch (e) {
+        shot = { error: e.message }
+      }
+      await hoiThu(baseUrl, `?cmd=${encodeURIComponent('shot_done')}&params=%7B%7D`)
+      const bytes = typeof shot.data === 'string' ? Buffer.from(shot.data, 'base64').length : 0
+      record('19c. lớp vỏ chụp được ảnh thật của trang web',
+        bytes > 2000 && shot.width > 100 && shot.height > 100,
+        shot.error ?? `${String(shot.width)}x${String(shot.height)}, ${String(Math.round(bytes / 1024))} KB`)
+    } else {
+      record('19c. lớp vỏ chụp được ảnh thật của trang web', false, 'không có id trang khách')
+    }
+
+    // Danh sách cho phép: một id lạ phải bị TỪ CHỐI, không phải chụp đại thứ gì.
+    let refused = ''
+    try {
+      await shotLink.captureForSpike(999_999)
+      refused = 'KHÔNG từ chối — danh sách cho phép thủng'
+    } catch (e) {
+      refused = e.message
+    }
+    record('19d. id lạ bị từ chối, không chụp bừa',
+      refused.includes('không có trang web nào'), refused)
+
+    shotLink.stopShotLink()
+  }
+
   // Ảnh chụp để nhìn bằng mắt, kể cả khi mọi mục đều đạt.
   if (process.env['HDW_ANH'] !== undefined) {
     const anh = await win.webContents.capturePage()

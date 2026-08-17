@@ -231,11 +231,54 @@ async function aim(stage: Stage, id: string, params: Record<string, unknown>): P
  * @returns bảng lệnh cho cầu.
  */
 function buildCommands(actions: DockActions, holder: StageHolder): CommandTable {
+  /**
+   * Hàm trả màn hình về chỗ cũ sau khi chụp.
+   *
+   * Chụp ảnh là lệnh DUY NHẤT phải bắc qua hai lượt gọi — đưa tab lên trước ở
+   * lượt một, lớp vỏ chụp ở giữa, trả về chỗ cũ ở lượt hai. Nên trạng thái này
+   * buộc phải sống ngoài một lời gọi. Gọi `shot_prepare` hai lần liên tiếp thì
+   * lượt trước được dọn trước, để không bao giờ kẹt lại một tab bị ghim.
+   */
+  let restoreAfterShot: (() => void) | undefined
+
   return {
     ping: () => ({ at: Date.now() }),
 
     /** Mọi tab đang mở. Nền cho `browser_tabs`. */
     tabs_list: () => ({ tabs: holder.require().list() }),
+
+    /**
+     * Chuẩn bị chụp ảnh: đưa tab lên trước, đợi nó được vẽ, rồi trả về id để
+     * lớp vỏ chụp.
+     *
+     * Lệnh này KHÔNG chụp. Chụp phải chạy ở lớp vỏ — gọi từ trong trang làm
+     * treo cứng cả cửa sổ trên trang https thật. Việc của nó là dựng đúng điều
+     * kiện rồi trao chìa khoá.
+     *
+     * KHÔNG trả hàm khôi phục về: tab phải còn nằm trên trong lúc lớp vỏ chụp,
+     * và bước trả màn hình về chỗ cũ do lệnh `shot_done` lo sau đó.
+     */
+    shot_prepare: async (params) => {
+      const id = pickPublicTab(holder, params)
+      const stage = holder.require()
+      restoreAfterShot?.()
+      restoreAfterShot = await stage.revealForInput(id)
+      if (!await stage.isDrawable(id)) {
+        restoreAfterShot()
+        restoreAfterShot = undefined
+        throw new Error('trang này đang không được vẽ nên không có khung hình nào để chụp')
+      }
+      const wcId = stage.webContentsId(id)
+      if (wcId === undefined) throw new Error('tab chưa gắn xong, chưa chụp được')
+      return { tab_id: id, wc_id: wcId }
+    },
+
+    /** Trả màn hình về đúng chỗ trước khi chụp. */
+    shot_done: () => {
+      restoreAfterShot?.()
+      restoreAfterShot = undefined
+      return { ok: true }
+    },
 
     /**
      * Chạy mã trong trang khách.

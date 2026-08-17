@@ -12,6 +12,7 @@
 import { app, BrowserWindow, Menu, nativeTheme, session, shell } from 'electron'
 import { logShell } from './log.js'
 import { resourcePath } from './paths.js'
+import { trackGuest } from './shot-link.js'
 import { restoreState, trackState } from './window-state.js'
 
 /** Tiền tố điều hướng mà các nút trên trang nội bộ dùng để gọi về tiến trình chính. */
@@ -132,6 +133,10 @@ export function guardWebviews(win: BrowserWindow): void {
   // Chốt 2 — trang nhúng không đẻ được cửa sổ mới. `target=_blank` và
   // `window.open` đều về đây; link ngoài mở bằng trình duyệt mặc định.
   win.webContents.on('did-attach-webview', (_event, guest) => {
+    // Ghi vào danh sách cho phép của đường chụp ảnh. Chỉ những trang lớp vỏ tự
+    // tay gắn vào mới chụp được — không ai chụp được giao diện engine hay cửa
+    // sổ nào khác của app.
+    trackGuest(guest)
     guest.setWindowOpenHandler(({ url }) => {
       if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url)
       return { action: 'deny' }

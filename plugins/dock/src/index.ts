@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { registerBusRoutes } from './bus-routes.ts'
 import { registerFsRoutes } from './fs-routes.ts'
 import { registerPtyRoutes } from './pty-routes.ts'
+import { registerShotRoutes } from './shot-routes.ts'
 import { registerBrowserTools } from './tools.ts'
 
 export const name = 'harness-desktop-dock'
@@ -21,7 +22,7 @@ export const name = 'harness-desktop-dock'
  * Service cần có trước khi `apply` chạy. Cordis giữ fiber ở trạng thái chờ tới
  * khi đủ, nên không cần tự kiểm tra sự tồn tại của chúng.
  */
-export const inject = ['webServer', 'fs', 'workspaceRegistry', 'tools']
+export const inject = ['webServer', 'fs', 'workspaceRegistry', 'tools', 'attachments']
 
 /**
  * Thân plugin.
@@ -36,8 +37,9 @@ export function apply(ctx: Context): void {
   // gỡ cầu mà để tool sống là để lại một bộ tool gọi vào hư không — agent nhờ gì
   // cũng hết giờ, không có lỗi nào báo. Cùng vòng đời thì cùng sống, cùng chết.
   ctx.effect(() => {
-    const { bus, dispose } = registerBusRoutes(ctx)
-    const offTools = registerBrowserTools(ctx, bus)
-    return () => { offTools(); dispose() }
+    const shot = registerShotRoutes(ctx)
+    const { bus, dispose } = registerBusRoutes(ctx, async (id) => shot.link.capture(id))
+    const offTools = registerBrowserTools(ctx, bus, shot.link)
+    return () => { offTools(); shot.dispose(); dispose() }
   }, 'hdw-dock: cầu nối và bộ lệnh trình duyệt')
 }

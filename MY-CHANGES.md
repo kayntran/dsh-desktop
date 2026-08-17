@@ -644,3 +644,78 @@ nên mục kiểm báo đỏ trong khi app thì đúng. Giờ bài kiểm nạp 
 **Một chốt an toàn được kiểm bằng bản sao của chính nó thì không kiểm được gì.**
 
 Bộ kiểm nay **36/36 đạt**.
+
+## 2026-08-15 — Mười hai tool: agent điều khiển được trình duyệt trong app
+
+Bám bộ tool trình duyệt của app Claude: đọc trang có mã tham chiếu, tìm phần tử, lấy chữ, quản lý
+tab, điều hướng, console, mạng, thao tác chuột/bàn phím, điền form, chạy mã, đổi khung nhìn, chụp
+ảnh. Ba chỗ hụt so với bên đó đã ghi thẳng trong mô tả tool: cây trợ năng dựng từ DOM chứ không
+phải cây thật của Chromium, mạng không có header, và không giả lập được cảm ứng — cả ba đều cần
+giao thức gỡ rối của Chromium, thứ chỉ mở được bằng cách bật một cổng điều khiển toàn app trên máy.
+
+### Không dùng `defineTool` của upstream
+
+`defineTool` là một **import lúc chạy**, mà plugin nằm ngoài cây module của engine — engine chết
+ngay lúc khởi động với `ERR_MODULE_NOT_FOUND`. Ba đường ra:
+
+1. Nhồi gói đó vào bundle → kéo theo `cordis`, `dsh-llm`, `dsh-session`. Đúng bệnh "hai bản React",
+   chỉ là ở nửa Node.
+2. Khai làm phụ thuộc rồi `npm install` → một bản sao thứ hai, lệch phiên bản engine sau mỗi lần
+   nâng cấp mà không có gì báo.
+3. **Tự dựng object** — đã chọn. Hoá ra một tool chỉ là `{ name, description, parameters }` với
+   `parameters` là JSON Schema, cộng `output` và `execute`. Nửa Node của plugin vì thế giữ đúng hai
+   phụ thuộc lúc chạy như cũ: `node-pty` và `ws`.
+
+Cái giá có thật và đã ghi trong mã: upstream nói rõ tool đăng ký bằng JSON Schema thô thì **tự lo
+phần kiểm tham số**.
+
+### Ba chi tiết quyết định một cú bấm đúng hay một cú bấm trượt
+
+Chép từ dự án tham chiếu, và cả ba đều là lỗi họ đã trả giá:
+
+- **Hỏi lại trang xem điểm sắp bấm có bị che không** rồi mới bấm. Một vòng `elementFromPoint` bắt
+  được banner cookie, thanh dính, lớp phủ vô hình, nền mờ hộp thoại. Bị che thì **báo lỗi kèm tên
+  thứ đang che**, thay vì bấm nhầm rồi báo thành công.
+- **Đưa con trỏ tới nơi trước khi nhấn** — nhiều trang chỉ hiện nút sau khi chuột đi qua.
+- **Nhấn thật phím bổ trợ**, không chỉ gắn cờ — trang nghe sự kiện trên chính phím Ctrl sẽ không
+  thấy gì nếu chỉ có cờ.
+
+Cộng phép kiểm "trang có đang được vẽ không" ở đầu mọi lệnh thao tác, và bước đưa tab lên trước rồi
+trả màn hình về chỗ cũ.
+
+Mã tham chiếu cấp lại từ đầu mỗi lần đọc và chết khi trang điều hướng; đo bằng **từng mảnh** của
+phần tử chứ không bằng khung bao (liên kết xuống dòng có tâm khung bao rơi vào khe giữa hai dòng);
+đưa vào tầm nhìn bằng cuộn **tức thì** chứ không cuộn mượt (cuộn mượt thì đo ngay sau đó ra vị trí
+cũ). Điền form gán qua setter gốc của prototype, nếu không React ghi đè ngược ở lượt vẽ kế tiếp.
+
+### Chụp ảnh: lệnh duy nhất phải nhờ lớp vỏ
+
+Đo được: gọi `capturePage()` từ trong trang làm **treo cứng vòng lặp sự kiện của cả cửa sổ** trên
+trang https thật — `setTimeout` bọc ngoài cũng không nổ. Đường tiến trình chính thì 23KB trong 5ms.
+
+Nên lớp vỏ **tự gọi vào** engine qua route `/hdw/shell`, đúng cách nó vẫn nối để hiện thông báo
+Windows. **Không mở thêm cổng nghe nào trên máy người dùng** — lớp vỏ là bên gọi đi. Và nó chỉ chụp
+được đúng những trang trong panel: danh sách cho phép dựng từ `did-attach-webview`, id lạ bị từ chối.
+
+Một tấm ảnh đi ba đường khác nhau, và đó là điểm mấu chốt: tới **model** chỉ khi model đọc được ảnh;
+tới **nhật ký phiên** chỉ vài trường mô tả, không phải byte ảnh; tới **thẻ kết quả cho người dùng**
+thì luôn luôn. Nhờ tách ba đường mà chủ dự án vẫn nhìn thấy agent vừa thấy gì ngay cả khi model
+đang chạy không đọc được ảnh — đúng lúc việc nhìn thấy có giá trị nhất.
+
+### Một chốt quyền, không phải hai
+
+Công tắc quyền chặn trong chính `bus.call`, không phải ở tầng tool. Lý do: tầng tool không phải
+đường duy nhất tới cầu — route chẩn đoán cũng gọi thẳng vào. Hai đường mà hai luật thì đường ít ai
+nhìn sẽ bị quên.
+
+Bộ kiểm bắt được ngay một lỗi thật của luật này: hai lệnh phục vụ chụp ảnh không nằm trong danh
+sách "chỉ đọc", nên tắt công tắc là mất luôn ảnh chụp — trong khi mô tả tool nói ảnh luôn chụp
+được. Sai lệch đó chỉ lộ ra khi có người thật đi tắt công tắc.
+
+### Nghiệm thu
+
+Mục quyết định đi trọn một vòng như người dùng thật trên trang https ngoài đời: đọc trang → tìm ô
+tìm kiếm theo mã → gõ chữ → Enter → chờ tải → trang nhảy sang kết quả mang **đúng chuỗi đã gõ**.
+Mục chụp ảnh đi trọn chuỗi ba tiến trình, không tắt đoạn nào.
+
+Bộ kiểm nay **46/46 đạt**.

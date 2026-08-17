@@ -45,9 +45,10 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { Bus } from './bus-routes.ts'
 import { assertPublicUrl } from './net-policy.ts'
+import type { ShotLink } from './shot-routes.ts'
 
 /** Ngân sách cho lệnh đọc: một vòng hỏi–đáp qua cầu, cộng thời gian quét trang. */
 const READ_TIMEOUT_MS = 25_000
@@ -85,6 +86,60 @@ function requireString(args: unknown, key: string, hint: string): string {
   return value
 }
 
+/**
+ * Model đang chạy có đọc được ảnh không.
+ *
+ * Chép cách `dsh-tool-fs` kiểm: hỏi đúng tuyến model mà lượt này đang dùng, chứ
+ * không đoán theo tên. Model DeepSeek hiện KHÔNG nhận ảnh, và nếu cứ đính ảnh
+ * vào thì bộ chuyển đổi ném ngay — lỗi hiện ra ở tận đâu, không ai lần được về
+ * lệnh chụp ảnh.
+ *
+ * Hỏng theo hướng ĐÓNG: không phân giải được tuyến thì coi như không đọc được
+ * ảnh. Ảnh vẫn hiện cho người dùng; chỉ model là không nhận.
+ * @param ctx - context của plugin.
+ * @param exec - ngữ cảnh lượt gọi, mang theo agent đang chạy.
+ * @returns true khi tuyến model khai là nhận ảnh.
+ */
+async function modelReadsImages(ctx: Context, exec: ToolRunContext): Promise<boolean> {
+  try {
+    const routed = exec.agent?.session.requestHeader()?.config
+    const provider = routed?.provider ?? exec.agent?.options.provider
+    const model = routed?.model ?? exec.agent?.options.model
+    const llm = ctx.get('llm')
+    if (provider === undefined || model === undefined || llm === undefined) return false
+    const info = await llm.resolveModelInfo(provider, model, exec.signal)
+    return info.inputModalities?.includes('image') === true
+  } catch {
+    return false
+  }
+}
+
+/** Giá trị mà lệnh chụp ảnh trả về. */
+interface ScreenshotValue {
+  attachment_id?: string
+  media_type?: string
+  width?: number
+  height?: number
+  bytes?: number
+  seen_by_model?: boolean
+}
+
+/**
+ * Dựng lại tham chiếu đính kèm từ giá trị đã lưu.
+ *
+ * Cần nó vì hai hàm dựng thẻ phải THUẦN và phải chạy được cả lúc xem lại nhật
+ * ký cũ — lúc đó không còn gì ngoài mấy trường JSON này.
+ */
+function attachmentRef(shot: ScreenshotValue): Record<string, unknown> {
+  return {
+    attachmentId: shot.attachment_id,
+    mediaType: shot.media_type,
+    bytes: shot.bytes,
+    width: shot.width,
+    height: shot.height,
+  }
+}
+
 /** Đọc một trường chuỗi không bắt buộc. */
 function optionalString(args: unknown, key: string): string | undefined {
   const value = (args as Record<string, unknown> | null)?.[key]
@@ -104,10 +159,16 @@ function browserTool(spec: {
   description: string
   properties: Record<string, SchemaProperty>
   required?: readonly string[]
-  execute: (args: unknown) => Promise<unknown>
+  execute: (args: unknown, exec: ToolRunContext) => Promise<unknown>
   title: (args: Record<string, unknown>) => string
   kind?: 'read' | 'edit' | 'search'
   render?: (value: unknown) => string
+  /** Khối nội dung gửi kèm cho MODEL, ngoài phần chữ. */
+  modelBlocks?: (value: unknown) => unknown[]
+  /** JSON bền vững đi kèm kết quả, để thẻ giao diện dựng lại được lúc xem lại. */
+  presentationMeta?: (value: unknown) => unknown
+  /** Khối nội dung chỉ dành cho NGƯỜI DÙNG xem trong thẻ kết quả. */
+  userBlocks?: (meta: unknown) => unknown[] | undefined
 }): ToolDefinition {
   return {
     name: spec.name,
@@ -124,12 +185,21 @@ function browserTool(spec: {
       // một hình dạng khác nhau, và ép chúng vào một khuôn chung chỉ tạo ra một
       // khuôn nói dối.
       schema: { description: 'Kết quả của lệnh trình duyệt.' },
-      render: (_args, value) => [{
-        type: 'text',
-        text: spec.render === undefined ? summarize(value) : spec.render(value),
-      }],
+      render: (_args, value) => [
+        { type: 'text', text: spec.render === undefined ? summarize(value) : spec.render(value) },
+        ...(spec.modelBlocks?.(value) ?? []),
+      ],
+      ...(spec.presentationMeta === undefined
+        ? {}
+        : { presentationMeta: (_args: unknown, value: unknown) => spec.presentationMeta?.(value) }),
     },
-    execute: async (args) => spec.execute(args),
+    ...(spec.userBlocks === undefined ? {} : {
+      presentResult: (_args: unknown, result: { meta?: unknown }) => {
+        const blocks = spec.userBlocks?.(result.meta)
+        return blocks === undefined ? undefined : { card: 'generic', content: blocks }
+      },
+    }),
+    execute: async (args, exec) => spec.execute(args, exec),
     presentCall: (args) => ({
       card: 'generic',
       title: spec.title((args ?? {}) as Record<string, unknown>),
@@ -144,7 +214,7 @@ function browserTool(spec: {
  * @param bus - cầu nối tới nửa giao diện.
  * @returns hàm gỡ mọi đăng ký.
  */
-export function registerBrowserTools(ctx: Context, bus: Bus): () => void {
+export function registerBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): () => void {
   // Hai hàm dưới đây chỉ khác nhau ở NGÂN SÁCH THỜI GIAN. Việc chặn theo công
   // tắc quyền nằm trong chính `bus.call` — một chốt duy nhất cho mọi đường tới
   // cầu, kể cả route chẩn đoán.
@@ -284,6 +354,88 @@ export function registerBrowserTools(ctx: Context, bus: Bus): () => void {
         return `${out.text ?? ''}${out.truncated === true ? `\n\n… (cắt từ ${String(out.total ?? 0)} ký tự)` : ''}`
       },
       execute: async (args) => read('get_page_text', args),
+    }),
+
+    browserTool({
+      name: 'browser_screenshot',
+      description:
+        'Chụp ảnh trang web đang mở trong panel. '
+        + 'Ảnh LUÔN hiện ra cho người dùng xem trong thẻ kết quả. '
+        + 'Bạn chỉ nhận được ảnh nếu model đang chạy đọc được ảnh; nếu không, bạn nhận kích thước '
+        + 'khung hình và phải dùng browser_read_page để biết trên trang có gì.',
+      properties: { tab_id: TAB_ID },
+      title: () => 'Chụp ảnh trang',
+
+      // Ba đường đi của cùng một tấm ảnh, và đó là điểm mấu chốt của lệnh này:
+      //
+      //   `render`           → model, CHỈ khi model đọc được ảnh
+      //   `presentationMeta` → nhật ký phiên, chỉ vài trường mô tả
+      //   `presentResult`    → thẻ kết quả, LUÔN LUÔN, cho người dùng xem
+      //
+      // Nhờ tách ba đường mà chủ dự án luôn nhìn thấy agent vừa thấy gì, kể cả
+      // khi model đang chạy không đọc được ảnh — đúng lúc mà việc nhìn thấy có
+      // giá trị nhất. Nhồi ảnh vào cho một model không nhận ảnh thì bộ chuyển
+      // đổi ném, và lỗi hiện ra ở tận đâu.
+      //
+      // Chỉ `attachment_id` đi vào nhật ký, không phải byte ảnh: lưu cả ảnh vào
+      // đó thì file phiên phình thêm vài chục KB mỗi lần chụp.
+      modelBlocks: (value) => {
+        const shot = value as ScreenshotValue
+        if (shot.seen_by_model !== true) return []
+        return [{ type: 'image', attachment: attachmentRef(shot) }]
+      },
+      presentationMeta: (value) => value,
+      userBlocks: (meta) => {
+        const shot = meta as ScreenshotValue | undefined
+        if (shot?.attachment_id === undefined) return undefined
+        return [{ type: 'image', attachment: attachmentRef(shot) }]
+      },
+
+      render: (value) => {
+        const shot = value as { width?: number, height?: number, bytes?: number, seen_by_model?: boolean }
+        return `Đã chụp ${String(shot.width ?? 0)}x${String(shot.height ?? 0)}, `
+          + `${String(Math.round((shot.bytes ?? 0) / 1024))} KB. `
+          + (shot.seen_by_model === true
+            ? 'Ảnh đính kèm ngay dưới.'
+            : 'Model đang chạy không đọc được ảnh, nên chỉ người dùng nhìn thấy nó — '
+              + 'dùng browser_read_page nếu bạn cần biết trên trang có gì.')
+      },
+      execute: async (args, exec) => {
+        // Chụp là lệnh ĐỌC: nó không đổi gì trên trang. Che mắt agent không ngăn
+        // được nó hành động, chỉ làm nó hành động mù — nên lệnh này đi đường
+        // `read`, không qua công tắc. Dự án tham chiếu cũng tách riêng vì đúng lý
+        // do này.
+        const prepared = await read('shot_prepare', args) as { tab_id: string, wc_id: number }
+        let shot
+        try {
+          shot = await shots.capture(prepared.wc_id)
+        } finally {
+          // Trả màn hình về chỗ cũ dù chụp được hay không — người dùng không
+          // đáng bị bỏ lại ở một tab mà họ không chọn.
+          await read('shot_done', {}).catch(() => undefined)
+        }
+
+        const bytes = Buffer.from(shot.data, 'base64')
+        const store = ctx.get('attachments')
+        if (store === undefined) {
+          throw new Error('engine không có kho đính kèm nên không lưu được ảnh')
+        }
+        const saved = await store.saveImage({
+          data: bytes,
+          mediaType: 'image/png',
+          name: `trang-${prepared.tab_id}.png`,
+        })
+
+        return {
+          tab_id: prepared.tab_id,
+          attachment_id: String(saved.attachmentId),
+          media_type: saved.mediaType,
+          width: saved.width,
+          height: saved.height,
+          bytes: saved.bytes,
+          seen_by_model: await modelReadsImages(ctx, exec),
+        }
+      },
     }),
 
     browserTool({

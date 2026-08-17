@@ -82,6 +82,11 @@ const CLOSE_FINAL = 4001
  */
 const READ_COMMANDS = new Set([
   'ping', 'tabs_list', 'read_page', 'find', 'get_page_text', 'console_log', 'network_log',
+  // Chụp ảnh là ĐỌC: nó không đổi gì trên trang. Hai lệnh này chỉ dựng điều
+  // kiện để chụp rồi trả màn hình về chỗ cũ. Thiếu chúng ở đây thì tắt công tắc
+  // là mất luôn ảnh chụp — trong khi mô tả tool nói ảnh luôn chụp được, và cái
+  // sai lệch đó chỉ lộ ra khi có người thật đi tắt công tắc.
+  'shot_prepare', 'shot_done',
 ])
 
 /** Câu từ chối khi công tắc tắt — nói rõ bật lại ở đâu. */
@@ -145,7 +150,10 @@ function json(res: ServerResponse, status: number, body: unknown): void {
  * @param ctx - context của plugin; cần `webServer`.
  * @returns bề mặt cho tầng tool, và hàm dọn.
  */
-export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void } {
+export function registerBusRoutes(
+  ctx: Context,
+  captureShot?: (webContentsId: number) => Promise<{ width: number, height: number, data: string }>,
+): { bus: Bus, dispose: () => void } {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   const clients = new Set<WebSocket>()
   const pending = new Map<number, Pending>()
@@ -388,6 +396,30 @@ export function registerBusRoutes(ctx: Context): { bus: Bus, dispose: () => void
         }
         try {
           json(res, 200, { ok: true, result: await bus.call(cmd, params, 40_000) })
+        } catch (error) {
+          json(res, 503, { reason: error instanceof Error ? error.message : String(error) })
+        }
+        return
+      }
+
+      // `?shot=1` chạy TRỌN đường chụp ảnh: cầu → giao diện → nửa Node → route
+      // `/hdw/shell` → lớp vỏ → ngược về. Ba tiến trình, hai đường WebSocket
+      // ngược chiều nhau, và không có cách nào khác để bài kiểm đo cả chuỗi đó.
+      if (url.searchParams.get('shot') !== null) {
+        if (captureShot === undefined) { json(res, 503, { reason: 'chưa có đường chụp ảnh' }); return }
+        try {
+          const prepared = await bus.call('shot_prepare', {}, 15_000) as { wc_id: number }
+          try {
+            const shot = await captureShot(prepared.wc_id)
+            json(res, 200, {
+              ok: true,
+              width: shot.width,
+              height: shot.height,
+              bytes: Buffer.from(shot.data, 'base64').length,
+            })
+          } finally {
+            await bus.call('shot_done', {}, 5000).catch(() => undefined)
+          }
         } catch (error) {
           json(res, 503, { reason: error instanceof Error ? error.message : String(error) })
         }

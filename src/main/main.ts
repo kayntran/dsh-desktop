@@ -8,6 +8,7 @@ import { EngineStartError, reapOrphanEngine, startEngine, stopEngine } from './e
 import { logShell, shellLogPath } from './log.js'
 import { dshHome, dshVersion, engineLogPath, nodeVersion } from './paths.js'
 import { startNotifier, stopNotifier } from './notifier.js'
+import { startShotLink, stopShotLink } from './shot-link.js'
 import { linkPlugins } from './plugin-link.js'
 import {
   createTray, destroyTray, hintHiddenToTray, setTrayStatus, setTrayUpdate,
@@ -83,6 +84,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     beginQuit()
     stopNotifier()
+    stopShotLink()
     stopUpdateChecks()
     destroyTray()
     stopEngine()
@@ -96,10 +98,14 @@ async function boot(): Promise<void> {
     const engine = await startEngine((tail) => {
       setTrayStatus('Engine đã dừng')
       stopNotifier()
+      stopShotLink()
       void showError({ message: 'Engine dừng đột ngột trong lúc đang chạy.', tail })
     })
     setTrayStatus('Đang chạy')
     startNotifier(engine.url, { isWindowActive, reveal: revealWindow })
+    // Đường chụp ảnh trang web cho agent. Lớp vỏ gọi ĐI tới engine, không mở
+    // thêm cổng nào trên máy — xem `shot-link.ts`.
+    startShotLink(engine.url)
     await showEngine(engine.url)
   } catch (error) {
     setTrayStatus('Không khởi động được')
@@ -123,6 +129,7 @@ function handleAction(action: string): void {
   }
   if (action === 'retry') {
     stopNotifier()
+    stopShotLink()
     stopEngine()
     void showSplash().then(boot)
   }
