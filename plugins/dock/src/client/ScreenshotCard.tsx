@@ -96,18 +96,18 @@ function toAttachment(meta: unknown): ImageAttachmentRef | undefined {
     bytes: typeof shot.bytes === 'number' ? shot.bytes : 0,
     width,
     height,
-    name: 'Ảnh chụp trang',
+    name: 'Page screenshot',
   }
 }
 
 /** Chữ hiện trong khối ảnh. Tiếng Việt vì đây là chữ người dùng đọc. */
 const IMAGE_LABELS = {
-  image: 'Ảnh chụp trang',
-  open: 'Bấm để xem ảnh gốc',
-  openNamed: (label: string) => `Xem ảnh gốc: ${label}`,
-  loading: 'Đang tải ảnh…',
-  loadFailed: 'Không tải được ảnh — bấm để thử lại',
-  lightbox: { dialog: 'Ảnh chụp trang, cỡ gốc', close: 'Đóng' },
+  image: 'Page screenshot',
+  open: 'Click to view the full-size image',
+  openNamed: (label: string) => `View full size: ${label}`,
+  loading: 'Loading the image…',
+  loadFailed: 'Could not load the image — click to retry',
+  lightbox: { dialog: 'Page screenshot, full size', close: 'Close' },
 }
 
 /**
@@ -131,14 +131,14 @@ export function ScreenshotCard({ block, loadShot }: ScreenshotCardProps): React.
     <div className="hdw-shot-card" data-state={!done ? 'running' : failed ? 'error' : 'ok'}>
       <div className="hdw-shot-head">
         <IconGlobeOutline14 />
-        <span className="hdw-shot-title">Ảnh chụp trang</span>
+        <span className="hdw-shot-title">Page screenshot</span>
         <span className="hdw-shot-note">
           {!done
-            ? 'đang chụp…'
+            ? 'capturing…'
             : failed
-              ? 'chụp không được'
+              ? 'capture failed'
               : attachment === undefined
-                ? 'không có ảnh'
+                ? 'no image'
                 : `${String(attachment.width)}×${String(attachment.height)}`}
         </span>
       </div>

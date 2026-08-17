@@ -1,6 +1,7 @@
 # Luật của dự án này
 
-Trả lời bằng **tiếng Việt**. Nhưng **đặt tên bằng tiếng Anh** — xem Luật 7.
+**Trả lời chủ dự án bằng tiếng Việt.** Nhưng **mọi thứ bên trong mã là tiếng Anh** — tên, chú thích,
+và chữ hiện trên màn hình. Xem Luật 7.
 
 Chủ dự án **không đọc code**. Giải thích mọi quyết định theo hướng *người dùng app sẽ thấy gì*, và
 hỏi trước khi làm những việc không hoàn tác được.
@@ -38,11 +39,11 @@ Nên: **mọi thứ chúng ta thêm vào đều là plugin.** Không có lý do 
 5. **Khai báo mức trước khi viết code giao diện**: mức 1 (cộng thêm), mức 2 (chen có chọn lọc),
    mức 3 (thay thế — cấm).
 6. **Ghi sổ.** Việc đáng nhớ ghi một dòng vào [MY-CHANGES.md](MY-CHANGES.md).
-7. **Tên bằng tiếng Anh, chú thích bằng tiếng Việt.** Tiếng Việt cho chú thích, tài liệu, chữ hiện
-   trên màn hình, câu lỗi. Tiếng Anh cho tên hàm, kiểu, biến, hằng, file, trường JSON, đường dẫn
-   HTTP, class CSS. Hệ thống đã chặn cứng bằng hook; bị chặn thì **đổi tên**, đừng dịch chú thích —
-   chú thích tiếng Việt là phần đúng luật và có giá trị nhất trong repo này. Chi tiết:
-   `.claude/rules/naming.md`.
+7. **Mã là tiếng Anh, đối thoại là tiếng Việt.** Tiếng Anh cho tên (hàm, kiểu, biến, hằng, file,
+   trường JSON, đường dẫn HTTP, class CSS), cho **chú thích trong mã**, và cho **chữ hiện trên màn
+   hình** — giao diện app do DeepSeek dựng vốn là tiếng Anh, chữ ta thêm vào phải khớp với nó. Tiếng
+   Việt cho tài liệu `.md` và cho câu trả lời gửi chủ dự án. Hook chặn cứng tên tiếng Việt; bị chặn
+   thì đổi tên. Chi tiết: `.claude/rules/naming.md`.
 
 ## Định tuyến rule
 

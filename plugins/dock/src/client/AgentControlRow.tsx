@@ -47,13 +47,13 @@ export function AgentControlRow({ useDock, actions }: AgentControlRowProps): Rea
   return (
     <div className="hdw-setting">
       <div className="hdw-setting-text">
-        <div className="hdw-setting-title">Cho agent điều khiển trình duyệt</div>
+        <div className="hdw-setting-title">Let the agent control the browser</div>
         <div className="hdw-setting-desc">
           <IconWarningOutline16 className="hdw-setting-warn" />
           <span>
-            Trong trình duyệt của panel, agent hành động <b>nhân danh bạn</b> — nó dùng chính các
-            phiên đăng nhập của bạn. Nội dung trang web nó đọc cũng là chỉ dẫn mà nó có thể nghe
-            theo. Tắt thì agent vẫn <b>đọc</b> được trang, chỉ không bấm và không gõ được.
+            Inside the panel's browser the agent acts <b>on your behalf</b> — it uses your own signed-in
+            sessions. The content of the pages it reads is also instruction it may follow. Turn this off
+            and the agent can still <b>read</b> pages, it just cannot click or type.
           </span>
         </div>
       </div>
@@ -61,8 +61,8 @@ export function AgentControlRow({ useDock, actions }: AgentControlRowProps): Rea
         open={open}
         onClose={() => { setOpen(false) }}
         items={[
-          { id: 'on', label: 'Bật' },
-          { id: 'off', label: 'Tắt' },
+          { id: 'on', label: 'On' },
+          { id: 'off', label: 'Off' },
         ]}
         selectedId={allowed ? 'on' : 'off'}
         onSelect={(id) => {
@@ -81,7 +81,7 @@ export function AgentControlRow({ useDock, actions }: AgentControlRowProps): Rea
             aria-expanded={open}
             onClick={() => { setOpen((v) => !v) }}
           >
-            {allowed ? 'Bật' : 'Tắt'}
+            {allowed ? 'On' : 'Off'}
             <IconChevronDownOutline14 />
           </button>
         )}

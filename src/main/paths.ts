@@ -112,6 +112,29 @@ export function dockPatchPath(): string {
   return join(dockPluginDir(), 'cordis.patch.yml')
 }
 
+/** Directory of the plugin switch (Settings > Plugins > On/off). */
+export function pluginManagerDir(): string {
+  return join(pluginsRoot(), 'plugin-manager')
+}
+
+/** Config file that enables the plugin switch, passed to the engine via `--patch`. */
+export function pluginManagerPatchPath(): string {
+  return join(pluginManagerDir(), 'cordis.patch.yml')
+}
+
+/**
+ * File recording which plugins are turned off.
+ *
+ * It lives under `<DSH_HOME>` rather than Electron's `userData`, because the switch
+ * plugin's Node half runs inside the engine process and only knows `DSH_HOME`. This
+ * path must match `statePath()` in `plugins/plugin-manager/src/state.ts`; drift
+ * means the app writes a file the engine never reads, and the switch forgets every
+ * time the app is reopened.
+ */
+export function pluginStatePath(): string {
+  return join(dshHome(), 'harness-desktop-plugins.cordis.yml')
+}
+
 /** Tài nguyên tĩnh (splash, trang lỗi, icon) đi kèm app. */
 export function resourcePath(...parts: string[]): string {
   return join(app.getAppPath(), 'resources', ...parts)

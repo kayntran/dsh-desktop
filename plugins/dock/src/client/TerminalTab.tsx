@@ -131,20 +131,20 @@ export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Ele
       if (msg.t === 'error') { setState('closed'); setNote(msg.reason); return }
       if (msg.t === 'exit') {
         setState('closed')
-        setNote(`Shell đã thoát (mã ${String(msg.exitCode ?? 0)}).`)
+        setNote(`Shell exited (code ${String(msg.exitCode ?? 0)}).`)
       }
     }
 
     ws.onerror = () => {
       setState('closed')
-      setNote('Mất kết nối tới engine.')
+      setNote('Lost the connection to the engine.')
     }
 
     ws.onclose = () => {
       // Đã có lời giải thích cụ thể từ `exit`/`error` thì giữ nguyên, đừng đè
       // lên bằng một câu chung chung hơn.
       setState('closed')
-      setNote((prev) => prev ?? 'Phiên terminal đã đóng.')
+      setNote((prev) => prev ?? 'The terminal session closed.')
     }
 
     const onInput = term.onData((data) => {
@@ -184,21 +184,21 @@ export function TerminalTab({ root, isHidden }: TerminalTabProps): React.JSX.Ele
   // chuyển tab, nên thiếu nó thì dòng thông báo của Terminal sẽ nằm chình ình
   // giữa tab Files.
   if (root === undefined) {
-    return <div className="hdw-empty" hidden={isHidden}>Chưa có phiên nào đang mở, nên chưa biết mở terminal ở thư mục nào. Mở một phiên rồi quay lại.</div>
+    return <div className="hdw-empty" hidden={isHidden}>No session is open yet, so there is no folder to start a terminal in. Start a session and come back.</div>
   }
 
   return (
     <div className="hdw-termwrap" hidden={isHidden}>
       {state === 'closed' && (
         <div className="hdw-termbar">
-          <span className="hdw-note">{note ?? 'Phiên terminal đã đóng.'}</span>
+          <span className="hdw-note">{note ?? 'The terminal session closed.'}</span>
           <Button
             variant="ghost"
             size="sm"
             icon={<IconRefreshOutline16 />}
             onClick={() => { setAttempt((n) => n + 1) }}
           >
-            Mở lại
+            Reopen
           </Button>
         </div>
       )}

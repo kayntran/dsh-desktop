@@ -10,9 +10,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc && npm run plugins:build && electron .",
-    "typecheck": "tsc --noEmit && npm --prefix plugins/dock run typecheck",
-    "plugins:install": "npm --prefix plugins/dock install",
-    "plugins:build": "npm --prefix plugins/dock run build",
+    "typecheck": "tsc --noEmit && npm --prefix plugins/dock run typecheck && npm --prefix plugins/plugin-manager run typecheck",
+    "plugins:install": "npm --prefix plugins/dock install && npm --prefix plugins/plugin-manager install",
+    "plugins:build": "npm --prefix plugins/dock run build && npm --prefix plugins/plugin-manager run build",
     "icons": "powershell -ExecutionPolicy Bypass -File scripts/make-icons.ps1",
     "engine:install": "npm --prefix engine install --omit=dev",
     "engine:ci": "npm --prefix engine ci --omit=dev",
@@ -30,7 +30,10 @@
     "spike:stage": "electron scripts/spike-stage-order.cjs",
     "spike:tools": "node scripts/spike-tools.mjs",
     "spike:card": "electron scripts/spike-card.cjs",
-    "spike:live": "electron scripts/spike-live.cjs"
+    "spike:live": "electron scripts/spike-live.cjs",
+    "spike:loader": "node scripts/spike-loader.mjs",
+    "spike:guard": "node scripts/spike-plugin-guard.mjs",
+    "spike:manager": "node scripts/spike-manager.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

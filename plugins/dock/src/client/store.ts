@@ -111,7 +111,7 @@ export interface Dock {
 const LABELS: Record<PaneKind, string> = {
   files: 'Files',
   terminal: 'Terminal',
-  browser: 'Trang mới',
+  browser: 'New page',
 }
 
 /** Id ngắn, duy nhất trong một phiên chạy. */
@@ -170,7 +170,7 @@ export function createDock(): Dock {
       if (pane.openedBy !== 'agent') continue
       if (pane.url !== undefined && !isPublicUrl(pane.url)) {
         delete pane.url
-        pane.title = 'Đã chặn: địa chỉ nội bộ'
+        pane.title = 'Blocked: internal address'
       }
     }
   })

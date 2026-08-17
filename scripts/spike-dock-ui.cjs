@@ -256,7 +256,7 @@ async function main() {
       open: true, width: 520,
       panes: [
         { id: 'p-files', kind: 'files', title: 'Files' },
-        { id: 'p-web', kind: 'browser', title: 'Trang mới', url: ${JSON.stringify(TRANG_THU)} },
+        { id: 'p-web', kind: 'browser', title: 'New page', url: ${JSON.stringify(TRANG_THU)} },
       ],
       activeId: 'p-web',
     }))
@@ -740,7 +740,7 @@ async function main() {
   // thật là **bắn tia vào giữa menu**: `elementFromPoint` chỉ trả về nó khi nó
   // thực sự nhìn thấy được và bấm được.
   await win.webContents.executeJavaScript(
-    `document.querySelector('.hdw-tabbar button[aria-label="Mở thêm"]').click()`)
+    `document.querySelector('.hdw-tabbar button[aria-label="Open more"]').click()`)
   await cho(400)
   const menu = await win.webContents.executeJavaScript(`(() => {
     const m = document.querySelector('[role="menu"]')
@@ -765,7 +765,7 @@ async function main() {
     const truoc = await win.webContents.executeJavaScript(`document.querySelectorAll('.hdw-pillwrap').length`)
     await win.webContents.executeJavaScript(`(() => {
       const muc = [...document.querySelectorAll('[role="menuitem"]')]
-      const t = muc.find(m => m.textContent.includes('Terminal'))
+      const t = muc.find(m => m.textContent.toLowerCase().includes('terminal'))
       t.click()
     })()`)
     await cho(700)
@@ -892,11 +892,11 @@ async function main() {
   // Khác hẳn mục 4, nơi tab được tạo sẵn kèm URL. Ở đây tab bắt đầu trống và
   // địa chỉ đi qua ô nhập của React — đúng thao tác của người dùng.
   await win.webContents.executeJavaScript(
-    `document.querySelector('.hdw-tabbar button[aria-label="Mở thêm"]').click()`)
+    `document.querySelector('.hdw-tabbar button[aria-label="Open more"]').click()`)
   await cho(400)
   await win.webContents.executeJavaScript(`(() => {
     const muc = [...document.querySelectorAll('[role="menuitem"]')]
-    muc.find(m => m.textContent.includes('Trang web')).click()
+    muc.find(m => m.textContent.toLowerCase().includes('web page')).click()
   })()`)
   await cho(800)
 

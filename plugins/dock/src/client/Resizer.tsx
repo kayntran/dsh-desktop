@@ -61,7 +61,7 @@ export function Resizer({ width, onResize }: ResizerProps): React.JSX.Element {
       className="hdw-resizer"
       role="separator"
       aria-orientation="vertical"
-      aria-label="Đổi bề rộng panel"
+      aria-label="Resize the panel"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

@@ -73,13 +73,13 @@ export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose
   }, [menuOpen])
 
   const items: MenuEntry[] = [
-    { id: 'browser', label: 'Trang web mới', icon: <IconGlobeOutline14 /> },
-    { id: 'terminal', label: 'Terminal mới', icon: <IconApiOutline14 /> },
+    { id: 'browser', label: 'New web page', icon: <IconGlobeOutline14 /> },
+    { id: 'terminal', label: 'New terminal', icon: <IconApiOutline14 /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen16 size={14} /> },
   ]
 
   return (
-    <div className="hdw-tabbar" role="tablist" aria-label="Các mặt của panel">
+    <div className="hdw-tabbar" role="tablist" aria-label="Panel views">
       <div className="hdw-pills">
         {panes.map((pane) => (
           <div className="hdw-pillwrap" key={pane.id}>
@@ -100,7 +100,7 @@ export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose
               <button
                 type="button"
                 className="hdw-pill-x"
-                aria-label={`Đóng ${pane.title}`}
+                aria-label={`Close ${pane.title}`}
                 onClick={(event) => { event.stopPropagation(); onClosePane(pane.id) }}
               >
                 <IconCloseFill14 />
@@ -130,19 +130,19 @@ export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose
               variant="ghost"
               size="sm"
               icon={<IconPlusOutline16 />}
-              aria-label="Mở thêm"
+              aria-label="Open more"
               onClick={() => { setMenuOpen((prev) => !prev) }}
             />
           )}
         />
       </div>
 
-      <Tooltip label="Đóng panel" side="bottom">
+      <Tooltip label="Close panel" side="bottom">
         <Button
           variant="ghost"
           size="sm"
           icon={<IconCloseOutline16 />}
-          aria-label="Đóng panel"
+          aria-label="Close panel"
           onClick={onClose}
         />
       </Tooltip>

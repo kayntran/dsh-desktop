@@ -169,7 +169,7 @@ async function main() {
   if (noise.length > 0) console.log(`  (console trang) ${noise.join(' | ').slice(0, 600)}`)
 
   record('1. lệnh đang chạy: chưa có ảnh, có chữ báo đang chụp',
-    seen.running.hasImg === false && String(seen.running.html ?? '').includes('đang chụp'),
+    seen.running.hasImg === false && String(seen.running.html ?? '').includes('capturing'),
     JSON.stringify(seen.running))
 
   // --- MỤC QUYẾT ĐỊNH: trên màn hình có một tấm ảnh, và nó lớn hơn không.
@@ -178,11 +178,11 @@ async function main() {
     JSON.stringify(seen.done))
 
   record('3. dữ liệu hỏng: không vẽ ảnh, không làm vỡ thẻ',
-    !seen.junk.hasImg && String(seen.junk.html ?? "").includes('không có ảnh'),
+    !seen.junk.hasImg && String(seen.junk.html ?? "").includes('no image'),
     JSON.stringify(seen.junk))
 
   record('4. chụp lỗi: nói rõ là lỗi thay vì im lặng',
-    !seen.error.hasImg && String(seen.error.html ?? "").includes('không được'),
+    !seen.error.hasImg && String(seen.error.html ?? "").includes('capture failed'),
     JSON.stringify(seen.error))
 
   const errors = await win.webContents.executeJavaScript(

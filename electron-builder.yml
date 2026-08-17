@@ -44,6 +44,15 @@ extraResources:
       - '!node_modules/node-pty/prebuilds/win32-arm64/**'
       - '!**/*.pdb'
       - '!**/*.map'
+  # Công tắc bật/tắt plugin. Không có phụ thuộc lúc chạy nào — cả hai nửa đã nằm
+  # trong lib/, nên danh sách cho-phép chỉ cần ba dòng.
+  - from: plugins/plugin-manager
+    to: plugins/plugin-manager
+    filter:
+      - package.json
+      - cordis.patch.yml
+      - lib/**/*
+      - '!**/*.map'
 
 # Không biên dịch lại native addon cho ABI của Electron — chúng không chạy
 # trong Electron mà trong node.exe ở trên. Cả hai addon trong cây phụ thuộc

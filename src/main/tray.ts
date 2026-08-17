@@ -31,26 +31,26 @@ export interface TrayHandlers {
 
 let tray: Tray | undefined
 let handlers: TrayHandlers | undefined
-let status = 'Đang khởi động…'
+let status = 'Starting…'
 let updateVersion: string | undefined
 
 function buildMenu(): Menu {
   const bound = handlers
   return Menu.buildFromTemplate([
-    { label: `Mở ${app.getName()}`, click: () => bound?.open() },
+    { label: `Open ${app.getName()}`, click: () => bound?.open() },
     { type: 'separator' },
     { label: status, enabled: false },
     ...updateVersion === undefined ? [] : [{
-      label: `Đã có bản ${updateVersion} — tải về`,
+      label: `Version ${updateVersion} is available — download`,
       click: () => bound?.openRelease(),
     }],
     { type: 'separator' },
-    { label: 'Mở thư mục dữ liệu', click: () => bound?.openDataDir() },
-    { label: 'Mở log của engine', click: () => bound?.openLog() },
-    { label: 'Mở log của app', click: () => bound?.openShellLog() },
+    { label: 'Open data folder', click: () => bound?.openDataDir() },
+    { label: 'Open engine log', click: () => bound?.openLog() },
+    { label: 'Open app log', click: () => bound?.openShellLog() },
     { type: 'separator' },
-    { label: 'Giới thiệu', click: () => bound?.openAbout() },
-    { label: 'Thoát', click: () => bound?.quit() },
+    { label: 'About', click: () => bound?.openAbout() },
+    { label: 'Quit', click: () => bound?.quit() },
   ])
 }
 
@@ -96,8 +96,8 @@ export function hintHiddenToTray(): void {
     // Không ghi được thì cùng lắm là lần sau nhắc lại — không đáng chặn luồng.
   }
   tray?.displayBalloon({
-    title: `${app.getName()} vẫn đang chạy`,
-    content: 'App thu về khay hệ thống để agent làm nốt việc. Chuột phải vào icon để mở lại hoặc thoát hẳn.',
+    title: `${app.getName()} is still running`,
+    content: 'The app stays in the system tray so the agent can finish its work. Right-click the icon to reopen it or quit.',
     iconType: 'info',
   })
 }

@@ -1,0 +1,128 @@
+/*
+ * Styles for the plugin on/off tab.
+ *
+ * Only upstream's --dsw-* variables, no hard-coded colors: that is what makes this
+ * tab follow light and dark mode like the rest of the app. Every class carries the
+ * hdw-pm- prefix so it cannot reach upstream's own styling.
+ */
+
+.hdw-pm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-pm-intro,
+.hdw-pm-status,
+.hdw-pm-escape {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hdw-pm-escape {
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-caption);
+}
+
+.hdw-pm-escape code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  word-break: break-all;
+}
+
+.hdw-pm-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Keep the "Reload now" button from being squeezed by the text. */
+.hdw-pm-notice button {
+  flex: none;
+  margin-left: auto;
+}
+
+.hdw-pm-search {
+  max-width: 320px;
+}
+
+.hdw-pm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hdw-pm-group h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-pm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hdw-pm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.hdw-pm-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hdw-pm-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hdw-pm-row-title strong {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hdw-pm-row-id {
+  overflow: hidden;
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

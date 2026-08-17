@@ -155,38 +155,38 @@ export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: Bro
   return (
     <div className="hdw-browser" hidden={isHidden}>
       <form className="hdw-navbar" onSubmit={submit}>
-        <Tooltip label="Lùi" side="bottom">
+        <Tooltip label="Back" side="bottom">
           <Button
             variant="ghost" size="sm" type="button"
             icon={<IconChevronLeftOutline14 />}
-            aria-label="Lùi"
+            aria-label="Back"
             disabled={!status.canBack}
             onClick={() => { stage.goBack(paneId) }}
           />
         </Tooltip>
-        <Tooltip label="Tiến" side="bottom">
+        <Tooltip label="Forward" side="bottom">
           <Button
             variant="ghost" size="sm" type="button"
             icon={<IconChevronRightOutline14 />}
-            aria-label="Tiến"
+            aria-label="Forward"
             disabled={!status.canForward}
             onClick={() => { stage.goForward(paneId) }}
           />
         </Tooltip>
-        <Tooltip label={status.loading ? 'Dừng' : 'Tải lại'} side="bottom">
+        <Tooltip label={status.loading ? 'Stop' : 'Reload'} side="bottom">
           <Button
             variant="ghost" size="sm" type="button"
             icon={status.loading ? <IconStopFill16 /> : <IconRefreshOutline16 />}
-            aria-label={status.loading ? 'Dừng' : 'Tải lại'}
+            aria-label={status.loading ? 'Stop' : 'Reload'}
             onClick={() => { status.loading ? stage.stop(paneId) : stage.reload(paneId) }}
           />
         </Tooltip>
         <Input
           className="hdw-address"
-          aria-label="Địa chỉ"
+          aria-label="Address"
           value={input}
           spellCheck={false}
-          placeholder="Nhập địa chỉ trang web"
+          placeholder="Enter a web address"
           onChange={(event: React.ChangeEvent<HTMLInputElement>) => { setInput(event.target.value) }}
           onFocus={() => { setTyping(true) }}
           onBlur={() => { setTyping(false) }}

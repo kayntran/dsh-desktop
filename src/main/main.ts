@@ -93,22 +93,22 @@ if (!app.requestSingleInstanceLock()) {
 
 /** Khởi động engine rồi trỏ cửa sổ vào nó; hỏng thì hiện trang lỗi. */
 async function boot(): Promise<void> {
-  setTrayStatus('Đang khởi động…')
+  setTrayStatus('Starting…')
   try {
     const engine = await startEngine((tail) => {
-      setTrayStatus('Engine đã dừng')
+      setTrayStatus('Engine stopped')
       stopNotifier()
       stopShotLink()
-      void showError({ message: 'Engine dừng đột ngột trong lúc đang chạy.', tail })
+      void showError({ message: 'The engine stopped unexpectedly while running.', tail })
     })
-    setTrayStatus('Đang chạy')
+    setTrayStatus('Running')
     startNotifier(engine.url, { isWindowActive, reveal: revealWindow })
     // Đường chụp ảnh trang web cho agent. Lớp vỏ gọi ĐI tới engine, không mở
     // thêm cổng nào trên máy — xem `shot-link.ts`.
     startShotLink(engine.url)
     await showEngine(engine.url)
   } catch (error) {
-    setTrayStatus('Không khởi động được')
+    setTrayStatus('Failed to start')
     await showError(error instanceof EngineStartError
       ? { message: error.message, tail: error.tail }
       : { message: String(error), tail: '' })

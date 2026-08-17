@@ -73,9 +73,9 @@ function show(handlers: NotifierHandlers, title: string, body: string): void {
 /** Frame trên luồng mux: những việc agent cần người dùng trả lời. */
 function handleMuxFrame(frame: ServerRequestEnvelope['payload'], handlers: NotifierHandlers): void {
   if (frame.type === 'approval/requested') {
-    const tool = readString(frame, 'toolName') ?? 'một thao tác'
+    const tool = readString(frame, 'toolName') ?? 'an action'
     const reason = readString(frame, 'reason')
-    show(handlers, 'Agent cần bạn duyệt', reason === undefined ? tool : `${tool} — ${reason}`)
+    show(handlers, 'The agent needs your approval', reason === undefined ? tool : `${tool} — ${reason}`)
     return
   }
   if (frame.type === 'question/requested') {
@@ -84,7 +84,7 @@ function handleMuxFrame(frame: ServerRequestEnvelope['payload'], handlers: Notif
     const text = typeof first === 'object' && first !== null
       ? readString(first as Record<string, unknown>, 'question')
       : undefined
-    show(handlers, 'Agent đang hỏi bạn', text ?? 'Mở app để trả lời.')
+    show(handlers, 'The agent is asking you something', text ?? 'Open the app to answer.')
   }
 }
 
@@ -102,13 +102,13 @@ function handleHostFrame(frame: ServerRequestEnvelope['payload'], handlers: Noti
     if (erroredSessions.delete(sessionId)) return
     // Chỉ báo cho phiên mà app đã thấy chạy: một phiên vốn đứng yên báo "xong"
     // là thông báo rác.
-    if (wasBusy) show(handlers, 'Agent đã xong', 'Phiên làm việc vừa chạy xong.')
+    if (wasBusy) show(handlers, 'The agent is done', 'The session just finished its work.')
     return
   }
   if (frame.type === 'host/agent-error') {
     const sessionId = readString(frame, 'sessionId')
     if (sessionId !== undefined) erroredSessions.add(sessionId)
-    show(handlers, 'Agent gặp lỗi', readString(frame, 'message') ?? 'Mở app để xem chi tiết.')
+    show(handlers, 'The agent hit an error', readString(frame, 'message') ?? 'Open the app for details.')
   }
 }
 

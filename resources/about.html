@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Giới thiệu</title>
+<title>About</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -14,9 +14,8 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; min-height: 100vh; padding: 30px 32px 26px;
-    /* Đường dẫn thư mục dữ liệu là chuỗi liền không có chỗ ngắt tự nhiên; nếu
-       người dùng đặt DSH_HOME vào một đường dẫn dài thì nó phải xuống dòng
-       được thay vì đẩy trang rộng ra. */
+    /* The data folder path is one unbroken string with no natural break points; if the
+       user points DSH_HOME at a long path it has to wrap instead of widening the page. */
     overflow-wrap: anywhere;
     background: var(--bg); color: var(--fg);
     font: 400 13px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -46,32 +45,32 @@
     <div class="mark">H</div>
     <div>
       <h1 id="name">Harness Desktop</h1>
-      <div class="ver">Phiên bản app <span id="appVersion">—</span></div>
+      <div class="ver">App version <span id="appVersion">—</span></div>
     </div>
   </header>
 
   <dl>
     <dt>Engine dsh</dt><dd id="dshVersion">—</dd>
-    <dt>Node chạy engine</dt><dd id="nodeVersion">—</dd>
-    <dt>Electron (vỏ)</dt><dd id="electronVersion">—</dd>
-    <dt>Thư mục dữ liệu</dt><dd id="dataDir">—</dd>
+    <dt>Node running the engine</dt><dd id="nodeVersion">—</dd>
+    <dt>Electron (shell)</dt><dd id="electronVersion">—</dd>
+    <dt>Data folder</dt><dd id="dataDir">—</dd>
   </dl>
 
   <div class="fence">
-    <p><strong>Đây không phải sản phẩm của DeepSeek.</strong> Harness Desktop là lớp vỏ
-    desktop không chính thức, do cộng đồng làm, bọc quanh
+    <p><strong>This is not a DeepSeek product.</strong> Harness Desktop is an unofficial,
+    community-built desktop shell around
     <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noreferrer">DeepSeek Harness</a>
-    — agent harness mã nguồn mở của DeepSeek AI, giấy phép MIT.</p>
-    <p>Toàn bộ giao diện chat, agent và công cụ bên trong app là công sức của thượng nguồn.
-    Dự án này không sửa đổi mã nguồn đó; nó chỉ đóng góp phần vỏ: vòng đời tiến trình,
-    cửa sổ, khay hệ thống, thông báo và bộ cài.</p>
+    — DeepSeek AI's open-source agent harness, MIT licensed.</p>
+    <p>The entire chat interface, the agent and the tools inside this app are upstream's work.
+    This project does not modify that source code; it contributes only the shell: process
+    lifecycle, windows, the system tray, notifications and the installer.</p>
   </div>
 
-  <p>Lớp vỏ phát hành theo giấy phép MIT. Danh sách phụ thuộc bên thứ ba của thượng nguồn
-  nằm trong THIRD_PARTY_NOTICES.md của kho gốc.</p>
+  <p>The shell is released under the MIT license. Upstream's third-party dependency list lives
+  in THIRD_PARTY_NOTICES.md in the original repository.</p>
 
 <script>
-  // Tiến trình chính gọi hàm này ngay sau khi trang nạp xong.
+  // The main process calls this as soon as the page finishes loading.
   window.__setAbout = (info) => {
     document.getElementById('name').textContent = info.name
     document.getElementById('appVersion').textContent = info.appVersion

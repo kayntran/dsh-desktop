@@ -78,7 +78,7 @@ export function apply(ctx: ClientContext): void {
   // Cầu nối với nửa Node. Đặt ở ĐÂY chứ không trong `DockPanel`: slot có thể
   // remount component bất cứ lúc nào, và cầu remount là cầu chết — im lặng, chỉ
   // biểu hiện ở chỗ nửa Node nhờ gì cũng hết giờ.
-  ctx.effect(() => openBridge(dock.actions, stageHolder, dock.store), 'hdw-dock: cầu nối nửa Node')
+  ctx.effect(() => openBridge(dock.actions, stageHolder, dock.store), 'hdw-dock: bridge to the Node half')
 
   // `ctx.slots.inject` là bắt buộc, không phải cẩn thận thừa: đăng ký thẳng vào
   // một slot chưa được khai báo sẽ ném. `inject` chờ tới khi chủ slot mount,

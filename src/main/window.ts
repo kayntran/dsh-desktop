@@ -307,7 +307,7 @@ export async function showAbout(info: AboutInfo): Promise<void> {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: 'Giới thiệu',
+    title: 'About',
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#16161a' : '#fbfbfd',
     icon: resourcePath('icon.ico'),
     show: false,

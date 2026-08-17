@@ -83,7 +83,7 @@ interface Shot {
 async function capture(id: number): Promise<Shot> {
   const guest = guests.get(id)
   if (guest === undefined || guest.isDestroyed()) {
-    throw new Error('không có trang web nào mang id đó trong panel')
+    throw new Error('no web page in the panel carries that id')
   }
   // Hết giờ là bắt buộc, không phải cẩn thận thừa: `capturePage` đã từng treo
   // vĩnh viễn ở đường khác, và một Promise không bao giờ giải quyết sẽ giữ chỗ
@@ -95,7 +95,7 @@ async function capture(id: number): Promise<Shot> {
       t.unref()
     }),
   ])
-  if (image === undefined) throw new Error('chụp ảnh quá lâu, đã bỏ')
+  if (image === undefined) throw new Error('the screenshot took too long and was abandoned')
   const size = image.getSize()
   return { data: image.toPNG().toString('base64'), width: size.width, height: size.height }
 }

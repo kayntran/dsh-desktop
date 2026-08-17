@@ -1036,3 +1036,186 @@ App vẫn xử lý đúng (hàm trả `undefined`, không diệt nhầm tiến t
 doạ. Sửa: tách thành hai câu có kiểm null, và không cho stderr của PowerShell chảy thẳng ra terminal.
 
 Dòng `Message 2 rejected by interface blink.mojom.Widget` là cảnh báo nội bộ của Chromium, vô hại.
+
+## 2026-08-17 (rất khuya) — Công tắc bật/tắt plugin: đo trước khi dựng, và loader không nhớ
+
+Trước khi viết plugin quản lý plugin, một câu hỏi phải trả lời bằng phép đo: gọi
+`loader.update(id, { disabled: true })` thì thay đổi có được ghi lại không, và ghi vào file nào.
+Bộ đo mới: `npm run spike:loader` (13 mục), chạy trên một `DSH_HOME` riêng ở `D:\tmp\hdw-spike-dsh`
+nên không làm bẩn cấu hình thật của chủ dự án. Nó cần một đầu đo chạy *trong* engine
+(`scripts/spike-loader-probe.mjs`) vì `loader` là service trong tiến trình và upstream cố ý chỉ mở
+nửa đọc; đầu đo nạp bằng một `--patch` tạm trỏ đường dẫn `file://` — nửa Node không cần được phân
+giải theo tên gói.
+
+**Tắt sống thì được, nhớ thì không.** Tắt một plugin có hiệu lực trong 1–2ms, không cần khởi động
+lại: tên gói của nó biến khỏi `__DSH_BOOT__` của trang ngay. Bật lại cũng vậy. Nhưng khởi động lại
+engine thì **mọi thứ bật lại như cũ**.
+
+**Chỗ nó ghi vào là chỗ bị xoá mỗi lần khởi động.** Một lần tắt làm
+`~/.dsh/profiles/web/cordis.yml` phình từ 223 byte / 0 entry lên 14.599 byte / **131 entry** — cả
+cây plugin bị nướng cứng vào file gốc. Rồi mỗi lần boot, `prepareProfile` của upstream ghi đè file
+đó về `[]` vô điều kiện, cố ý, để insert của bundle không bị nhân đôi. `cordis.patch.yml` không hề
+bị chạm tới.
+
+**Đường lưu bền là lớp patch, và có đúng hai lớp khác nhau.** Ghi
+`- id: <id>\n  disabled: true` vào `~/.dsh/profiles/web/cordis.patch.yml` có hiệu lực **sau ~1 giây
+mà không cần khởi động lại** (watcher của upstream), và sống sót qua khởi động lại. Nhưng nó
+**không tắt được `hdw-dock`** — lớp người dùng nằm *dưới* lớp phủ `--patch`, nên lúc nó áp thì dòng
+đó chưa tồn tại. Muốn tắt plugin của chính ta thì cần một `--patch` thứ hai đứng **sau** patch của
+dock; đo được: làm vậy thì `hdw-dock` tắt đúng lúc boot, các entry khác không bị ảnh hưởng.
+
+**Id phải hỏi loader, đừng đọc từ file cấu hình.** Lượt đo đầu tiên chấm sai *toàn bộ* vì viết cứng
+`ui-settings-plugin-inventory`, trong khi id thật trong cây là `include:ui-settings-plugin-inventory`
+— mọi entry sống trong một subtree Include gắn với `cordis.yml`. Bộ đo giờ tra id theo tên gói.
+
+## 2026-08-17 (rạng sáng) — Công tắc bật/tắt plugin, và ba lỗi chỉ trang thật mới lộ ra
+
+Plugin mới `plugins/plugin-manager/` (gói `harness-desktop-plugin-manager`) thêm một tab **Bật/tắt**
+vào Cài đặt → Plugins. **Mức 1** — `settings.plugins.tab` là slot loại `list`, hai tab của upstream
+vẫn còn nguyên bên cạnh. Vật liệu đều của hệ thống: `Button`, `Pill`, `StateDot`, `Input`,
+`RiskConfirmation`, `Tooltip`. Không tự vẽ công tắc gạt, cùng lý do đã ghi ở `AgentControlRow`.
+
+**Kiến trúc hai lớp, do phép đo quyết định.** Mỗi lần gạt làm hai việc đi hai đường: `loader.update`
+cho hiệu lực ngay, và một file patch riêng (`<DSH_HOME>/harness-desktop-plugins.cordis.yml`) cho lần
+mở app sau. Lớp vỏ truyền **ba** `--patch` và **thứ tự là bắt buộc**: dock, công tắc, rồi file
+trạng thái. Một lớp chỉ sửa được dòng đã tồn tại khi nó áp, nên đặt file trạng thái lên trước thì
+người dùng không tắt được chính panel của app — mà không có lỗi nào báo.
+
+**Ba lớp bảo vệ, danh sách khoá do đo mà có.** `npm run spike:guard` tắt lần lượt 134 plugin, mỗi
+lần kiểm engine còn trả lời không, đường vào Cài đặt còn không, bật lại có về không. Kết quả: **119
+an toàn, 15 mục có vấn đề** — 3 làm engine chết (`webserver`, `web-startup`, dòng `include`), 7 làm
+mất đường vào Cài đặt (`modules`, `connection`, `client-runtime`, `ui-layout`, `ui-sidebar`,
+`ui-settings`, `ui-settings-plugins`), 2 tắt được mà bật lại không về (`hmr`, `bash-sandbox`), 3 là
+entry engine tự sinh id nên khoá bằng quy tắc. Plugin tự khoá chính nó. Nửa Node từ chối bằng HTTP
+409 nên một request gửi tay cũng không lách được rào ở giao diện.
+
+### Bộ đo tự bắt được ba lỗi của chính nó
+
+Bài học của repo tái diễn ba lần trong một buổi, mỗi lần một dạng **dò chữ thay vì đo dấu vết**:
+
+1. **Viết cứng id đọc từ file bundle.** Id thật trong cây là `include:ui-settings-plugin-inventory`,
+   không phải id trần. Lượt đo đầu chấm FAIL toàn bộ. Bộ đo giờ tra id theo tên gói.
+2. **So chuỗi con.** `…ui-settings` nằm trong `…ui-settings-models`, nên tắt trang Cài đặt vẫn được
+   chấm "an toàn".
+3. **Dò tên gói trong cả trang.** Sửa thành khớp trọn vẫn sai: tên gói của một plugin **đã tắt** còn
+   nằm trong `inject` của những plugin phụ thuộc nó. Dấu vết đúng là `__DSH_BOOT__.entries[].id`,
+   cộng một dấu vết độc lập: `/plugins/<gói>/client.js` trả **404** khi plugin tắt.
+
+Còn một lỗi thứ tư thuộc loại khác: cùng một plugin cho hai kết luận trái nhau giữa lượt chạy đầy đủ
+và lượt chạy riêng, vì bộ đo đọc trang trước khi engine tháo xong fiber. Nay nó **chờ đúng dấu vết
+của chính hành động vừa làm** rồi mới chấm.
+
+### Hai lỗi thật mà 13 mục kiểm xanh không thấy, trang thật thấy ngay
+
+Mở engine lên trong trình duyệt và bấm bằng tay:
+
+- **Bật một dòng mà bundle web đã tắt sẵn thì không được nhớ.** Bộ cấu hình web tắt sẵn hơn hai mươi
+  dòng (`tool-bash`, `tool-fs`, `plan-mode`…). Bản đầu chỉ lưu danh sách "cần tắt", nên "bật" chỉ là
+  xoá tên khỏi danh sách — lớp bundle bên dưới vẫn nói tắt. Sửa: file trạng thái lưu **cả hai
+  hướng**, `disabled: true` và `disabled: false` tường minh. Mục kiểm 9b sinh ra từ lỗi này.
+- **Dòng `include` hiện ra như một plugin** tên "include", không nói gì với người dùng, mà tắt là mất
+  app. Nay ẩn theo `entry.subtree`, vẫn giữ trong danh sách khoá.
+
+Và một sự thật về giao diện, đo được cả hai chiều: **engine gạt ngay, nhưng phần hiện trên màn hình
+chỉ đổi theo sau khi tải lại trang.** Tắt panel thì nó vẫn còn đó, bật thì nó chưa hiện — trong khi
+`client.js` đã đổi 200/404 tức thì. Không nói ra thì người dùng sẽ tưởng công tắc không ăn và bấm
+lại. Nay tab hiện một dòng nhắn kèm nút **Tải lại ngay**, chỉ cho những plugin thật sự có nửa giao
+diện (hỏi bằng `HEAD /plugins/<gói>/client.js` **trước** khi gạt, vì sau khi tắt thì route đó trả
+404 cho mọi gói).
+
+### ĐƯỜNG THOÁT HIỂM
+
+App không mở được sau khi tắt một plugin: mở `%USERPROFILE%\.dsh\harness-desktop-plugins.cordis.yml`,
+xoá hết nội dung, thay bằng đúng hai ký tự `[]`, rồi mở lại app. Mọi plugin trở về mặc định. Đường
+này cũng được in ngay trong tab Bật/tắt.
+
+### Nghiệm thu
+
+`npm run spike:manager` **13/13 đạt** (gồm cả khởi động lại engine thật và request gửi tay vào plugin
+bị khoá). `npm run spike:loader` 13 phép đo về hành vi loader. `npm run spike:guard` 134 entry.
+`npm run spike:dock` và `npm run spike:tools` vẫn **tất cả đạt** — công tắc không làm hỏng panel.
+`npm run typecheck` sạch.
+
+**Chưa tự động hoá:** phần giao diện (tab hiện ra, bấm nút, hộp xác nhận chặn khi chưa tích ô, dòng
+nhắn tải lại) được xác nhận **bằng tay** trên trang thật, chưa có spike Electron riêng như
+`spike:dock`. Việc đó đáng làm ở lượt sau.
+
+### Đổi luật ngôn ngữ, cùng ngày
+
+Chủ dự án chỉ ra: giao diện app là tiếng Anh (của DeepSeek), nên nhãn tiếng Việt chen vào trông chắp
+vá; và chú thích trong mã cũng nên tiếng Anh. **Luật 7 đã đổi** — trước đây ngược lại.
+
+| Thứ này | Trước | Nay |
+|---|---|---|
+| Tên hàm, biến, file, class CSS, trường JSON | tiếng Anh | **tiếng Anh** (không đổi) |
+| Chú thích trong mã | tiếng Việt | **tiếng Anh** |
+| Chữ hiện trên màn hình, câu lỗi | tiếng Việt | **tiếng Anh** |
+| Tài liệu `.md`, câu trả lời cho chủ dự án | tiếng Việt | **tiếng Việt** (không đổi) |
+
+Đã sửa: `CLAUDE.md` (dòng mở đầu + Luật 7), `.claude/rules/naming.md` (bảng, mục "Vì sao", mục ghi
+lại việc đổi luật), `.claude/hooks/session-rules.mjs` (bản rút gọn in ra mỗi phiên). Hook
+`guard-naming.mjs` **không phải sửa** — nó chỉ chặn TÊN tiếng Việt, và điều đó không đổi.
+
+Toàn bộ `plugins/plugin-manager/` cùng phần mới trong `src/main/` đã viết lại theo luật mới. Giao
+diện nay là: tab **On/off**, hai nhóm **Harness Desktop plugins** / **DeepSeek core plugins**, nút
+**Disable** / **Enable**, ô **Search plugins**, hộp xác nhận *"Disable ui-settings-plugin-inventory?"*
+với ô tích *"I understand the app may lose some functionality"*. Xác nhận lại trên trang thật: 134
+dòng, nút của plugin bị khoá vẫn `disabled`, nút xác nhận vẫn bị chặn tới khi tích ô.
+
+**Hai vùng còn tiếng Việt, cố ý:**
+
+- `plugins/dock/` và `src/main/` — chú thích và vài nhãn cũ (`'Đóng panel'`, `'Cho agent điều khiển
+  trình duyệt'`). Dọn dần trong lúc sửa từng file; dịch hàng loạt bằng regex sẽ làm mất đúng phần ghi
+  lại *vì sao* mỗi quyết định được chọn, mà đó là phần giá trị nhất.
+- `scripts/spike-*.mjs` — chữ **in ra terminal** giữ tiếng Việt: đó là báo cáo cho chủ dự án đọc, chỉ
+  tình cờ đi qua stdout. Ngoại lệ này đã ghi vào `.claude/rules/naming.md`.
+
+`npm run typecheck` sạch, `npm run spike:manager` **13/13 đạt** sau khi đổi.
+
+### Toàn bộ app sang tiếng Anh, và một lỗi chủ dự án bắt được trong app thật
+
+Chủ dự án chỉ vào dòng *"Cho agent điều khiển trình duyệt"* trong Cài đặt và nói: app trình bày bằng
+tiếng Anh đi. Đã dịch **mọi chữ người dùng thấy**, không chỉ phần mới:
+
+- `plugins/dock/src/client/` — nhãn tab (`New web page`, `New terminal`), nút (`Close panel`,
+  `Open more`, `Reload`, `Back`, `Forward`, `Reopen`), nhãn trợ năng, placeholder, câu trạng thái
+  (`This folder is empty.`, `The terminal session closed.`), dòng cài đặt của panel, thẻ ảnh chụp.
+- `src/main/` — menu khay hệ thống (`Open data folder`, `Open engine log`, `About`, `Quit`), thông
+  báo Windows (`The agent needs your approval`, `The agent is done`…), trạng thái khay (`Starting…`,
+  `Running`, `Failed to start`).
+- `resources/` — splash, trang lỗi khởi động, trang Giới thiệu; cả `lang="vi"` → `lang="en"`.
+
+**Ba bộ kiểm phải sửa theo, và hai trong ba đã đỏ trước khi sửa** — đúng loại phụ thuộc mà việc đổi
+nhãn làm lộ ra:
+
+- `spike:dock` **dừng giữa đường** ở mục 8 vì nó dò `textContent.includes('Terminal')`, mà nhãn nay
+  là `New terminal`. Nay dò không phân biệt hoa thường theo từ khoá ổn định.
+- `spike:card` đỏ 3/5 mục vì dò `'đang chụp'`, `'không có ảnh'`, `'chụp không được'`.
+- Cả hai đều xanh lại: `spike:dock` **62/62**, `spike:card` **5/5**.
+
+### Lỗi: bật lại một plugin thì không có nút tải lại, và panel không trở về
+
+Chủ dự án thử trong app thật: tắt `include:hdw-dock` → có nút tải lại → bấm → panel mất thật. Nhưng
+**bật lại thì không thấy nút tải lại và panel không trở về.** Mười ba mục kiểm đều xanh khi đó.
+
+Nguyên nhân: tab hỏi *"plugin này có phần hiện trên màn hình không"* bằng cách xem engine có phục vụ
+`client.js` của nó không — và chỉ hỏi **trước** cú gạt. Nhưng engine chỉ phục vụ bundle khi plugin
+đang bật, nên dấu vết đó **đảo chiều** theo hướng gạt:
+
+| | trước cú gạt | sau cú gạt |
+|---|---|---|
+| tắt | 200 (có) | 404 |
+| bật | 404 | 200 (có) |
+
+Hỏi một phía thì chiều tắt đúng, chiều bật luôn ra "không có nửa giao diện" → không lời nhắn, không
+nút tải lại. Sửa: hỏi **cả hai phía**, `servedBefore || servedAfter`. Xác nhận lại trên trang thật cả
+hai chiều, và bấm nút tải lại thì panel trở về (`.hdw-dock` có lại trong DOM, gói dock có lại trong
+`__DSH_BOOT__`).
+
+Thêm mục kiểm **7b** neo đúng sự thật đó (`client.js: 200 → 404 → 200`), nên lần sau ai hỏi một phía
+sẽ đọc thấy lý do ngay tại chỗ. `npm run spike:manager` nay **14/14 đạt**.
+
+**Bài học lặp lại lần thứ ba trong dự án này:** bộ kiểm HTTP xanh hết mà tính năng vẫn hỏng ở chỗ
+người dùng chạm vào. Lần này lỗi nằm trong logic của component, mà không mục kiểm nào chạy component
+đó. Bộ kiểm giao diện tự động cho tab này (kiểu `spike:dock`) là việc còn thiếu, và đây là lần thứ hai
+nó chứng minh mình cần thiết.

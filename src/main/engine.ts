@@ -12,7 +12,15 @@
 import { spawn, execFile, execFileSync, type ChildProcess } from 'node:child_process'
 import { existsSync, createWriteStream, readFileSync, rmSync, writeFileSync, type WriteStream } from 'node:fs'
 import { logShell } from './log.js'
-import { dockPatchPath, dshBinPath, engineLogPath, enginePidPath, nodeExePath } from './paths.js'
+import {
+  dockPatchPath,
+  dshBinPath,
+  engineLogPath,
+  enginePidPath,
+  nodeExePath,
+  pluginManagerPatchPath,
+  pluginStatePath,
+} from './paths.js'
 
 /**
  * Dòng dsh in ra stdout sau khi cây plugin đã settle. Upstream coi đây là tín
@@ -28,6 +36,42 @@ const READY_TIMEOUT_MS = 180_000
 
 /** Số ký tự log giữ lại trong bộ nhớ để hiển thị khi engine chết. */
 const TAIL_LIMIT = 4000
+
+/**
+ * Contents of the state file when nothing is disabled yet: an empty list.
+ *
+ * It has to be valid YAML and a top-level array — the engine treats an unreadable
+ * `--patch` file as a startup failure, so a missing or malformed file means the app
+ * does not open at all.
+ */
+const EMPTY_PLUGIN_STATE = `# Plugins currently turned off in Harness Desktop.
+#
+# The app writes this file when you flip a switch in Settings > Plugins > On/off.
+#
+# ESCAPE HATCH: if the app will not start after you disabled something, delete the
+# contents of this file and replace them with the two characters [] , then reopen
+# the app. Every plugin returns to its default.
+
+[]
+`
+
+/**
+ * Make sure the state file exists before the engine is spawned.
+ *
+ * The engine treats an unreadable `--patch` file as a startup failure, and on the
+ * very first run nobody has created this file yet. Created only when missing — never
+ * overwrites the user's choices.
+ */
+function ensurePluginState(): void {
+  const path = pluginStatePath()
+  if (existsSync(path)) return
+  try {
+    writeFileSync(path, EMPTY_PLUGIN_STATE)
+    logShell(`plugin: created empty state file ${path}`)
+  } catch (error) {
+    logShell(`plugin: could NOT create the state file — ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
 
 /** Engine đang chạy. */
 export interface Engine {
@@ -169,13 +213,33 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   tail = ''
   stopping = false
 
-  // Engine tự spawn thêm tiến trình con — dialog chọn thư mục của Windows là
-  // một — bằng `process.execPath` của chính nó, nên cả cây con cũng chạy trên
-  // node.exe này chứ không quay lại binary Electron.
+  // The engine spawns further child processes of its own — Windows' directory
+  // picker is one — through its own `process.execPath`, so the whole child tree runs
+  // on this node.exe rather than falling back to the Electron binary.
   //
-  // `--profile` và `--patch` là cờ của trình khởi động và phải đứng TRƯỚC
-  // `--port`, thứ được chuyển tiếp cho app. `--patch` bật plugin panel phải.
-  child = spawn(node, [bin, '--profile', 'web', '--patch', dockPatchPath(), '--port', '0'], {
+  // `--profile` and `--patch` are launcher flags and must come BEFORE `--port`,
+  // which is forwarded to the app.
+  //
+  // THREE `--patch` LAYERS, AND THE ORDER IS MANDATORY. The engine applies them in
+  // command-line order, and a layer can only edit rows that already exist when it
+  // applies:
+  //
+  //   1. the right-hand panel (Files / Terminal / Browser)
+  //   2. the plugin on/off switch
+  //   3. the user's own choices — MUST COME LAST
+  //
+  // Put layer 3 earlier and it cannot see the two rows layers 1 and 2 insert, so a
+  // user who disables the panel — or the switch itself — finds them enabled again on
+  // the next launch, with nothing reporting an error. Measured:
+  // `npm run spike:loader`, checks 9 and 10.
+  ensurePluginState()
+  child = spawn(node, [
+    bin, '--profile', 'web',
+    '--patch', dockPatchPath(),
+    '--patch', pluginManagerPatchPath(),
+    '--patch', pluginStatePath(),
+    '--port', '0',
+  ], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })

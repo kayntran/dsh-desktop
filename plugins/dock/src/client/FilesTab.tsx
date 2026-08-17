@@ -88,11 +88,11 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
     try {
       const res = await fetch(`/hdw/fs/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`)
       const body = await res.json() as { entries?: DirEntry[], reason?: string }
-      if (!res.ok) { setErrorText(body.reason ?? `lỗi ${String(res.status)}`); return }
+      if (!res.ok) { setErrorText(body.reason ?? `error ${String(res.status)}`); return }
       setErrorText(undefined)
       setChildren((prev) => ({ ...prev, [path]: sortEntries(body.entries ?? []) }))
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : 'không gọi được engine')
+      setErrorText(error instanceof Error ? error.message : 'could not reach the engine')
     } finally {
       setLoading((prev) => prev.filter((p) => p !== path))
     }
@@ -124,11 +124,11 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
     try {
       const res = await fetch(`/hdw/fs/read?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`)
       const body = await res.json() as FileContent & { reason?: string }
-      if (!res.ok) { setErrorText(body.reason ?? `lỗi ${String(res.status)}`); return }
+      if (!res.ok) { setErrorText(body.reason ?? `error ${String(res.status)}`); return }
       setErrorText(undefined)
       setContent(body)
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : 'không gọi được engine')
+      setErrorText(error instanceof Error ? error.message : 'could not reach the engine')
     }
   }, [root])
 
@@ -148,7 +148,7 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
   }, [root, children, expanded])
 
   if (root === undefined) {
-    return <div className="hdw-empty" hidden={isHidden}>Chưa có phiên nào đang mở, nên chưa biết lấy thư mục nào. Mở một phiên rồi quay lại.</div>
+    return <div className="hdw-empty" hidden={isHidden}>No session is open yet, so there is no folder to show. Start a session and come back.</div>
   }
 
   return (
@@ -157,12 +157,12 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
         <span className="hdw-note" style={{ flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {root}
         </span>
-        <Tooltip label="Tải lại" side="bottom">
+        <Tooltip label="Reload" side="bottom">
           <Button
             variant="ghost"
             size="sm"
             icon={<IconRefreshOutline16 />}
-            aria-label="Tải lại"
+            aria-label="Reload"
             onClick={() => {
               setChildren({})
               setExpanded([])
@@ -172,7 +172,7 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
         </Tooltip>
       </div>
 
-      {errorText !== undefined && <div className="hdw-note">Không đọc được: {errorText}</div>}
+      {errorText !== undefined && <div className="hdw-note">Could not read: {errorText}</div>}
 
       <div className="hdw-tree">
         {rows.map((row) => (
@@ -197,15 +197,15 @@ export function FilesTab({ root, isHidden }: FilesTabProps): React.JSX.Element {
             <span className="hdw-row-name">{row.name}</span>
           </button>
         ))}
-        {rows.length === 0 && loading.length === 0 && <div className="hdw-note">Thư mục trống.</div>}
+        {rows.length === 0 && loading.length === 0 && <div className="hdw-note">This folder is empty.</div>}
       </div>
 
       {current !== undefined && (
         <div className="hdw-viewer">
           {content === undefined
-            ? <div className="hdw-note">Đang mở…</div>
+            ? <div className="hdw-note">Opening…</div>
             : content.binary === true
-              ? <div className="hdw-note">Không xem trước được kiểu file này.</div>
+              ? <div className="hdw-note">No preview for this file type.</div>
               : <FileView content={content} />}
         </div>
       )}
@@ -228,7 +228,7 @@ function FileView({ content }: { content: FileContent }): React.JSX.Element {
         maxLines={lines.length}
       />
       {content.truncated === true && (
-        <div className="hdw-note">File lớn — chỉ hiện phần đầu.</div>
+        <div className="hdw-note">Large file — only the beginning is shown.</div>
       )}
     </>
   )

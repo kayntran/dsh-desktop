@@ -20,10 +20,16 @@
 import { lstatSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { logShell } from './log.js'
-import { dockPluginDir, dshHome } from './paths.js'
+import { dockPluginDir, dshHome, pluginManagerDir } from './paths.js'
 
-/** Tên gói của plugin panel — phải khớp `package.json` và `cordis.patch.yml`. */
-const DOCK_PACKAGE = 'harness-desktop-dock'
+/**
+ * Each plugin's package name and its real directory. The name must match that
+ * plugin's own `package.json` and `cordis.patch.yml`.
+ */
+const PLUGIN_PACKAGES: readonly { name: string, dir: () => string }[] = [
+  { name: 'harness-desktop-dock', dir: dockPluginDir },
+  { name: 'harness-desktop-plugin-manager', dir: pluginManagerDir },
+]
 
 function lstatOrUndefined(path: string): ReturnType<typeof lstatSync> | undefined {
   try {
@@ -63,12 +69,16 @@ function ensureJunction(link: string, target: string): void {
  * Đánh đổi đó chỉ có một chiều đúng.
  */
 export function linkPlugins(): void {
-  try {
-    const dir = join(dshHome(), 'profiles', 'node_modules')
-    mkdirSync(dir, { recursive: true })
-    ensureJunction(join(dir, DOCK_PACKAGE), dockPluginDir())
-    logShell(`plugin: đã nối ${DOCK_PACKAGE} vào ${dir}`)
-  } catch (error) {
-    logShell(`plugin: KHÔNG nối được ${DOCK_PACKAGE} — ${error instanceof Error ? error.message : String(error)}`)
+  const dir = join(dshHome(), 'profiles', 'node_modules')
+  // One `try` per plugin: a broken link costs only that plugin, the rest still get
+  // linked.
+  for (const plugin of PLUGIN_PACKAGES) {
+    try {
+      mkdirSync(dir, { recursive: true })
+      ensureJunction(join(dir, plugin.name), plugin.dir())
+      logShell(`plugin: đã nối ${plugin.name} vào ${dir}`)
+    } catch (error) {
+      logShell(`plugin: KHÔNG nối được ${plugin.name} — ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 }

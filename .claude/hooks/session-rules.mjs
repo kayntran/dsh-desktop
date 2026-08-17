@@ -6,10 +6,14 @@
  */
 const RULES = `LUẬT DỰ ÁN HARNESS DESKTOP (bản rút gọn — bản đầy đủ ở CLAUDE.md):
 
-1. Trả lời bằng tiếng Việt — nhưng ĐẶT TÊN bằng tiếng Anh.
-   Tiếng Việt: chú thích, tài liệu, câu trả lời, chữ hiện trên màn hình.
-   Tiếng Anh: tên hàm, kiểu, biến, hằng, file, trường JSON, đường dẫn HTTP, class CSS.
-   Hệ thống đã chặn cứng bằng hook; bị chặn thì đổi tên, đừng dịch chú thích.
+1. Trả lời chủ dự án bằng tiếng Việt — nhưng MỌI THỨ BÊN TRONG MÃ là tiếng Anh.
+   Tiếng Anh: tên hàm/kiểu/biến/hằng/file, chú thích trong mã, chữ hiện trên màn
+   hình, câu lỗi, trường JSON, đường dẫn HTTP, class CSS. Giao diện của DeepSeek
+   là tiếng Anh, nhãn ta thêm vào phải khớp với nó.
+   Tiếng Việt: tài liệu .md và câu trả lời trong hội thoại.
+   Hook chặn cứng tên tiếng Việt; bị chặn thì đổi tên.
+   plugins/dock/ và src/main/ còn chú thích tiếng Việt từ luật cũ — dọn dần trong
+   lúc sửa từng file, không dịch hàng loạt bằng regex.
 2. KHÔNG ghi vào _upstream_dsh/, node_modules/, engine/node_modules/, runtime/.
    Hệ thống đã chặn cứng. Bị chặn thì dừng lại và hỏi, không tìm đường đi vòng.
 3. Tính năng riêng đặt trong plugins/<tên>/, không rải vào src/main/.

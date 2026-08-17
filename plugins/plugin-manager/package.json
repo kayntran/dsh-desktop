@@ -1,0 +1,26 @@
+{
+  "name": "harness-desktop-plugin-manager",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Turn individual plugins on and off from Settings > Plugins.",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": { "default": "./lib/client.js" },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": { "platform": "web" }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "~18.3.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}

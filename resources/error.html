@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Không khởi động được</title>
+<title>Could not start</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -46,19 +46,19 @@
 </head>
 <body>
 <main>
-  <h1>Không khởi động được engine</h1>
-  <p class="msg" id="msg">Đang tải chi tiết…</p>
+  <h1>The engine could not start</h1>
+  <p class="msg" id="msg">Loading details…</p>
   <div class="row">
-    <button class="primary" onclick="location.href='harness-action:retry'">Thử lại</button>
-    <button onclick="location.href='harness-action:open-log'">Mở file log</button>
+    <button class="primary" onclick="location.href='harness-action:retry'">Retry</button>
+    <button onclick="location.href='harness-action:open-log'">Open the log file</button>
   </div>
   <details id="wrap" hidden>
-    <summary>Chi tiết kỹ thuật</summary>
+    <summary>Technical details</summary>
     <pre id="tail"></pre>
   </details>
 </main>
 <script>
-  // Tiến trình chính gọi hàm này ngay sau khi trang nạp xong.
+  // The main process calls this as soon as the page finishes loading.
   window.__setError = ({ message, tail }) => {
     document.getElementById('msg').textContent = message
     if (tail) {

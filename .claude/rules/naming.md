@@ -1,41 +1,58 @@
 ---
 paths: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs", "**/*.cjs", "**/*.css"]
-description: Tiếng Việt ở đâu, tiếng Anh ở đâu. Danh sách sai-đúng, và cách hook cưỡng chế.
+description: Mã là tiếng Anh, tài liệu là tiếng Việt. Danh sách sai-đúng, và cách hook cưỡng chế.
 ---
 
-# Đặt tên: tiếng Anh. Chú thích: tiếng Việt.
+# Bên trong mã: tiếng Anh. Tài liệu và đối thoại: tiếng Việt.
 
 Một ranh giới, không có vùng xám:
 
 | Thứ này | Ngôn ngữ | Ví dụ |
 |---|---|---|
-| Chú thích trong mã | **Tiếng Việt** | `// Tab nền bị che chứ không bị ẩn — capturePage() treo khi bị ẩn thật.` |
-| Tài liệu `.md` | **Tiếng Việt** | CLAUDE.md, MY-CHANGES.md, chính file này |
-| Chữ hiện trên màn hình | **Tiếng Việt** | `'Đóng panel'`, `aria-label="Địa chỉ"` |
-| Câu lỗi gửi cho người dùng hoặc model | **Tiếng Việt** | `throw new Error('Chỉ cho phép http và https.')` |
 | Tên hàm, kiểu, biến, hằng | **Tiếng Anh** | `restack`, `TabStatus`, `driver`, `MAX_PENDING` |
 | Tên file, tên thư mục | **Tiếng Anh** | `browser-stage.ts`, `net-policy.ts` |
+| **Chú thích trong mã** | **Tiếng Anh** | `// Background tab is covered, not hidden — capturePage() hangs when truly hidden.` |
+| **Chữ hiện trên màn hình** | **Tiếng Anh** | `'Close panel'`, `aria-label="Address"` |
+| **Câu lỗi gửi cho người dùng hoặc model** | **Tiếng Anh** | `throw new Error('Only http and https are allowed.')` |
 | Trường trong JSON đi trên dây | **Tiếng Anh** | `{ t: 'call', id, cmd, params }` |
 | Đường dẫn HTTP, tên query | **Tiếng Anh** | `/hdw/bus/probe?open=…` |
 | Class CSS | **Tiếng Anh** | `.hdw-tabbar`, `.hdw-webview` |
-
-Chú thích tiếng Việt là phần **đúng luật và có giá trị nhất** trong repo này — chúng ghi lại vì sao
-một quyết định được chọn, thứ mà mã không tự nói được. **Đừng bao giờ dịch chúng sang tiếng Anh** để
-"cho đồng bộ".
+| Tài liệu `.md` | **Tiếng Việt** | CLAUDE.md, MY-CHANGES.md, chính file này |
+| Câu trả lời gửi chủ dự án | **Tiếng Việt** | mọi lời giải thích trong hội thoại |
 
 ## Vì sao
 
-Chủ dự án đọc tiếng Việt, nên phần giải thích phải bằng tiếng Việt. Nhưng **tên thì không phải phần
-giải thích** — nó là thứ đứng cạnh tên của thư viện, của framework, của chính engine DeepSeek. Một
-dòng như `const taiXe = clients.find(...)` bắt người đọc nhảy qua nhảy lại giữa hai ngôn ngữ trong
-cùng một biểu thức.
+**Chữ trên màn hình phải khớp với app.** Giao diện do DeepSeek dựng là tiếng Anh — "Settings",
+"General", "Plugins". Một nhãn tiếng Việt chen vào giữa chúng làm app trông chắp vá, đúng loại lệch
+tông mà Luật 4 sinh ra để chống.
+
+**Tên và chú thích phải khớp với mã xung quanh.** Chúng đứng cạnh tên của thư viện, của framework, của
+chính engine DeepSeek. `const taiXe = clients.find(...)` bắt người đọc nhảy qua nhảy lại giữa hai
+ngôn ngữ trong cùng một biểu thức; một chú thích tiếng Việt trên một hàm tiếng Anh cũng vậy.
 
 Ba hệ quả thật, không phải chuyện thẩm mỹ:
 
 - **Không tra cứu được.** `xepChong` không ra kết quả nào trên mạng; `restack` thì có.
-- **Không ai khác đọc nổi.** Một lập trình viên được nhờ xem giúp sẽ đọc code trước, chú thích sau.
+- **Không ai khác đọc nổi.** Một lập trình viên được nhờ xem giúp đọc được cả mã lẫn chú thích.
 - **Trộn với API của thư viện thành cẩu thả.** `stage.setActive(id, traoBanPhim)` — nửa tên hàm
   tiếng Anh, nửa tham số tiếng Việt, trong cùng một lời gọi.
+
+**Phần giải thích cho chủ dự án vẫn là tiếng Việt** — nhưng nó thuộc tài liệu `.md` và hội thoại, chứ
+không nằm trong file mã.
+
+## Một ngoại lệ có chủ ý: chữ mà bộ kiểm in ra
+
+`scripts/spike-*.mjs|cjs` in báo cáo kết quả **cho chủ dự án đọc**, không phải cho người dùng app.
+Phần chữ in ra terminal ở đó giữ **tiếng Việt** — nó là câu trả lời trong hội thoại, chỉ tình cờ đi
+qua stdout. Chú thích trong chính các file đó vẫn theo luật chung.
+
+## Đổi luật ngày 2026-08-17
+
+Trước ngày này, luật ngược lại: chú thích và chữ trên màn hình bằng **tiếng Việt**. Chủ dự án đổi vì
+lý do ở trên. Hệ quả còn tồn: `plugins/dock/` và `src/main/` vẫn còn chú thích và một số nhãn tiếng
+Việt (`'Đóng panel'`, `'Cho agent điều khiển trình duyệt'`). **Dọn dần trong lúc sửa từng file**, đừng
+dịch hàng loạt bằng regex — chú thích ở đó ghi lại vì sao từng quyết định được chọn, và dịch máy sẽ
+làm mất đúng phần đó.
 
 ## Sai — đúng, lấy từ chính dự án này
 

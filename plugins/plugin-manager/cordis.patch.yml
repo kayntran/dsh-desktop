@@ -1,0 +1,13 @@
+# Enables the Harness Desktop plugin switch.
+#
+# `name` must be the PACKAGE NAME, not a file path: the engine resolves the client
+# half through `createRequire(<profile dir>).resolve('<name>/package.json')`. An
+# absolute path still loads the Node half, but the client half is never served and
+# nothing reports an error. The junction inside the profile's resolution tree is
+# built by `src/main/plugin-link.ts`.
+#
+# The `id` here must match `SELF_ID` in `src/guard.ts` — the plugin locks itself,
+# because disabling it throws away the switch used to re-enable everything else.
+- insert:
+    - id: hdw-plugin-manager
+      name: harness-desktop-plugin-manager

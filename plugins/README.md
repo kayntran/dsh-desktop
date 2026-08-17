@@ -34,16 +34,32 @@ export function apply(ctx: Context) {
 
 Mọi thứ đăng ký qua `ctx` — sự kiện, tool, hẹn giờ — được dọn tự động khi plugin gỡ ra.
 
+## Plugin hiện có
+
+| Thư mục | Việc |
+|---|---|
+| `dock/` | Panel bên phải: Files, Terminal, Browser, và bộ tool trình duyệt cho agent |
+| `plugin-manager/` | Tab Cài đặt → Plugins → **Bật/tắt**: gạt từng plugin, có lưu lựa chọn |
+
 ## Nạp vào app
 
-Engine hiện được khởi động ở [../src/main/engine.ts](../src/main/engine.ts) bằng:
+Engine được khởi động ở [../src/main/engine.ts](../src/main/engine.ts) với **ba** lớp `--patch`:
 
 ```ts
-spawn(node, [bin, '--profile', 'web', '--port', '0'], ...)
+spawn(node, [bin, '--profile', 'web',
+  '--patch', dockPatchPath(),           // panel phải
+  '--patch', pluginManagerPatchPath(),  // công tắc bật/tắt
+  '--patch', pluginStatePath(),         // lựa chọn của người dùng — PHẢI ĐỨNG CUỐI
+  '--port', '0'], ...)
 ```
 
-Để nạp plugin, thêm **một tham số** `--patch` trỏ tới file `cordis.patch.yml` của nó. Tham số của
+Để nạp plugin mới, thêm **một tham số** `--patch` trỏ tới file `cordis.patch.yml` của nó. Tham số của
 trình khởi động (`--profile`, `--patch`) phải đứng **trước** tham số của app (`--port`).
+
+**Thứ tự các lớp `--patch` không phải chuyện thẩm mỹ.** Engine áp chúng theo đúng thứ tự trên dòng
+lệnh, và một lớp chỉ sửa được những dòng đã tồn tại khi nó áp. Lớp lưu lựa chọn của người dùng phải
+đứng cuối, nếu không thì các plugin do lớp trước chèn vào sẽ không tắt được — mà không có lỗi nào
+báo. Đã đo: `npm run spike:loader`, phép 9 và phép 10.
 
 Đường dẫn trong file patch phải là đường dẫn tuyệt đối, nên khi đóng gói cần dựng nó lúc chạy từ vị
 trí thật của app chứ không viết cứng.

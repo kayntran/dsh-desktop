@@ -119,7 +119,7 @@ export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorks
   }, [stage, actions])
 
   return (
-    <aside className="hdw-dock" aria-label="Panel công cụ" hidden={!open}>
+    <aside className="hdw-dock" aria-label="Tools panel" hidden={!open}>
       <TabBar
         panes={panes}
         activeId={activeId}
@@ -144,7 +144,7 @@ export function DockPanel({ useDock, actions, stageHolder, useSessions, useWorks
             />
           )
         })}
-        {panes.length === 0 && <div className="hdw-empty">Dải trống. Bấm dấu + để mở thêm.</div>}
+        {panes.length === 0 && <div className="hdw-empty">Nothing open. Use the + button to add a view.</div>}
       </div>
       <Resizer width={width} onResize={actions.setWidth} />
     </aside>

@@ -26,7 +26,7 @@ export interface DockToggleProps {
  */
 export function DockToggle({ useDock, actions }: DockToggleProps): React.JSX.Element {
   const open = useDock((s) => s.open)
-  const label = open ? 'Đóng panel công cụ' : 'Mở panel công cụ'
+  const label = open ? 'Close tools panel' : 'Open tools panel'
 
   return (
     <Tooltip label={label} side="bottom">

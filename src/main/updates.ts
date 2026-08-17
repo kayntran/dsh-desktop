@@ -87,8 +87,8 @@ async function check(): Promise<void> {
     announced = true
     if (!Notification.isSupported()) return
     const notification = new Notification({
-      title: `Đã có ${app.getName()} ${available.version}`,
-      body: 'Bấm để mở trang tải về.',
+      title: `${app.getName()} ${available.version} is available`,
+      body: 'Click to open the download page.',
     })
     notification.on('click', () => { openReleasePage() })
     notification.show()
