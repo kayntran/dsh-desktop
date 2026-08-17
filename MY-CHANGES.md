@@ -899,3 +899,36 @@ Bài học của cả ngày, gọn lại một câu: **mỗi lớp kiểm chỉ 
 tầng tool có cầu giả nên không thấy giao diện; bộ kiểm giao diện có `DSH_HOME` tạm nên không thấy
 luật cấp quyền của engine; bộ kiểm thẻ có React thật nhưng không có engine nào. Chỉ lượt chạy thật
 mới thấy được cả bốn lớp cùng lúc — và nó tìm ra lỗi ở lớp thứ tư trong ba phút.
+
+## 2026-08-17 (tối) — Tám việc đời thường, model thật làm hết
+
+`npm run spike:live` mở rộng thành bộ kịch bản. Mỗi kịch bản là **một câu tiếng Việt người dùng thật
+sẽ gõ**, cố ý không nêu tên tool nào — nếu phải chỉ tận tay thì tính năng chưa dùng được. Phép kiểm
+nhìn vào **kết quả thấy được**: trang nào đang mở, khung nhìn trang tự khai bao nhiêu, ảnh nào hiện
+ra, chữ nào xuất hiện trong câu trả lời.
+
+| Việc | Kết quả |
+|---|---|
+| Đọc một trang và trả lời đúng nội dung | đạt |
+| Gõ vào ô tìm kiếm rồi đọc kết quả | đạt — 5 kết quả thật, có trích nguồn |
+| Bấm liên kết trên trang rồi sang trang mới | đạt — tới đúng `iana.org` |
+| Chụp ảnh trang, ảnh hiện ra cho người dùng | đạt |
+| Xem trang ở cỡ điện thoại rồi chụp lại | đạt — trang tự khai khung nhìn 375px |
+| Mở nhiều tab và quản lý chúng | đạt |
+| Gỡ lỗi: xem trang gọi request gì | đạt |
+| Cuộn xuống và đọc phần dưới | đạt |
+
+Ảnh từng kịch bản lưu ra thư mục tạm để nhìn bằng mắt (`HDW_ANH=<thư mục>`).
+
+### Hai phép kiểm bản đầu SAI, và cách chúng suýt xanh oan
+
+1. **"Cỡ điện thoại" đo bề rộng tấm ảnh.** Ảnh chụp ra theo pixel vật lý nên nhân thêm tỉ lệ màn
+   hình: khung nhìn 375px cho ra tấm ảnh rộng 516px — trông chẳng giống điện thoại chút nào, mà vẫn
+   lọt qua ngưỡng. Sửa: hỏi **chính trang** `innerWidth` của nó.
+2. **"Nhiều tab" đếm số tab.** Panel trình duyệt thuộc về **cửa sổ**, không thuộc về phiên, nên bấm
+   "New Session" không dọn tab — tab của kịch bản trước còn nguyên và phép đếm xanh nhờ chúng. Sửa:
+   đòi đúng hai địa chỉ được yêu cầu, và dọn panel trước mỗi kịch bản.
+
+Điểm 2 cũng là một hành vi đáng biết của sản phẩm, không chỉ của bài kiểm: **tab agent mở sẽ ở lại
+qua các phiên hội thoại.** Giống một trình duyệt bình thường, nhưng nghĩa là chúng dồn dần và người
+dùng phải tự đóng. Chưa sửa — đó là một quyết định về hành vi, không phải một lỗi.
