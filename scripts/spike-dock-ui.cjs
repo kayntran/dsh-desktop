@@ -1426,6 +1426,32 @@ async function main() {
       const closed = await runTool('browser_tabs', { action: 'close' })
       record('20o. browser_tabs đóng được tab',
         closed.body.ok === true, brief(closed))
+
+      // --- 20p. PHÍM GỬI TỚI TRANG PHẢI MANG ĐÚNG TÊN PHÍM
+      //
+      // Lượt chạy thật trên Google Sheets tố ra chỗ này: agent gõ được chữ vào ô
+      // A1 nhưng KHÔNG chốt được ô, và nó tự đo ra lý do — sự kiện keydown tới
+      // trang với `key` và `code` RỖNG. Form thường vẫn submit được vì chúng đọc
+      // trường `keyCode` kiểu cũ, nên lỗi này ẩn suốt: mọi mục kiểm trước đều
+      // dùng form thường.
+      //
+      // Đây là phép đo, không phải phỏng đoán: cài bộ nghe trong trang, gửi
+      // Enter qua đúng đường mà agent đi, rồi đọc lại xem trang nhận được gì.
+      await runTool('browser_tabs', { action: 'open', url: 'https://example.com/' })
+      await cho(3000)
+      await runTool('browser_javascript', {
+        code: `(() => { window.__keys = []; addEventListener('keydown',`
+          + ` e => window.__keys.push({ key: e.key, code: e.code, which: e.keyCode }), true); return 'armed' })()`,
+      })
+      await runTool('browser_computer', { action: 'key', text: 'Enter' })
+      await cho(600)
+      const keyLog = await runTool('browser_javascript', { code: 'JSON.stringify(window.__keys)' })
+      let keys = []
+      try { keys = JSON.parse(String(keyLog.body.value?.value ?? '[]')) } catch { /* để rỗng */ }
+      const first = keys[0] ?? {}
+      record('20p. phím gửi vào trang mang đúng key và code, không rỗng',
+        first.key === 'Enter' && first.code === 'Enter' && first.which === 13,
+        keys.length === 0 ? 'trang KHÔNG nhận được phím nào' : JSON.stringify(first))
     }
 
     shotLink.stopShotLink()

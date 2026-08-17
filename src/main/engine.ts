@@ -89,11 +89,23 @@ const MARK_TOLERANCE_MS = 5_000
 /** Thời điểm hệ điều hành tạo tiến trình mang PID này, hoặc undefined nếu không tra được. */
 function processCreationTime(pid: number): number | undefined {
   try {
-    const query = `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction Stop).CreationDate.ToFileTimeUtc()`
+    // Hỏi bằng HAI câu, và kiểm null trước khi gọi phương thức.
+    //
+    // Bản một câu `(Get-CimInstance ...).CreationDate.ToFileTimeUtc()` hỏng ở
+    // đúng trường hợp thường gặp nhất: tiến trình engine của lần trước đã chết
+    // rồi. Lúc đó `Get-CimInstance` không lỗi — nó trả về RỖNG — nên
+    // `-ErrorAction Stop` không cứu được gì, và PowerShell in ra sáu dòng đỏ
+    // *"You cannot call a method on a null-valued expression"* ngay giữa màn
+    // hình khởi động của người dùng. Hàm vẫn trả đúng `undefined`, tức là app
+    // vẫn xử lý đúng; chỉ có người dùng là bị doạ.
+    const query = '$p = Get-CimInstance Win32_Process -Filter "ProcessId=' + String(pid) + '"'
+      + ' -ErrorAction SilentlyContinue; if ($p) { $p.CreationDate.ToFileTimeUtc() }'
     const output = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], {
       encoding: 'utf8',
       timeout: 10_000,
       windowsHide: true,
+      // Không cho stderr của PowerShell chảy thẳng ra terminal của người dùng.
+      stdio: ['ignore', 'pipe', 'pipe'],
     }).trim()
     const fileTime = Number(output)
     if (!Number.isFinite(fileTime) || fileTime <= 0) return undefined

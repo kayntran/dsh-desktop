@@ -988,3 +988,51 @@ Anh; đã nhận cả hai ngôn ngữ.
 **đo lời văn của model thì mong manh, đo dấu vết nó để lại thì chắc.** Địa chỉ trang đang mở, tấm
 ảnh trên màn hình, khung nhìn trang tự khai — ba thứ đó không phụ thuộc model diễn đạt thế nào, và
 không mục nào dựa vào chúng bị chấm sai lần nào.
+
+## 2026-08-17 (đêm) — Google Docs vào được, Sheets thì chưa; và một lỗi in ra terminal
+
+### Thừa hưởng phiên đăng nhập của người dùng, bằng một BẢN CHÉP hồ sơ
+
+Kho cookie của panel (`persist:hdw-browser`) nằm trong thư mục dữ liệu của app thật. Bài kiểm chạy
+bằng binary electron trần nên Electron đặt tên thư mục khác — kho cookie TRẮNG. Đó là lý do mọi lượt
+chạy trước đều gặp trang đăng nhập Google trong khi chủ dự án đã đăng nhập sẵn trong panel.
+
+Trỏ thẳng vào hồ sơ thật thì hỏng theo kiểu tệ hơn: hai tiến trình Electron dùng chung một thư mục
+hồ sơ sẽ phá hỏng nó. Nên bài kiểm **chép** phân vùng cookie và `Local State` (chứa khoá giải mã
+cookie — thiếu nó thì cookie chép sang chỉ là rác) ra một thư mục tạm. Đo được: bản chép có đủ 19
+cookie `.google.com`, gồm `SID`, `HSID`, `SAPISID`.
+
+Một lưu ý về thời điểm: Chromium ghi cookie xuống đĩa theo đợt, nên **phải đóng app trước khi chép**
+thì phiên vừa đăng nhập mới có trong bản chép.
+
+| Việc | Kết quả |
+|---|---|
+| Google Docs: mở danh sách tài liệu bằng tài khoản thật | **đạt** |
+| Google Sheets: tạo bảng tính, gõ vào ô A1 | **chưa được** — gõ được chữ, không chốt được ô |
+
+### Sheets: agent chẩn đoán sai, và phép đo bác bỏ
+
+Agent tự kết luận *"phím tới trang nhưng `key` và `code` rỗng nên Sheets không nhận diện được
+Enter"*. Đã thêm mục kiểm 20p để đo thẳng: cài bộ nghe trong trang, gửi Enter qua đúng đường agent
+đi, đọc lại. Kết quả: `{"key":"Enter","code":"Enter","which":13}` — **phím hoàn toàn đúng.**
+
+Giả thuyết còn lại, chưa loại trừ: lệnh `type` dùng `insertText` chứ không gõ từng phím thật.
+`insertText` đặt chữ vào ô nhưng KHÔNG sinh sự kiện bàn phím, nên một ứng dụng theo dõi từng phím
+như Sheets không biết ô đang được soạn, và Enter sau đó bị hiểu là xuống dòng thay vì chốt ô. Với ô
+nhập thường thì không sao — mọi mục kiểm trước đều dùng ô thường, nên chỗ này ẩn suốt.
+
+Chưa sửa: sửa đúng nghĩa là thêm chế độ gõ từng phím thật, và đó là một quyết định về đánh đổi (chậm
+hơn nhiều, và dễ sai trên bàn phím không phải tiếng Anh) chứ không phải một lỗi rõ ràng.
+
+### Lỗi PowerShell in ra terminal lúc khởi động
+
+`reapOrphanEngine` hỏi thời điểm tạo tiến trình bằng một câu PowerShell viết liền:
+`(Get-CimInstance ...).CreationDate.ToFileTimeUtc()`. Khi engine của lần trước đã chết —
+tức là trường hợp thường gặp nhất — `Get-CimInstance` không lỗi mà trả về RỖNG, nên `-ErrorAction
+Stop` không cứu được gì và PowerShell in sáu dòng đỏ *"You cannot call a method on a null-valued
+expression"* ngay giữa màn hình khởi động.
+
+App vẫn xử lý đúng (hàm trả `undefined`, không diệt nhầm tiến trình nào); chỉ có người dùng là bị
+doạ. Sửa: tách thành hai câu có kiểm null, và không cho stderr của PowerShell chảy thẳng ra terminal.
+
+Dòng `Message 2 rejected by interface blink.mojom.Widget` là cảnh báo nội bộ của Chromium, vô hại.
