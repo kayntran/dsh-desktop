@@ -108,7 +108,7 @@ export function registerPtyRoutes(ctx: Context): () => void {
       }
       term = spawn(shell, [], options)
     } catch (error) {
-      ws.send(JSON.stringify({ t: 'error', reason: error instanceof Error ? error.message : 'không mở được shell' }))
+      ws.send(JSON.stringify({ t: 'error', reason: error instanceof Error ? error.message : 'could not open a shell' }))
       ws.close()
       return
     }

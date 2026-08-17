@@ -1118,7 +1118,7 @@ async function main() {
 
     const cam = await hoiThu(baseUrl, `?eval=${encodeURIComponent('document.title')}&tab_id=p-noibo`)
     record('17b. agent KHÔNG đọc được trang đang mở địa chỉ nội bộ',
-      cam.status === 503 && String(cam.body.reason ?? '').includes('nội bộ'),
+      cam.status === 503 && String(cam.body.reason ?? '').includes('private address'),
       `mã ${String(cam.status)} — ${String(cam.body.reason ?? JSON.stringify(cam.body))}`)
   }
 
@@ -1209,7 +1209,7 @@ async function main() {
     const clickWhenOff = await call('computer', { action: 'left_click', coordinate: [10, 10] })
     const readWhenOff = await call('tabs_list', {})
     record('18f. tắt công tắc thì CHẶN thao tác nhưng VẪN cho đọc',
-      clickWhenOff.status === 503 && String(clickWhenOff.body.reason ?? '').includes('TẮT')
+      clickWhenOff.status === 503 && String(clickWhenOff.body.reason ?? '').includes('is OFF')
       && readWhenOff.body.ok === true,
       `bấm → ${String(clickWhenOff.status)}; đọc → ${String(readWhenOff.status)}`)
   }
@@ -1405,7 +1405,7 @@ async function main() {
       // duy nhất khiến thẻ giao diện trở thành đường DUY NHẤT ảnh ra màn hình.
       record('20l. model không đọc được ảnh thì lệnh nói rõ, không im lặng',
         shotTool.body.ok === true && meta.seen_by_model === false
-        && String(shotTool.body.text ?? '').includes('không đọc được ảnh'),
+        && String(shotTool.body.text ?? '').includes('cannot read images'),
         `seen_by_model=${String(meta.seen_by_model)}`)
 
       // Đổi khung nhìn ĐỂ SAU CÙNG, và chụp lại ngay sau đó: hai lệnh này phải

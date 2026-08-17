@@ -413,7 +413,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
         void el.loadURL(BLANK_PAGE)
         patchStatus({
           url: BLANK_PAGE,
-          title: 'Đã chặn: chuyển hướng tới địa chỉ nội bộ',
+          title: 'Blocked: redirect to a private address',
           loading: false,
         })
         return
@@ -550,7 +550,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
     evaluate: async (id, code) => {
       const tab = tabs.get(id)
-      if (tab === undefined) throw new Error(`không có tab "${id}"`)
+      if (tab === undefined) throw new Error(`there is no tab "${id}"`)
       return tab.el.executeJavaScript(code)
     },
 
@@ -558,7 +558,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
     insertText: async (id, text) => {
       const tab = tabs.get(id)
-      if (tab === undefined) throw new Error(`không có tab "${id}"`)
+      if (tab === undefined) throw new Error(`there is no tab "${id}"`)
       await tab.el.insertText(text)
     },
 
@@ -593,7 +593,7 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
 
     revealForInput: async (id) => {
       const tab = tabs.get(id)
-      if (tab === undefined) throw new Error(`không có tab "${id}"`)
+      if (tab === undefined) throw new Error(`there is no tab "${id}"`)
       const prevActive = activeId
       const wasSunk = root.style.zIndex === '-1'
 

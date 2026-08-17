@@ -55,19 +55,19 @@ function readString(source: Record<string, unknown>, key: string): string | unde
 function show(handlers: NotifierHandlers, title: string, body: string): void {
   // Đang nhìn màn hình mà toast nhảy ra là phiền; UI đã hiện việc đó rồi.
   if (handlers.isWindowActive()) {
-    logShell(`notifier: bỏ qua "${title}" vì cửa sổ đang hiện`)
+    logShell(`notifier: skipped "${title}" because the window is showing`)
     return
   }
   if (!Notification.isSupported()) {
-    logShell(`notifier: hệ điều hành không hỗ trợ thông báo`)
+    logShell(`notifier: the operating system does not support notifications`)
     return
   }
   const notification = new Notification({ title, body })
   notification.on('click', () => { handlers.reveal() })
-  notification.on('show', () => { logShell(`notifier: đã hiện "${title}"`) })
-  notification.on('failed', (_event, error) => { logShell(`notifier: hiện thất bại "${title}" — ${error}`) })
+  notification.on('show', () => { logShell(`notifier: showed "${title}"`) })
+  notification.on('failed', (_event, error) => { logShell(`notifier: failed to show "${title}" — ${error}`) })
   notification.show()
-  logShell(`notifier: yêu cầu hiện "${title}"`)
+  logShell(`notifier: asked to show "${title}"`)
 }
 
 /** Frame trên luồng mux: những việc agent cần người dùng trả lời. */
@@ -124,14 +124,14 @@ function connect(
   try {
     socket = new WebSocket(url)
   } catch (error) {
-    logShell(`notifier: không mở được ${url} — ${String(error)}`)
+    logShell(`notifier: could not open ${url} — ${String(error)}`)
     return
   }
   sockets.push(socket)
 
   socket.addEventListener('open', () => {
     attempt = 0
-    logShell(`notifier: đã nối ${url}`)
+    logShell(`notifier: connected to ${url}`)
   })
 
   socket.addEventListener('message', (event) => {
@@ -150,7 +150,7 @@ function connect(
   const retry = (): void => {
     sockets = sockets.filter((item) => item !== socket)
     if (!running) return
-    logShell(`notifier: mất kết nối ${url}, nối lại (lần ${attempt + 1})`)
+    logShell(`notifier: lost the connection to ${url}, reconnecting (attempt ${attempt + 1})`)
     const delay = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)] ?? 15_000
     const timer = setTimeout(() => {
       timers = timers.filter((item) => item !== timer)
@@ -175,7 +175,7 @@ export function startNotifier(baseUrl: string, handlers: NotifierHandlers): void
   running = true
   busySessions.clear()
   erroredSessions.clear()
-  logShell(`notifier: bắt đầu theo dõi ${baseUrl} (WebSocket khả dụng: ${typeof WebSocket})`)
+  logShell(`notifier: started watching ${baseUrl} (WebSocket available: ${typeof WebSocket})`)
   const wsBase = baseUrl.replace(/^http:/, 'ws:')
   connect(`${wsBase}/api/events.mux`, (frame) => { handleMuxFrame(frame, handlers) })
   connect(`${wsBase}/api/events.host`, (frame) => { handleHostFrame(frame, handlers) })

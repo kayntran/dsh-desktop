@@ -111,7 +111,7 @@ function connect(baseUrl: string): void {
 
   ws.addEventListener('open', () => {
     attempt = 0
-    logShell('shot-link: đã nối tới engine')
+    logShell('shot-link: connected to the engine')
   })
 
   ws.addEventListener('message', (event) => {

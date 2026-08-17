@@ -50,7 +50,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => { revealWindow() })
 
   void app.whenReady().then(async () => {
-    logShell(`app: khởi động ${app.getName()} ${app.getVersion()} (đã đóng gói: ${String(app.isPackaged)})`)
+    logShell(`app: starting ${app.getName()} ${app.getVersion()} (packaged: ${String(app.isPackaged)})`)
     // Lần chạy trước có thể bị tắt cứng và để lại engine giữ cổng.
     reapOrphanEngine()
     // Phải xong TRƯỚC khi engine lên: engine quét cây plugin lúc khởi động.

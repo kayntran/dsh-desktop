@@ -173,7 +173,7 @@ export function guardWebviews(win: BrowserWindow): void {
     if (engineOrigin === undefined) { callback({}); return }
     try {
       if (new URL(details.url).origin === engineOrigin) {
-        logShell(`chặn tab web đi vào giao diện engine: ${details.url}`)
+        logShell(`blocked a web tab from entering the engine UI: ${details.url}`)
         callback({ cancel: true })
         return
       }

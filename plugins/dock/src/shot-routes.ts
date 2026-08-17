@@ -125,14 +125,14 @@ export function registerShotRoutes(ctx: Context): { link: ShotLink, dispose: () 
             })
             return
           }
-          settle(frame.id, false, new Error(String(frame.reason ?? 'lớp vỏ báo lỗi')))
+          settle(frame.id, false, new Error(String(frame.reason ?? 'the shell reported an error')))
         })
 
         ws.on('close', () => {
           clients.delete(ws)
           if (shell === ws) {
             shell = undefined
-            failAll('lớp vỏ đã đóng kết nối giữa chừng')
+            failAll('the shell closed the connection mid-flight')
           }
           pickShell()
         })
@@ -147,17 +147,17 @@ export function registerShotRoutes(ctx: Context): { link: ShotLink, dispose: () 
       const target = shell
       if (target === undefined || target.readyState !== target.OPEN) {
         throw new Error(
-          'lớp vỏ app chưa nối vào nên chưa chụp được ảnh. '
-          + 'Chỉ chụp được khi chạy trong app Harness Desktop, không chạy được ở trình duyệt thường.',
+          'the app shell is not connected, so no screenshot can be taken. '
+          + 'Screenshots only work inside the Harness Desktop app, not in an ordinary browser.',
         )
       }
-      if (pending.size >= MAX_PENDING) throw new Error(`quá ${String(MAX_PENDING)} lệnh chụp đang chờ`)
+      if (pending.size >= MAX_PENDING) throw new Error(`more than ${String(MAX_PENDING)} screenshot requests are already waiting`)
 
       nextId += 1
       const id = nextId
       return new Promise<Shot>((resolve, reject) => {
         const timer = setTimeout(() => {
-          settle(id, false, new Error(`chụp ảnh quá ${String(timeoutMs)}ms không có trả lời`))
+          settle(id, false, new Error(`the screenshot got no answer within ${String(timeoutMs)}ms`))
         }, timeoutMs)
         timer.unref()
         pending.set(id, { resolve, reject, timer })
@@ -170,8 +170,8 @@ export function registerShotRoutes(ctx: Context): { link: ShotLink, dispose: () 
     link,
     dispose: () => {
       off()
-      failAll('plugin đã gỡ')
-      for (const ws of clients) ws.close(CLOSE_FINAL, 'plugin đã gỡ')
+      failAll('the plugin was unloaded')
+      for (const ws of clients) ws.close(CLOSE_FINAL, 'the plugin was unloaded')
       clients.clear()
       shell = undefined
       wss.close()

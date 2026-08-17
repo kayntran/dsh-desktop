@@ -67,9 +67,9 @@ export function dshVersion(): string {
     const manifest = join(engineRoot(), 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
     const parsed: unknown = JSON.parse(readFileSync(manifest, 'utf8'))
     const version = (parsed as { version?: unknown }).version
-    return typeof version === 'string' ? version : 'không rõ'
+    return typeof version === 'string' ? version : 'unknown'
   } catch {
-    return 'không rõ'
+    return 'unknown'
   }
 }
 
@@ -85,7 +85,7 @@ export function nodeVersion(): string {
       windowsHide: true,
     }).trim()
   } catch {
-    return 'không rõ'
+    return 'unknown'
   }
 }
 

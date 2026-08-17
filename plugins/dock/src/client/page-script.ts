@@ -213,7 +213,7 @@ export const PAGE_SCRIPT = `(() => {
   // ------------------------------------------------------------- nhắm đích
 
   function describe(el) {
-    if (!el) return 'không có gì'
+    if (!el) return 'nothing'
     var id = el.id ? '#' + el.id : ''
     var cls = typeof el.className === 'string' && el.className
       ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.')
@@ -223,9 +223,9 @@ export const PAGE_SCRIPT = `(() => {
 
   function locate(ref) {
     var el = state.refs.get(ref)
-    if (!el) return { error: 'không có ' + ref + ' — hãy đọc lại trang để lấy mã mới' }
+    if (!el) return { error: 'no ' + ref + ' — read the page again for fresh codes' }
     if (!el.isConnected) {
-      return { error: ref + ' đã biến mất khỏi trang (trang đã đổi nội dung) — hãy đọc lại' }
+      return { error: ref + ' is gone from the page (its content changed) — read it again' }
     }
 
     // \`instant\` chứ không phải mặc định: trang nào đặt \`scroll-behavior: smooth\`
@@ -245,7 +245,7 @@ export const PAGE_SCRIPT = `(() => {
     }
     if (!best) best = el.getBoundingClientRect()
     if (best.width <= 0 || best.height <= 0) {
-      return { error: ref + ' không chiếm chỗ nào trên màn hình (đang bị ẩn?)' }
+      return { error: ref + ' takes up no space on screen (is it hidden?)' }
     }
 
     var x = Math.round(best.left + best.width / 2)
@@ -269,7 +269,7 @@ export const PAGE_SCRIPT = `(() => {
 
   function focus(ref) {
     var el = state.refs.get(ref)
-    if (!el) return { error: 'không có ' + ref }
+    if (!el) return { error: 'no ' + ref }
     try { el.focus({ preventScroll: true }) } catch (e) { /* phần tử không nhận tiêu điểm */ }
     return { ok: document.activeElement === el }
   }
@@ -278,8 +278,8 @@ export const PAGE_SCRIPT = `(() => {
 
   function setValue(ref, value) {
     var el = state.refs.get(ref)
-    if (!el) return { error: 'không có ' + ref + ' — hãy đọc lại trang' }
-    if (!el.isConnected) return { error: ref + ' đã biến mất khỏi trang' }
+    if (!el) return { error: 'no ' + ref + ' — read the page again' }
+    if (!el.isConnected) return { error: ref + ' is gone from the page' }
 
     var tag = el.tagName.toLowerCase()
     var type = (el.getAttribute('type') || '').toLowerCase()
@@ -300,7 +300,7 @@ export const PAGE_SCRIPT = `(() => {
           break
         }
       }
-      if (!matched) return { error: 'không có lựa chọn nào khớp "' + value + '"' }
+      if (!matched) return { error: 'no option matches "' + value + '"' }
       el.dispatchEvent(new Event('change', { bubbles: true }))
       return { ok: true, value: el.value }
     }
@@ -329,7 +329,7 @@ export const PAGE_SCRIPT = `(() => {
       return { ok: true, value: el.value }
     }
 
-    return { error: 'không điền được vào <' + tag + '>' }
+    return { error: 'cannot fill a <' + tag + '>' }
   }
 
   // ------------------------------------------------------------------ mạng

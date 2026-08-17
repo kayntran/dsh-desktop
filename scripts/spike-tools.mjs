@@ -175,7 +175,7 @@ record('1. đăng ký đủ và đúng tên các tool',
     { action: 'open', url: 'http://192.168.1.1/' }, exec))
   const leaked = calls.some((c) => c.cmd === 'open_tab')
   record('3. tool từ chối địa chỉ nội bộ và KHÔNG gửi nó xuống dưới',
-    denied.includes('nội bộ') && !leaked,
+    denied.includes('private address') && !leaked,
     `${denied.slice(0, 60)}; đã gửi xuống cầu=${String(leaked)}`)
 }
 
@@ -205,7 +205,7 @@ record('1. đăng ký đủ và đúng tên các tool',
   const script = await errorOf(() => byName.get('browser_tabs').execute(
     { action: 'open', url: 'javascript:alert(1)' }, exec))
   record('4b. thiếu scheme vẫn không lọt được địa chỉ nội bộ hay javascript:',
-    bare.includes('nội bộ') && local.includes('nội bộ') && script !== ''
+    bare.includes('private address') && local.includes('private address') && script !== ''
     && !calls.some((c) => c.cmd === 'open_tab'),
     `trần="${bare.slice(0, 30)}"; localhost="${local.slice(0, 30)}"; js="${script.slice(0, 30)}"`)
 
@@ -268,7 +268,7 @@ record('1. đăng ký đủ và đúng tên các tool',
   const hasImageForModel = modelBlocks.some((b) => b.type === 'image')
   record('7c. model KHÔNG đọc được ảnh thì không đính ảnh vào, và nói rõ vì sao',
     value.seen_by_model === false && !hasImageForModel
-    && modelBlocks[0].text.includes('không đọc được ảnh'),
+    && modelBlocks[0].text.includes('cannot read images'),
     `seen_by_model=${String(value.seen_by_model)}; khối ảnh cho model=${String(hasImageForModel)}`)
 
   // 7d. Dữ liệu đi kèm kết quả phải ĐỦ cho thẻ giao diện dựng lại tấm ảnh.

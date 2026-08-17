@@ -50,8 +50,8 @@ export function createStageHolder(): StageHolder {
     require: () => {
       if (holder.current === undefined) {
         throw new Error(
-          'Chưa có panel trình duyệt nào được dựng trong cửa sổ app. '
-          + 'Hãy mở panel bên phải (nút ở đầu phiên) rồi thử lại.',
+          'No browser panel has been built in the app window yet. '
+          + 'Open the right-hand panel (the button at the top of the session) and try again.',
         )
       }
       return holder.current

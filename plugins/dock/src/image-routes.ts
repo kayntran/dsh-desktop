@@ -68,7 +68,7 @@ export function registerImageRoutes(ctx: Context): () => void {
     kind: 'exact',
     path: '/hdw/image',
     handler: async (req: IncomingMessage, res: ServerResponse) => {
-      if (!isTrustedRequest(req)) { fail(res, 403, 'request không qua được rào tin cậy'); return }
+      if (!isTrustedRequest(req)) { fail(res, 403, 'the request did not pass the trust gate'); return }
 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
       const id = url.searchParams.get('id')
@@ -77,18 +77,18 @@ export function registerImageRoutes(ctx: Context): () => void {
       const width = positiveInt(url.searchParams.get('w'))
       const height = positiveInt(url.searchParams.get('h'))
 
-      if (id === null || id === '') { fail(res, 400, 'thiếu id'); return }
-      if (!MEDIA_TYPES.has(mediaType)) { fail(res, 400, `kiểu ảnh không nhận: ${mediaType}`); return }
+      if (id === null || id === '') { fail(res, 400, 'missing id'); return }
+      if (!MEDIA_TYPES.has(mediaType)) { fail(res, 400, `unsupported image type: ${mediaType}`); return }
       if (bytes === undefined || width === undefined || height === undefined) {
         // Kho đính kèm đối chiếu byte với đúng tham chiếu đã ghi, nên nó cần đủ
         // cả năm trường. Thiếu thì từ chối ở đây cho câu lỗi còn đọc được, thay
         // vì để nó vỡ sâu bên trong.
-        fail(res, 400, 'thiếu bytes/w/h')
+        fail(res, 400, 'missing bytes/w/h')
         return
       }
 
       const store = ctx.get('attachments')
-      if (store === undefined) { fail(res, 503, 'engine không có kho đính kèm'); return }
+      if (store === undefined) { fail(res, 503, 'the engine has no attachment store'); return }
 
       const ref = {
         attachmentId: id, mediaType, bytes, width, height,

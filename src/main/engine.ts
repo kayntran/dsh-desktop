@@ -202,11 +202,11 @@ export function reapOrphanEngine(): void {
 export async function startEngine(onExit: (tail: string) => void): Promise<Engine> {
   const bin = dshBinPath()
   if (!existsSync(bin)) {
-    throw new EngineStartError(`Không tìm thấy engine dsh tại:\n${bin}`, '')
+    throw new EngineStartError(`The dsh engine was not found at:\n${bin}`, '')
   }
   const node = nodeExePath()
   if (!existsSync(node)) {
-    throw new EngineStartError(`Không tìm thấy Node runtime tại:\n${node}`, '')
+    throw new EngineStartError(`The Node runtime was not found at:\n${node}`, '')
   }
 
   logStream = createWriteStream(engineLogPath(), { flags: 'w' })
@@ -245,10 +245,10 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   })
 
   const pid = child.pid
-  if (pid === undefined) throw new EngineStartError('Không spawn được tiến trình engine.', '')
+  if (pid === undefined) throw new EngineStartError('The engine process could not be spawned.', '')
   const mark: EngineMark = { pid, spawnedAt: Date.now() }
   writeFileSync(enginePidPath(), JSON.stringify(mark))
-  logShell(`engine: đã spawn pid ${String(pid)} — ${node} chạy ${bin}`)
+  logShell(`engine: spawned pid ${String(pid)} — ${node} running ${bin}`)
 
   const collect = (chunk: string): void => {
     logStream?.write(chunk)
@@ -261,7 +261,7 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   let ready = false
   const url = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new EngineStartError(`Engine không phản hồi sau ${READY_TIMEOUT_MS / 1000} giây.`, tail))
+      reject(new EngineStartError(`The engine did not answer within ${READY_TIMEOUT_MS / 1000} seconds.`, tail))
     }, READY_TIMEOUT_MS)
     const settle = (fn: () => void): void => { clearTimeout(timer); fn() }
 
@@ -281,24 +281,24 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     child?.on('exit', (code) => {
       if (ready) {
         if (stopping) return
-        logShell(`engine: dừng ngoài ý muốn với mã ${String(code)}`)
+        logShell(`engine: exited unexpectedly with code ${String(code)}`)
         onExit(tail)
         return
       }
-      settle(() => reject(new EngineStartError(`Engine dừng sớm với mã ${String(code)}.`, tail)))
+      settle(() => reject(new EngineStartError(`The engine exited early with code ${String(code)}.`, tail)))
     })
     child?.on('error', (error) => {
       if (ready) return
       settle(() => reject(new EngineStartError(error.message, tail)))
     })
   }).catch((error: unknown) => {
-    logShell(`engine: khởi động thất bại — ${error instanceof Error ? error.message : String(error)}`)
+    logShell(`engine: failed to start — ${error instanceof Error ? error.message : String(error)}`)
     killTree(pid)
     rmSync(enginePidPath(), { force: true })
     throw error
   })
 
-  logShell(`engine: sẵn sàng tại ${url}`)
+  logShell(`engine: ready at ${url}`)
   return { url, pid }
 }
 

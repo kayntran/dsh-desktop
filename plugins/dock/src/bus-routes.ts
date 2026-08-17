@@ -1,35 +1,36 @@
 /**
- * Cầu nối giữa nửa Node của plugin và nửa giao diện: WebSocket `/hdw/bus`.
+ * The bridge between the plugin's Node half and its client half: the `/hdw/bus`
+ * WebSocket.
  *
- * Vì sao cần: tool của agent sẽ chạy ở nửa Node (trong tiến trình engine), còn
- * trang web thì sống trong nửa giao diện (trong cửa sổ app). Hai nơi đó không
- * gọi thẳng nhau được. Cầu này cho nửa Node **nhờ** nửa giao diện làm một việc
- * rồi chờ kết quả.
+ * Why it is needed: the agent's tools run in the Node half (inside the engine
+ * process), while the web page lives in the client half (inside the app window).
+ * Those two cannot call each other directly. This bridge lets the Node half **ask**
+ * the client half to do something and wait for the result.
  *
- * Chiều gọi là **một chiều**: Node hỏi, giao diện trả lời. Giao diện không tự
- * bắt Node làm gì.
+ * Calls go **one way**: Node asks, the client answers. The client never makes Node
+ * do anything.
  *
- * ## Ai lái khi có nhiều cửa sổ nối vào
+ * ## Who drives when several windows connect
  *
- * **Cái nối đầu tiên, và giữ vô lăng cho tới khi socket của nó đóng.**
+ * **The first one to connect, and it keeps the wheel until its socket closes.**
  *
- * Không phải "cái mới nhất lái", dù nghe tự nhiên hơn. Lý do: `isTrustedRequest`
- * là rào chống trang web lạ và tiện ích trình duyệt, **không phải xác thực** —
- * bất kỳ tab Chrome nào mở `http://127.0.0.1:<cổng>` cũng qua được nó. Với luật
- * "mới nhất lái", một tab lạc như vậy cướp vô lăng ngay khi nó nối, và từ giây
- * đó agent mở trang trong một cửa sổ Chrome mà người dùng không nhìn, còn app
- * thì im lặng. Luật "đầu tiên và dính" cũng sống sót qua một lần F5 (client mới
- * chỉ nhận vô lăng sau khi cái cũ chết) và không đánh nhau với việc tự nối lại
- * bên giao diện.
+ * Not "newest wins", even though that sounds more natural. The reason:
+ * `isTrustedRequest` is a gate against foreign web pages and browser extensions,
+ * **not authentication** — any Chrome tab pointed at `http://127.0.0.1:<port>`
+ * passes it. Under "newest wins" a stray tab like that would steal the wheel the
+ * moment it connected, and from that second on the agent would open pages in a
+ * Chrome window the user is not watching, while the app stayed silent. "First and
+ * sticky" also survives a page refresh (the new client only takes the wheel after
+ * the old one dies) and does not fight the client half's own reconnect logic.
  *
- * ## Giao thức
+ * ## Protocol
  *
- * Chỉ JSON, không có khung nhị phân.
+ * JSON only, no binary frames.
  *
- *   Node → giao diện:  { t: 'call',  id, cmd, params }
- *   giao diện → Node:  { t: 'done',  id, result }
- *                      { t: 'error', id, reason }
- *   giao diện → Node:  { t: 'hello', version }      (khung đầu tiên, bắt buộc)
+ *   Node → client:  { t: 'call',  id, cmd, params }
+ *   client → Node:  { t: 'done',  id, result }
+ *                   { t: 'error', id, reason }
+ *   client → Node:  { t: 'hello', version }      (first frame, required)
  * @module
  */
 
@@ -41,101 +42,104 @@ import { assertPublicUrl } from './net-policy.js'
 import { isTrustedRequest } from './trust.js'
 
 /**
- * Phiên bản giao thức. Tăng khi đổi hình dạng thông điệp.
+ * Protocol version. Bump it whenever the message shape changes.
  *
- * Cần nó vì `npm run dev` nạp lại nửa Node mà trang trong cửa sổ thì không nạp
- * lại — hai bản khác nhau nói chuyện với nhau, và triệu chứng là những lỗi vô
- * nghĩa ở tận đâu. Lệch phiên bản thì từ chối ngay, nói rõ lý do.
+ * Needed because `npm run dev` reloads the Node half while the page in the window
+ * does not reload — two different versions then talk to each other, and the symptom
+ * is meaningless errors somewhere far away. A version mismatch is refused
+ * immediately, with the reason stated.
  */
 export const BUS_VERSION = 2
 
 /**
- * Trần số kết nối. Lý do y như `MAX_TERMINALS` của `pty-routes.ts`: chặn một
- * giao diện rơi vào vòng lặp nối lại làm engine ngập kết nối.
+ * Connection ceiling. Same reason as `MAX_TERMINALS` in `pty-routes.ts`: stop a
+ * client stuck in a reconnect loop from flooding the engine with connections.
  */
 const MAX_CLIENTS = 4
 
-/** Trần số lệnh đang chờ trả lời, chặn bên gọi làm phình bảng chờ vô hạn. */
+/** Ceiling on commands awaiting an answer, so a caller cannot grow the table forever. */
 const MAX_PENDING = 64
 
-/** Trần số khung rác một client được phép gửi trước khi bị đóng. */
+/** How many junk frames a client may send before it is closed. */
 const MAX_JUNK_FRAMES = 20
 
-/** Khung tối đa. Mặc định của `ws` là 100MB — quá rộng cho một cầu chỉ chở JSON. */
+/** Maximum frame. `ws` defaults to 100MB — far too wide for a bridge carrying only JSON. */
 const MAX_FRAME_BYTES = 1024 * 1024
 
-/** Nhịp tim, để phát hiện socket nửa sống (laptop ngủ dậy). */
+/** Heartbeat, to detect a half-dead socket (a laptop waking from sleep). */
 const HEARTBEAT_MS = 15_000
 
-/** Mã đóng riêng, báo cho giao diện biết ĐỪNG nối lại. */
+/** Private close code, telling the client NOT to reconnect. */
 const CLOSE_FINAL = 4001
 
 /**
- * Những lệnh chỉ ĐỌC — luôn chạy được, kể cả khi công tắc quyền đang tắt.
+ * READ-only commands — always allowed, even while the permission switch is off.
  *
- * Bịt mắt agent không ngăn được nó hành động, chỉ làm nó hành động mù.
+ * Blindfolding the agent does not stop it acting, it only makes it act blind.
  *
- * Danh sách nằm ở đây, ngay trong `call`, chứ không ở tầng tool. Lý do: tầng
- * tool không phải đường duy nhất tới cầu — route chẩn đoán cũng gọi thẳng vào.
- * Hai đường mà hai luật thì sớm muộn một đường bị quên, và cái bị quên luôn là
- * đường ít ai nhìn. Một chốt duy nhất thì không quên được.
+ * The list lives here, right next to `call`, rather than in the tool layer. The
+ * reason: the tool layer is not the only route to the bridge — the diagnostic route
+ * calls straight in too. Two routes with two rules means one of them eventually
+ * gets forgotten, and the forgotten one is always the route nobody looks at. A
+ * single gate cannot be forgotten.
  */
 const READ_COMMANDS = new Set([
   'ping', 'tabs_list', 'read_page', 'find', 'get_page_text', 'console_log', 'network_log',
-  // Chụp ảnh là ĐỌC: nó không đổi gì trên trang. Hai lệnh này chỉ dựng điều
-  // kiện để chụp rồi trả màn hình về chỗ cũ. Thiếu chúng ở đây thì tắt công tắc
-  // là mất luôn ảnh chụp — trong khi mô tả tool nói ảnh luôn chụp được, và cái
-  // sai lệch đó chỉ lộ ra khi có người thật đi tắt công tắc.
+  // A screenshot is a READ: it changes nothing on the page. These two commands only
+  // set up the conditions for a capture and then put the screen back. Leaving them
+  // out would mean turning the switch off also loses screenshots — while the tool
+  // description promises a screenshot always works, and that contradiction only
+  // surfaces once a real person turns the switch off.
   'shot_prepare', 'shot_done',
 ])
 
-/** Câu từ chối khi công tắc tắt — nói rõ bật lại ở đâu. */
+/** The refusal when the switch is off — it says where to turn it back on. */
 const DENIED
-  = 'Công tắc "Cho agent điều khiển trình duyệt" đang TẮT, nên thao tác bị từ chối. '
-  + 'Người dùng bật lại ở Cài đặt → General. Các lệnh ĐỌC trang vẫn chạy bình thường.'
+  = 'The "Let the agent control the browser" switch is OFF, so this action was refused. '
+  + 'The user turns it back on in Settings > General. Commands that only READ the page still work.'
 
-/** Bề mặt mà tầng tool sẽ dùng. */
+/** The surface the tool layer uses. */
 export interface Bus {
   /**
-   * Nhờ nửa giao diện làm một việc rồi chờ kết quả.
-   * @param cmd - tên lệnh trong bảng lệnh của giao diện.
-   * @param params - tham số của lệnh.
-   * @param timeoutMs - TỔNG ngân sách, đã gồm cả thời gian chờ có cửa sổ nối vào.
-   * @returns kết quả do giao diện trả về.
+   * Ask the client half to do something and wait for the result.
+   * @param cmd - command name in the client's command table.
+   * @param params - the command's parameters.
+   * @param timeoutMs - the TOTAL budget, including time spent waiting for a window.
+   * @returns whatever the client returned.
    */
   call: (cmd: string, params: unknown, timeoutMs?: number) => Promise<unknown>
-  /** Có cửa sổ nào đang cầm vô lăng không. */
+  /** Whether any window currently holds the wheel. */
   hasDriver: () => boolean
   /**
-   * Người dùng có cho agent THAO TÁC trên trang không (bấm, gõ, cuộn, điền form).
+   * Whether the user lets the agent ACT on the page (click, type, scroll, fill forms).
    *
-   * Đọc là luôn được, kể cả khi tắt: bịt mắt agent không ngăn được nó hành
-   * động, chỉ làm nó hành động mù.
+   * Reading is always allowed, even when this is off: blindfolding the agent does
+   * not stop it acting, it only makes it act blind.
    *
-   * Giá trị sống ở ĐÂY, nửa Node — nơi tool thật sự chạy. Giao diện chỉ là chỗ
-   * người dùng bấm và chỗ lưu giữa các lần mở app; nó đẩy giá trị sang mỗi lần
-   * nối cầu và mỗi lần người dùng đổi. Một rào mà bên bị chặn tự gỡ được thì
-   * không phải rào.
+   * The value lives HERE, in the Node half — where the tools actually run. The
+   * client half is only where the user clicks and where the choice is kept between
+   * launches; it pushes the value across on every bridge connection and on every
+   * change. A gate the blocked party can lift for itself is not a gate.
    *
-   * Mặc định `true`, theo lựa chọn của chủ dự án.
+   * Defaults to `true`, by the project owner's choice.
    */
   agentControl: () => boolean
 }
 
 /**
- * Cửa để route chẩn đoán chạy thẳng MỘT tool, đúng như engine sẽ chạy nó.
+ * The door that lets the diagnostic route run ONE tool exactly as the engine would.
  *
- * Là một object rỗng lúc đầu rồi mới điền, chứ không phải tham số thường: cầu
- * phải dựng xong thì tool mới dựng được (tool giữ tham chiếu tới cầu), nên lúc
- * đăng ký route thì chưa có tool nào tồn tại. Cùng lý do và cùng cách làm với ô
- * chứa sân khấu bên nửa giao diện.
+ * It starts as an empty object and gets filled in later, rather than being an
+ * ordinary parameter: the bridge must exist before the tools can be built (the
+ * tools hold a reference to the bridge), so at route-registration time no tool
+ * exists yet. Same reason and same approach as the stage holder in the client half.
  */
 export interface ToolProbe {
   /**
-   * Chạy một tool theo tên.
-   * @param name - tên tool, ví dụ `browser_read_page`.
-   * @param args - tham số y như model sẽ đưa.
-   * @returns giá trị thô, câu chữ model nhận, và phần dữ liệu thẻ giao diện đọc.
+   * Run a tool by name.
+   * @param name - the tool's name, e.g. `browser_read_page`.
+   * @param args - the arguments exactly as the model would supply them.
+   * @returns the raw value, the prose the model receives, and the data the UI card reads.
    */
   run?: (name: string, args: unknown) => Promise<{ value: unknown, text: string, meta: unknown }>
 }
@@ -146,13 +150,13 @@ interface Pending {
   timer: NodeJS.Timeout
 }
 
-/** Trả lời một lời nâng cấp bị từ chối rồi đóng socket. */
+/** Answer a refused upgrade request, then destroy the socket. */
 function refuse(socket: Duplex, status: number, reason: string): void {
   socket.write(`HTTP/1.1 ${String(status)} ${reason}\r\nConnection: close\r\n\r\n`)
   socket.destroy()
 }
 
-/** Trả lời JSON, cùng khuôn với `fs-routes.ts`. */
+/** Answer with JSON, in the same shape as `fs-routes.ts`. */
 function json(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body)
   res.writeHead(status, {
@@ -164,9 +168,9 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 }
 
 /**
- * Mở cầu `/hdw/bus`.
- * @param ctx - context của plugin; cần `webServer`.
- * @returns bề mặt cho tầng tool, và hàm dọn.
+ * Open the `/hdw/bus` bridge.
+ * @param ctx - the plugin's context; needs `webServer`.
+ * @returns the surface for the tool layer, and a disposer.
  */
 export function registerBusRoutes(
   ctx: Context,
@@ -181,27 +185,27 @@ export function registerBusRoutes(
   let nextId = 0
   let agentControl = true
 
-  /** Ai lái: cái đầu tiên còn sống. Xem chú thích đầu file. */
+  /** Who drives: the first one still alive. See the module comment. */
   const pickDriver = (): void => {
     if (driver !== undefined && clients.has(driver) && driver.readyState === driver.OPEN) return
     driver = [...clients].find((ws) => ws.readyState === ws.OPEN)
     if (driver !== undefined) {
-      // Đánh thức mọi lời gọi đang nằm chờ một cửa sổ.
+      // Wake every call that was waiting for a window.
       while (driverWaiters.length > 0) driverWaiters.shift()?.()
     }
   }
 
   /**
-   * Kết thúc một lệnh đang chờ.
+   * Finish one pending command.
    *
-   * XOÁ khỏi bảng và tắt đồng hồ TRƯỚC khi settle, không phải sau. Làm ngược thì
-   * một câu trả lời tới muộn, hay tới hai lần cùng một `id`, vẫn settle được lần
-   * thứ hai — và một Promise settle hai lần là loại lỗi không để lại dấu vết nào.
+   * REMOVE it from the table and clear the timer BEFORE settling, not after. The
+   * other order lets a late answer, or two answers carrying the same `id`, settle a
+   * second time — and a Promise settled twice is the kind of bug that leaves no trace.
    */
   const settle = (id: number, ok: boolean, value: unknown): void => {
     const entry = pending.get(id)
-    // `id` lạ, `id` trùng, hoặc trả lời sau khi đã hết giờ: bỏ im lặng. Không
-    // log ồn — một client rác sẽ biến log thành bãi rác.
+    // Unknown `id`, duplicate `id`, or an answer arriving after the timeout: drop it
+    // silently. No noisy logging — a junk client would turn the log into a dump.
     if (entry === undefined) return
     pending.delete(id)
     clearTimeout(entry.timer)
@@ -209,13 +213,13 @@ export function registerBusRoutes(
     else entry.reject(value instanceof Error ? value : new Error(String(value)))
   }
 
-  /** Huỷ mọi lệnh đang chờ, dùng khi tài xế đứt hoặc plugin bị gỡ. */
+  /** Fail every pending command, for when the driver drops or the plugin unloads. */
   const failAll = (reason: string): void => {
     for (const id of [...pending.keys()]) settle(id, false, new Error(reason))
   }
 
   const handleFrame = (ws: WebSocket, data: unknown, isBinary: boolean): boolean => {
-    // Cầu này không có kênh nhị phân. Khung nhị phân là rác theo định nghĩa.
+    // This bridge has no binary channel. A binary frame is junk by definition.
     if (isBinary) return false
     let msg: unknown
     try {
@@ -231,24 +235,24 @@ export function registerBusRoutes(
 
     if (frame.t === 'hello') {
       if (frame.version !== BUS_VERSION) {
-        ws.close(CLOSE_FINAL, `bus phiên bản ${String(BUS_VERSION)}, cửa sổ đang chạy bản khác — hãy tải lại trang`)
+        ws.close(CLOSE_FINAL, `bus protocol ${String(BUS_VERSION)}, this window runs a different one — please reload the page`)
         return true
       }
-      // Cửa sổ mang theo trạng thái công tắc mà người dùng đã lưu.
+      // The window brings along the switch state the user had saved.
       if (typeof frame.agentControl === 'boolean') agentControl = frame.agentControl
       return true
     }
 
-    // Người dùng vừa gạt công tắc trong Cài đặt. Khung này đi ngược chiều thông
-    // thường của cầu (giao diện → Node, không phải trả lời một lời gọi), nên nó
-    // không có `id`.
+    // The user just flipped the switch in Settings. This frame travels against the
+    // bridge's usual direction (client → Node, not an answer to a call), so it
+    // carries no `id`.
     if (frame.t === 'agent-control') {
       if (typeof frame.agentControl === 'boolean') agentControl = frame.agentControl
       return true
     }
     if (typeof frame.id !== 'number') return false
     if (frame.t === 'done') { settle(frame.id, true, frame.result); return true }
-    if (frame.t === 'error') { settle(frame.id, false, new Error(String(frame.reason ?? 'giao diện báo lỗi'))); return true }
+    if (frame.t === 'error') { settle(frame.id, false, new Error(String(frame.reason ?? 'the client reported an error'))); return true }
     return false
   }
 
@@ -259,8 +263,9 @@ export function registerBusRoutes(
     let junk = 0
     let alive = true
     ws.on('pong', () => { alive = true })
-    // Nhịp tim: một laptop ngủ dậy để lại socket nửa sống — `readyState` vẫn
-    // OPEN, gửi vào không lỗi, và mọi lệnh sẽ chết vì hết giờ thay vì hỏng ngay.
+    // Heartbeat: a laptop waking from sleep leaves a half-dead socket — `readyState`
+    // is still OPEN, sending raises no error, and every command dies of a timeout
+    // instead of failing immediately.
     const heart = setInterval(() => {
       if (!alive) { ws.terminate(); return }
       alive = false
@@ -271,7 +276,7 @@ export function registerBusRoutes(
     ws.on('message', (data, isBinary) => {
       if (handleFrame(ws, data, isBinary)) return
       junk += 1
-      if (junk >= MAX_JUNK_FRAMES) ws.close(CLOSE_FINAL, 'quá nhiều khung không hợp lệ')
+      if (junk >= MAX_JUNK_FRAMES) ws.close(CLOSE_FINAL, 'too many invalid frames')
     })
 
     ws.on('close', () => {
@@ -279,10 +284,10 @@ export function registerBusRoutes(
       clients.delete(ws)
       if (driver === ws) {
         driver = undefined
-        // Cửa sổ đứt giữa chừng (thường là người dùng tải lại trang): huỷ NGAY
-        // mọi lệnh đang chờ thay vì để chúng treo tới hết giờ. Câu trả lời "cửa
-        // sổ đã đóng" ngay lập tức có ích hơn một khoảng im lặng 20 giây.
-        failAll('cửa sổ app đã đóng hoặc tải lại giữa chừng')
+        // The window dropped mid-flight (usually the user reloading the page): fail
+        // every pending command NOW rather than letting them hang to the timeout. An
+        // immediate "the window closed" is more useful than 20 seconds of silence.
+        failAll('the app window closed or reloaded mid-flight')
       }
       pickDriver()
     })
@@ -304,12 +309,13 @@ export function registerBusRoutes(
     call: async (cmd, params, timeoutMs = 20_000) => {
       if (!READ_COMMANDS.has(cmd) && !agentControl) throw new Error(DENIED)
       if (pending.size >= MAX_PENDING) {
-        throw new Error(`quá ${String(MAX_PENDING)} lệnh đang chờ giao diện trả lời`)
+        throw new Error(`more than ${String(MAX_PENDING)} commands are already waiting for the client to answer`)
       }
       const deadline = Date.now() + timeoutMs
 
-      // Chờ có cửa sổ nối vào. `timeoutMs` là TỔNG ngân sách người gọi thấy: chờ
-      // nối và chờ trả lời dùng chung một đồng hồ, không cộng dồn hai cái.
+      // Wait for a window to connect. `timeoutMs` is the TOTAL budget the caller
+      // sees: waiting to connect and waiting for an answer share one clock rather
+      // than adding up.
       if (!bus.hasDriver()) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(() => {
@@ -323,17 +329,17 @@ export function registerBusRoutes(
       }
       const target = driver
       if (target === undefined || target.readyState !== target.OPEN) {
-        throw new Error('chưa có cửa sổ app nào mở, nên không có trình duyệt để điều khiển')
+        throw new Error('no app window is open, so there is no browser to control')
       }
 
       const left = deadline - Date.now()
-      if (left <= 0) throw new Error(`hết giờ ${String(timeoutMs)}ms khi chờ cửa sổ app`)
+      if (left <= 0) throw new Error(`timed out after ${String(timeoutMs)}ms waiting for an app window`)
 
       nextId += 1
       const id = nextId
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-          settle(id, false, new Error(`lệnh "${cmd}" quá ${String(timeoutMs)}ms không có trả lời`))
+          settle(id, false, new Error(`command "${cmd}" got no answer within ${String(timeoutMs)}ms`))
         }, left)
         timer.unref()
         pending.set(id, { resolve, reject, timer })
@@ -343,26 +349,27 @@ export function registerBusRoutes(
   }
 
   /**
-   * Route chẩn đoán `/hdw/bus/probe` — cầu còn sống không.
+   * The `/hdw/bus/probe` diagnostic route — is the bridge alive?
    *
-   * Cần nó vì bài kiểm chạy ở một tiến trình khác engine, không nhìn được vào
-   * bộ nhớ của cầu. Không có nó thì không có cách nào biết cầu hỏng, ngoài việc
-   * chờ một tool nào đó im lặng thất bại.
+   * Needed because the test suite runs in a different process from the engine and
+   * cannot look into the bridge's memory. Without it there is no way to learn the
+   * bridge is broken short of waiting for some tool to fail silently.
    *
-   * Ba chốt chống biến nó thành bộ khuếch đại: gộp mọi lời hỏi đang bay thành
-   * MỘT `ping` (single-flight), hết giờ ngắn riêng, và không trả gì ngoài hai
-   * trường dưới đây — thêm số client hay địa chỉ vào là bắt đầu rò thông tin.
+   * Three guards stop it becoming an amplifier: every in-flight question collapses
+   * into ONE `ping` (single-flight), it has its own short timeout, and it returns
+   * nothing beyond the two fields below — adding a client count or an address would
+   * start leaking information.
    *
-   * `?open=<url>` chạy trọn đường của lệnh `open_tab`, gồm cả rào địa chỉ. Đây
-   * là đường DUY NHẤT hiện có để kiểm rào đó từ ngoài; tầng tool sau này gọi
-   * thẳng `bus.call`, không đi qua route này.
+   * `?open=<url>` runs the whole `open_tab` path, address gate included. This is the
+   * ONLY route currently available to test that gate from outside; the tool layer
+   * later calls `bus.call` directly and does not pass through here.
    */
   let pingInFlight: Promise<number> | undefined
   const offProbe = ctx.webServer.register({
     kind: 'exact',
     path: '/hdw/bus/probe',
     handler: async (req: IncomingMessage, res: ServerResponse) => {
-      if (!isTrustedRequest(req)) { json(res, 403, { reason: 'request không qua được rào tin cậy' }); return }
+      if (!isTrustedRequest(req)) { json(res, 403, { reason: 'the request did not pass the trust gate' }); return }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
 
       const open = url.searchParams.get('open')
@@ -383,9 +390,9 @@ export function registerBusRoutes(
         return
       }
 
-      // `?eval=<biểu thức>` chạy trọn vòng Node → cầu → sân khấu → trang khách.
-      // Đây là đường duy nhất để bài kiểm — chạy ở tiến trình khác engine — xác
-      // nhận cả chuỗi đó còn thông, thay vì chỉ biết cầu còn sống.
+      // `?eval=<expression>` runs the whole loop Node → bridge → stage → guest page.
+      // This is the only way for the test suite — running in a different process from
+      // the engine — to confirm that whole chain is intact rather than just the bridge.
       const code = url.searchParams.get('eval')
       if (code !== null) {
         const tabId = url.searchParams.get('tab_id') ?? undefined
@@ -398,19 +405,19 @@ export function registerBusRoutes(
         return
       }
 
-      // `?cmd=<tên>&params=<json>` gọi thẳng một lệnh của cầu.
+      // `?cmd=<name>&params=<json>` calls one bridge command directly.
       //
-      // Đây là đường DUY NHẤT để bài kiểm chạm tới bộ lệnh: tool thật do model
-      // gọi, mà bài kiểm thì không có model. Nó đi qua đúng `bus.call` mà tool
-      // đi qua, nên nó cũng chịu đúng chốt công tắc quyền — không có đường tắt
-      // nào ở đây.
+      // This is the ONLY way for the test suite to reach the command table: the real
+      // tools are called by the model, and the suite has no model. It goes through
+      // the very same `bus.call` the tools go through, so it obeys the same
+      // permission gate — there is no shortcut here.
       const cmd = url.searchParams.get('cmd')
       if (cmd !== null) {
         let params: unknown
         try {
           params = JSON.parse(url.searchParams.get('params') ?? '{}')
         } catch {
-          json(res, 400, { reason: 'params không phải JSON hợp lệ' })
+          json(res, 400, { reason: 'params is not valid JSON' })
           return
         }
         try {
@@ -421,20 +428,20 @@ export function registerBusRoutes(
         return
       }
 
-      // `?tool=<tên>&args=<json>` chạy thẳng MỘT tool, đúng mã mà model chạy.
+      // `?tool=<name>&args=<json>` runs ONE tool directly, the same code the model runs.
       //
-      // Khác `?cmd=` một bậc và bậc đó là cả tầng tool: kiểm tham số, rào địa
-      // chỉ ở tầng tool, câu chữ trả cho model, dữ liệu cho thẻ giao diện. Bài
-      // kiểm không có model để nhờ gọi, nên không có đường nào khác để chạy
-      // đúng đoạn mã đó với một cầu thật và một trang thật.
+      // One level above `?cmd=`, and that level is the whole tool layer: parameter
+      // checks, the tool-layer address gate, the prose returned to the model, the data
+      // the UI card reads. The suite has no model to ask, so there is no other way to
+      // run that code against a real bridge and a real page.
       const toolName = url.searchParams.get('tool')
       if (toolName !== null) {
-        if (toolProbe?.run === undefined) { json(res, 503, { reason: 'chưa có bộ lệnh nào dựng xong' }); return }
+        if (toolProbe?.run === undefined) { json(res, 503, { reason: 'no tool set has been built yet' }); return }
         let args: unknown
         try {
           args = JSON.parse(url.searchParams.get('args') ?? '{}')
         } catch {
-          json(res, 400, { reason: 'args không phải JSON hợp lệ' })
+          json(res, 400, { reason: 'args is not valid JSON' })
           return
         }
         try {
@@ -445,11 +452,12 @@ export function registerBusRoutes(
         return
       }
 
-      // `?shot=1` chạy TRỌN đường chụp ảnh: cầu → giao diện → nửa Node → route
-      // `/hdw/shell` → lớp vỏ → ngược về. Ba tiến trình, hai đường WebSocket
-      // ngược chiều nhau, và không có cách nào khác để bài kiểm đo cả chuỗi đó.
+      // `?shot=1` runs the WHOLE screenshot path: bridge → client → Node half →
+      // the `/hdw/shell` route → the shell → and back. Three processes, two WebSockets
+      // running in opposite directions, and no other way for the suite to measure that
+      // whole chain.
       if (url.searchParams.get('shot') !== null) {
-        if (captureShot === undefined) { json(res, 503, { reason: 'chưa có đường chụp ảnh' }); return }
+        if (captureShot === undefined) { json(res, 503, { reason: 'no screenshot path is available' }); return }
         try {
           const prepared = await bus.call('shot_prepare', {}, 15_000) as { wc_id: number }
           try {
@@ -488,10 +496,11 @@ export function registerBusRoutes(
     dispose: () => {
       off()
       offProbe()
-      failAll('plugin đã gỡ')
-      // `wss.close()` với `noServer: true` KHÔNG đóng những client đã nhận —
-      // phải tự đi đóng từng cái, nếu không engine giữ socket sống mãi.
-      for (const ws of clients) ws.close(CLOSE_FINAL, 'plugin đã gỡ')
+      failAll('the plugin was unloaded')
+      // With `noServer: true`, `wss.close()` does NOT close the clients already
+      // accepted — each has to be closed by hand, or the engine keeps the sockets
+      // alive forever.
+      for (const ws of clients) ws.close(CLOSE_FINAL, 'the plugin was unloaded')
       clients.clear()
       driver = undefined
       wss.close()

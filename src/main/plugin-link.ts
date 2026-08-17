@@ -53,7 +53,7 @@ function ensureJunction(link: string, target: string): void {
   if (info?.isSymbolicLink() === true) {
     unlinkSync(link)
   } else if (info !== undefined) {
-    throw new Error(`${link} đã là thư mục thật, không phải junction — dừng lại thay vì xoá đồ của người khác`)
+    throw new Error(`${link} is a real directory, not a junction — stopping rather than deleting someone else's files`)
   }
   // Junction trên Windows không cần quyền quản trị, khác với symlink thường.
   symlinkSync(target, link, 'junction')
@@ -76,9 +76,9 @@ export function linkPlugins(): void {
     try {
       mkdirSync(dir, { recursive: true })
       ensureJunction(join(dir, plugin.name), plugin.dir())
-      logShell(`plugin: đã nối ${plugin.name} vào ${dir}`)
+      logShell(`plugin: linked ${plugin.name} into ${dir}`)
     } catch (error) {
-      logShell(`plugin: KHÔNG nối được ${plugin.name} — ${error instanceof Error ? error.message : String(error)}`)
+      logShell(`plugin: could NOT link ${plugin.name} — ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 }

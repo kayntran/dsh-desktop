@@ -33,7 +33,7 @@ export const inject = ['webServer', 'fs', 'workspaceRegistry', 'tools', 'attachm
 export function apply(ctx: Context): void {
   ctx.effect(() => registerFsRoutes(ctx), 'hdw-dock: route Files')
   ctx.effect(() => registerPtyRoutes(ctx), 'hdw-dock: route Terminal')
-  ctx.effect(() => registerImageRoutes(ctx), 'hdw-dock: route ảnh chụp')
+  ctx.effect(() => registerImageRoutes(ctx), 'hdw-dock: screenshot image route')
   // Cầu nối tới nửa giao diện, và bộ tool đứng trên nó.
   //
   // Hai thứ này buộc phải cùng một `effect`: tool giữ tham chiếu tới `bus`, nên
@@ -49,7 +49,7 @@ export function apply(ctx: Context): void {
     probe.run = async (name, args) => {
       const tool = tools.find((t) => t.name === name)
       if (tool === undefined) {
-        throw new Error(`không có tool tên "${name}" — có: ${tools.map((t) => t.name).join(', ')}`)
+        throw new Error(`there is no tool named "${name}" — available: ${tools.map((t) => t.name).join(', ')}`)
       }
       // Không có agent nào đang chạy ở đường này, và tool nào cũng phải chịu
       // được điều đó: `modelReadsImages` hỏi qua `exec.agent?` rồi hỏng theo
@@ -67,5 +67,5 @@ export function apply(ctx: Context): void {
     }
 
     return () => { offTools(); shot.dispose(); dispose() }
-  }, 'hdw-dock: cầu nối và bộ lệnh trình duyệt')
+  }, 'hdw-dock: bridge and browser tool set')
 }
