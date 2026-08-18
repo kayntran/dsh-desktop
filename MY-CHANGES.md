@@ -1307,3 +1307,116 @@ cũng là một lần sửa có rủi ro, mà không được gì.
 
 Luật cập nhật theo ở `.claude/rules/naming.md`: trong `scripts/`, tiếng Việt là hợp lệ — chú thích, tên
 hàm, chữ in ra terminal. Mã của app thì không có ngoại lệ nào.
+
+## 2026-08-17 — Bộ lọc thẻ `<think>` cho model bên thứ ba
+
+Nằm ở `plugins/think-tags/`. **Không có giao diện** — nó làm việc ở tầng dữ liệu, nên không cắm vào
+slot nào và không thuộc mức 1/2/3. Chỗ móc là `llm/stream`, một waterfall upstream chừa sẵn để plugin
+bọc lấy dòng chữ model gửi về trước khi nó tới màn hình.
+
+**Triệu chứng:** MiniMax M3 hiện nguyên `<think> … </think>` ở đầu câu trả lời, đồng thời ô Think bên
+dưới lặp lại đúng chữ đó.
+
+**Vì sao:** giao thức có một trường riêng cho phần suy nghĩ (`reasoning_content`), và pi-ai đọc đúng
+trường đó — đã kiểm trong `pi-ai/dist/api/openai-completions.js`, nó nhận `reasoning_content`,
+`reasoning`, `reasoning_text` và **không** đọc thẻ `<think>` trong nội dung. MiniMax viết phần nghĩ
+vào thẳng nội dung, bọc thẻ. Không có công tắc cấu hình nào chữa được: `compat.thinkingFormat` của
+pi-ai quyết định cách **gửi đi** mức suy nghĩ, không phải cách **đọc về**.
+
+**Hai luật giữ cho nó không bắt nhầm:**
+
+1. Chỉ thẻ **mở đầu** câu trả lời mới tính. Thẻ nằm giữa bài là chữ thật — chính dự án này có những
+   lượt hội thoại nhắc tới `<think>` — và nó ở nguyên chỗ cũ.
+2. Mỗi lượt chỉ một nguồn suy nghĩ sống sót, nguồn nào tới trước thì thắng. Nhà cung cấp gửi hai lần
+   (đúng hình dạng trong ảnh chụp màn hình) thì chỉ còn một ô Think.
+
+**Phần lịch sử.** Bản đầu bỏ `replayState` của nhà cung cấp mỗi khi có sửa — bắt buộc, vì nó tự đối
+chiếu từng mục với các khối trong tin nhắn, mà ta vừa tách một khối thành hai. Cái giá là model không
+còn đọc được phần nghĩ của chính nó ở lượt sau.
+
+Đã thử chữa bằng cách **xếp lại danh sách mục** cho khớp. Chạy được, đo được (model chép lại nguyên
+văn phần nghĩ cũ). **Đã hoàn nguyên** sau khi chủ dự án hỏi vì sao không làm theo triết lý plugin —
+câu hỏi đúng: cấu trúc đó upstream ghi rõ là *adapter-private*, không hook nào của dự án canh được,
+và nó sẽ hỏng trong im lặng ở một bản engine sau. Chỗ chữa thật nằm ở `plugins/minimax-relay/` bên
+dưới, và khi trạm đó chạy thì bộ cắt thẻ này **không bao giờ nổ** — nó chỉ còn là lưới đỡ cho model
+khác có cùng tật.
+
+
+
+## 2026-08-17 — Trạm chuyển tiếp MiniMax: chữa từ gốc thay vì chữa hậu quả
+
+Nằm ở `plugins/minimax-relay/`. Không giao diện, không cắm vào slot nào.
+
+**Một dòng tóm tắt:** MiniMax có sẵn tham số `reasoning_split`; bật lên là nó trả phần nghĩ ra đúng
+trường `reasoning_content` mà engine vốn đã đọc. Plugin dựng một trạm nhỏ trên chính cổng của engine,
+đổi `baseURL` của tuyến MiniMax trỏ vào đó, và thêm đúng tham số ấy vào mỗi yêu cầu. Từ đó **không
+còn gì phải cắt, sửa hay đoán**: ô Think, trí nhớ của model, bộ nhớ đệm đều chạy bằng đường gốc.
+
+### Ba đường đã dò, và vì sao chọn đường này
+
+| Đường | Vì sao không / vì sao có |
+|---|---|
+| Khai `reasoning_split` trong cấu hình | **Không có chỗ khai.** Hồ sơ tuyến của `llm-pi-ai` chỉ nhận địa chỉ, khoá, header, thời gian chờ, `compat`; pi-ai không có `extraBody`. Đây là việc của upstream — một dòng bên họ là plugin này biến mất |
+| Sửa lịch sử ở `llm/stream` | **Bị chặn có chủ ý.** Yêu cầu do agent loop dựng là `deepFreeze`; tài liệu ghi *"listeners read it, never rewrite it"*; `agent/request` cũng ghi *"cannot mutate messages"*. Nội dung yêu cầu phải là hàm thuần của session log |
+| Tự nắm tuyến model bằng `PiAiAdapter` | Gói có export `PiAiAdapter`, nhưng **không export bộ phân giải hồ sơ**, nên phải dựng lại toàn bộ phần đó — bám sâu hơn hẳn — và mất trang Settings → Models cho tuyến đó |
+| **Trạm chuyển tiếp** | Không đụng thứ riêng tư của ai. Thứ duy nhất bám vào là một tham số **công khai** trong tài liệu MiniMax |
+
+Lỗi này cũng đã có người báo cho chính pi-ai: *"MiniMax-M3 thinking content leaks into the assistant
+text response"*.
+
+### Ba chỗ dễ sai, đã trả giá để biết
+
+- **Plugin ngoài cây engine KHÔNG import được gói của engine lúc chạy.** Node phân giải từ đường dẫn
+  thật, đi tới `node_modules` của app chứ không phải của engine. Mọi `import` từ `@deepseek-ai/*` ở
+  đây phải là **import kiểu**. Lần đầu dùng `settingsNamespace()` thật và plugin chết ngay khi nạp.
+- **Cổng của engine đổi mỗi lần khởi động**, nên địa chỉ đã lưu luôn cũ. Giải: **nhét địa chỉ thật
+  của MiniMax vào chính đường dẫn** (`/hdw/minimax/https%3A%2F%2F…`). Trạm không giữ trạng thái gì,
+  nhận ra chữ viết của chính mình ở lần chạy sau, và người mở `settings.yaml` vẫn đọc được nó trỏ
+  đâu.
+- **Plugin này nạp trước khi bảng cấu hình model kịp có mặt** — hai bên không khai thứ tự với nhau.
+  Lần chạy đầu địa chỉ không đổi mà chẳng có lỗi nào. Giải: quét lại theo nhịp trong lúc khởi động,
+  và bám sự kiện `settings/updated` sau đó — cũng nhờ vậy mà thêm một tuyến MiniMax mới lúc đang chạy
+  là nó tự nhận, không cần khởi động lại.
+
+### Giá phải trả, nói thẳng
+
+- Mọi chữ đi qua mã của ta, kể cả khoá API — **nhưng trạm không đọc khoá**, pi-ai đã gắn sẵn, ta chỉ
+  chuyển tiếp nguyên văn.
+- Trạm nằm trên cổng của engine nên **chỉ nhận kết nối trong máy** và **chỉ chuyển tiếp tới
+  api.minimax.io / api.minimaxi.com**. Thiếu hai rào này thì nó là một proxy mở.
+- Tắt plugin thì địa chỉ thật được trả lại (disposer chạy). Mất điện giữa chừng thì địa chỉ trạm còn
+  nằm trong `settings.yaml` — vô hại vì lần khởi động sau ghi lại, **trừ khi** plugin bị tắt trước
+  lần đó. Sửa tay ở Settings → Models.
+
+### Đã đo
+
+`npm run spike:relay` — 14 mục. Gồm một MiniMax giả chạy trên socket thật để chứng minh **chữ chảy về
+từng đoạn chứ không dồn một cục** (dồn cục là người dùng nhìn màn hình trống rồi cả bài hiện ra cùng
+lúc), và mục canh cửa: không chuyển tiếp đi đâu ngoài MiniMax.
+
+Chạy thật trong app, hai lượt liên tiếp: câu trả lời sạch thẻ, ô Think do **engine tự dựng từ trường
+riêng**, và lượt sau model **chép lại nguyên văn phần nghĩ lượt trước** — kể cả con số nó chỉ ghi
+trong đầu. `Cache hit 51%`. Không còn một dòng nào của ta can thiệp vào nội dung.
+
+### Hai lỗi lộ ra khi dùng thật, cùng ngày
+
+**1. Thẻ ĐÓNG lạc lõng.** Bật `reasoning_split` rồi, MiniMax gửi phần nghĩ ở trường riêng — nhưng
+vẫn để rơi cái thẻ đóng vào câu trả lời, mỗi bước một cái: `</think>`, và cả biến thể có tên miền
+`</mm:think>`. Bộ cắt thẻ cũ chỉ biết thẻ MỞ nên không đụng tới.
+
+Sửa ở `plugins/think-tags/`: một thẻ **đóng** đứng đầu khối chữ mà chẳng có thẻ mở nào chính là dấu
+vết của tình huống này — không có phần nghĩ nào để dời đi, chỉ là một cái dấu thừa, nên bỏ. Cả hai
+lối viết `think` và `mm:think` đều được nhận, ở cả thẻ mở lẫn thẻ đóng. Thẻ nằm **giữa** câu trả lời
+vẫn là chữ thật, không đụng vào.
+
+**2. Ký tự lạ giữa chữ tiếng Việt** — `Các bư?c đã thực hiện`. Một chữ tiếng Việt dài 2–3 byte; gói
+dữ liệu đứt ngay giữa nó; bên đọc dịch từng gói riêng lẻ nên ra dấu hỏi. Thêm một chặng chuyển tiếp
+làm chỗ đứt rơi vào những vị trí khác trước đây, nên lỗi này lộ ra.
+
+Sửa ở `plugins/minimax-relay/`: **cắt lại dòng theo ranh giới sự kiện**. Mỗi sự kiện kết thúc bằng
+một dòng trống, mỗi sự kiện chở một token, nên chữ vẫn về từng token một — mà mảnh nào giao đi cũng
+là trọn dòng, trọn chữ. Bộ kiểm cắt một sự kiện tiếng Việt ra **từng byte một** rồi ghép lại: đủ
+byte, không mảnh nào chứa ký tự hỏng.
+
+Cả hai đã đo lại: `npm run spike:think` 15 mục, `npm run spike:relay` 19 mục, và chạy thật trong app
+— câu trả lời tiếng Việt có dấu đầy đủ, không còn thẻ nào sót.

@@ -1,0 +1,31 @@
+{
+  "// ": [
+    "Type checking only — the real build is produced by build.mjs (esbuild).",
+    "",
+    "`paths` points straight at the type tree inside the installed engine, for the",
+    "same reason as plugins/think-tags/tsconfig.json: a plugin resolves modules",
+    "from its own directory, and there is no copy of @deepseek-ai/* there."
+  ],
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@deepseek-ai/*": ["../../engine/node_modules/@deepseek-ai/*/lib/types/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -63,7 +63,8 @@ plugins/<tên>/
 └── src/index.ts        # export const name + export function apply(ctx)
 ```
 
-Đặt tên thư mục bằng tiếng Việt không dấu, gạch ngang: `xuat-bao-cao`, `ghi-chu-nhanh`.
+Đặt tên thư mục bằng **tiếng Anh**, gạch ngang: `dock`, `plugin-manager`, `think-tags`. Đây là tên
+file nên nó theo Luật 7 — xem `.claude/rules/naming.md`.
 
 ## 5. Nạp vào app
 
@@ -77,7 +78,13 @@ Thêm `--patch <đường-dẫn tuyệt đối tới cordis.patch.yml>` **trư�
 động phải đứng trước tham số của app). Dựng đường dẫn lúc chạy từ vị trí thật của app, không viết
 cứng — bản đóng gói nằm ở chỗ khác với lúc phát triển.
 
-Đây là lần duy nhất `src/main/` bị đụng vì một plugin; các plugin sau chỉ thêm dòng vào file patch.
+Mỗi plugin mới đụng vào `src/main/` đúng ba chỗ, và **chỉ** ba chỗ đó: đường dẫn tới thư mục plugin
+và file patch của nó (`paths.ts`), một lớp `--patch` thêm vào lệnh khởi động (`engine.ts`), một dòng
+trong danh sách junction (`plugin-link.ts`). Thiếu junction thì engine không tìm thấy gói và **chết
+ngay lúc khởi động** — đo bằng cách cố tình đặt sai tên gói. Ngoài ba chỗ đó còn hai chỗ nữa nằm
+ngoài `src/main/`: danh sách chép file lúc đóng gói (`electron-builder.yml`) và các lệnh
+`typecheck` / `plugins:build` / `plugins:install` (`package.json`). Bỏ sót nhóm sau thì bản chạy thử
+vẫn tốt còn bản cài đặt thiếu plugin.
 
 ## 6. Kiểm chứng — không được bỏ
 

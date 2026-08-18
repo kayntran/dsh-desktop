@@ -1,0 +1,9 @@
+# Enables the MiniMax relay.
+#
+# `name` must be the PACKAGE NAME, not a file path: the engine resolves plugins
+# through `createRequire(<profile dir>).resolve('<name>/package.json')`. The
+# junction inside the profile's resolution tree is built by
+# `src/main/plugin-link.ts`.
+- insert:
+    - id: hdw-minimax-relay
+      name: harness-desktop-minimax-relay

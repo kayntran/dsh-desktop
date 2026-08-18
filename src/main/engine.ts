@@ -18,8 +18,10 @@ import {
   engineLogPath,
   enginePidPath,
   nodeExePath,
+  minimaxRelayPatchPath,
   pluginManagerPatchPath,
   pluginStatePath,
+  thinkTagsPatchPath,
 } from './paths.js'
 
 /**
@@ -222,15 +224,17 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   // `--profile` and `--patch` are launcher flags and must come BEFORE `--port`,
   // which is forwarded to the app.
   //
-  // THREE `--patch` LAYERS, AND THE ORDER IS MANDATORY. The engine applies them in
+  // FIVE `--patch` LAYERS, AND THE ORDER IS MANDATORY. The engine applies them in
   // command-line order, and a layer can only edit rows that already exist when it
   // applies:
   //
   //   1. the right-hand panel (Files / Terminal / Browser)
   //   2. the plugin on/off switch
-  //   3. the user's own choices — MUST COME LAST
+  //   3. the think-tag rewriter
+  //   4. the MiniMax relay
+  //   5. the user's own choices — MUST COME LAST
   //
-  // Put layer 3 earlier and it cannot see the two rows layers 1 and 2 insert, so a
+  // Put the last layer earlier and it cannot see the rows the ones above insert, so a
   // user who disables the panel — or the switch itself — finds them enabled again on
   // the next launch, with nothing reporting an error. Measured:
   // `npm run spike:loader`, checks 9 and 10.
@@ -239,6 +243,8 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     bin, '--profile', 'web',
     '--patch', dockPatchPath(),
     '--patch', pluginManagerPatchPath(),
+    '--patch', thinkTagsPatchPath(),
+    '--patch', minimaxRelayPatchPath(),
     '--patch', pluginStatePath(),
     '--port', '0',
   ], {

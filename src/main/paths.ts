@@ -124,6 +124,26 @@ export function pluginManagerPatchPath(): string {
   return join(pluginManagerDir(), 'cordis.patch.yml')
 }
 
+/** Directory of the think-tag rewriter (no UI; it only rewrites model output). */
+export function thinkTagsDir(): string {
+  return join(pluginsRoot(), 'think-tags')
+}
+
+/** Config file that enables the think-tag rewriter, passed to the engine via `--patch`. */
+export function thinkTagsPatchPath(): string {
+  return join(thinkTagsDir(), 'cordis.patch.yml')
+}
+
+/** Directory of the MiniMax relay (no UI; it only forwards provider requests). */
+export function minimaxRelayDir(): string {
+  return join(pluginsRoot(), 'minimax-relay')
+}
+
+/** Config file that enables the MiniMax relay, passed to the engine via `--patch`. */
+export function minimaxRelayPatchPath(): string {
+  return join(minimaxRelayDir(), 'cordis.patch.yml')
+}
+
 /**
  * File recording which plugins are turned off.
  *

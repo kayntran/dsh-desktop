@@ -1,0 +1,21 @@
+{
+  "name": "harness-desktop-think-tags",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Move a provider's inline <think>...</think> prose out of the answer and into the Think row.",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}

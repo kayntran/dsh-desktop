@@ -53,6 +53,22 @@ extraResources:
       - cordis.patch.yml
       - lib/**/*
       - '!**/*.map'
+  # Bộ lọc thẻ <think>. Không có giao diện, không có phụ thuộc lúc chạy.
+  - from: plugins/think-tags
+    to: plugins/think-tags
+    filter:
+      - package.json
+      - cordis.patch.yml
+      - lib/**/*
+      - '!**/*.map'
+  # Trạm chuyển tiếp MiniMax. Cũng không giao diện, không phụ thuộc lúc chạy.
+  - from: plugins/minimax-relay
+    to: plugins/minimax-relay
+    filter:
+      - package.json
+      - cordis.patch.yml
+      - lib/**/*
+      - '!**/*.map'
 
 # Không biên dịch lại native addon cho ABI của Electron — chúng không chạy
 # trong Electron mà trong node.exe ở trên. Cả hai addon trong cây phụ thuộc

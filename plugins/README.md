@@ -40,15 +40,19 @@ Mọi thứ đăng ký qua `ctx` — sự kiện, tool, hẹn giờ — được
 |---|---|
 | `dock/` | Panel bên phải: Files, Terminal, Browser, và bộ tool trình duyệt cho agent |
 | `plugin-manager/` | Tab Cài đặt → Plugins → **Bật/tắt**: gạt từng plugin, có lưu lựa chọn |
+| `think-tags/` | Lưới đỡ: cắt phần suy nghĩ bọc trong `<think>` ra khỏi câu trả lời. Không có giao diện |
+| `minimax-relay/` | Thêm `reasoning_split` vào yêu cầu gửi MiniMax, để nó trả phần nghĩ ra trường riêng. Không có giao diện |
 
 ## Nạp vào app
 
-Engine được khởi động ở [../src/main/engine.ts](../src/main/engine.ts) với **ba** lớp `--patch`:
+Engine được khởi động ở [../src/main/engine.ts](../src/main/engine.ts) với **năm** lớp `--patch`:
 
 ```ts
 spawn(node, [bin, '--profile', 'web',
   '--patch', dockPatchPath(),           // panel phải
   '--patch', pluginManagerPatchPath(),  // công tắc bật/tắt
+  '--patch', thinkTagsPatchPath(),      // bộ lọc thẻ <think>
+  '--patch', minimaxRelayPatchPath(),   // trạm chuyển tiếp MiniMax
   '--patch', pluginStatePath(),         // lựa chọn của người dùng — PHẢI ĐỨNG CUỐI
   '--port', '0'], ...)
 ```
