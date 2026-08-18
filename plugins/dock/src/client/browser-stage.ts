@@ -70,6 +70,14 @@ export interface WebviewTag extends HTMLElement {
   setUserAgent: (ua: string) => void
   setZoomFactor: (factor: number) => void
   /**
+   * Whether the page is making a sound RIGHT NOW.
+   *
+   * The sleep timer's first exemption. A page playing music or a video is being used even
+   * though nobody has touched it for half an hour, and closing it mid-sentence is the
+   * rudest thing this feature could do.
+   */
+  isCurrentlyAudible: () => boolean
+  /**
    * DO NOT CALL. On a real https page, calling this from inside the host page
    * **hard-locks the host page's entire event loop** — even a wrapping `setTimeout` never
    * fires, so there is no way to rescue it. Declared so a reader knows it exists and knows
@@ -162,6 +170,16 @@ export interface Stage {
   /** Hand the keyboard to this tab's page. */
   focus: (id: string) => void
   element: (id: string) => WebviewTag | undefined
+  /** Whether this tab has a live page behind it. False for one that is asleep. */
+  has: (id: string) => boolean
+  /**
+   * Whether the page is making a sound right now.
+   *
+   * `false` when the tab has no page, and `false` when the tag has not finished attaching
+   * — asking too early throws, and "not audible yet" is the truthful answer at that
+   * moment anyway.
+   */
+  isAudible: (id: string) => boolean
   destroy: () => void
 
   // --- The surface for the agent's tool layer ---
@@ -482,6 +500,20 @@ export function createStage(onChange: (id: string, status: TabStatus) => void): 
       tabs.delete(id)
       if (activeId === id) activeId = undefined
       restack()
+    },
+
+    has: (id) => tabs.has(id),
+
+    isAudible: (id) => {
+      const tab = tabs.get(id)
+      if (tab === undefined) return false
+      try {
+        return tab.el.isCurrentlyAudible()
+      } catch {
+        // Thrown while the tag is still attaching. Nothing is playing out of a page that
+        // has not loaded, so the honest answer here is the same as the safe one.
+        return false
+      }
     },
 
     setActive: (id, giveKeyboard = false) => {

@@ -85,12 +85,15 @@ export function TabBar({ panes, activeId, onSelect, onClosePane, onOpen, onClose
         {panes.map((pane) => (
           <div className="hdw-pillwrap" key={pane.id}>
             <Pill
-              className="hdw-pill"
+              // A sleeping page keeps its pill and its name; only the ink fades. That is
+              // the whole point of sleeping — the tab is still there, and selecting it
+              // brings the page back — so anything stronger would read as "gone".
+              className={pane.asleep === true ? 'hdw-pill hdw-pill-asleep' : 'hdw-pill'}
               active={pane.id === activeId}
               onClick={() => { onSelect(pane.id) }}
               role="tab"
               aria-selected={pane.id === activeId}
-              title={pane.title}
+              title={pane.asleep === true ? `${pane.title} (asleep — select to reopen)` : pane.title}
             >
               <span className="hdw-pill-icon"><KindIcon kind={pane.kind} /></span>
               <span className="hdw-pill-name">{pane.title}</span>

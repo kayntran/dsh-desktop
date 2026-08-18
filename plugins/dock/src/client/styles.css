@@ -141,6 +141,14 @@
   max-width: 168px;
 }
 
+/* A page put to sleep to save memory. The pill keeps its place and its name; the ink
+   fades to the dimmed label colour, the same one the app uses everywhere for "present but
+   not active". Selecting the pill reopens the page. */
+.hdw-pill-asleep .hdw-pill-name,
+.hdw-pill-asleep .hdw-pill-icon {
+  color: var(--dsw-alias-label-dimmed);
+}
+
 /* Leave room for the close button, so the text does not slide underneath it. */
 .hdw-pillwrap:has(.hdw-pill-x) .hdw-pill {
   padding-right: 22px;
@@ -520,62 +528,90 @@
 /* ------------------------------------------------------ a Settings row */
 
 /*
- * One row in Settings > General. Its shape is copied from upstream's own row
- * (`EnterBehaviorRow`): flexible text on the left, a fixed chooser on the right. No
- * hard-coded colors — everything goes through `--dsw-alias-*` variables, so light and
- * dark mode follow by themselves.
+ * One row in Settings > General.
+ *
+ * Every number below is upstream's own, read out of the compiled rule for their
+ * `EnterBehaviorRow` — the row that sits directly above ours on the same page. Their CSS
+ * lives in a CSS module the plugin cannot import, so matching it means restating it; what
+ * is NOT acceptable is inventing different numbers, which is what the first version did.
+ *
+ * That first version was visibly wrong in three ways at once, and every one of them came
+ * from a number made up here rather than taken from there:
+ *
+ *   - no `border-bottom` and no vertical padding, so our two rows ran into each other as
+ *     one block while every upstream row around them was separated;
+ *   - a chooser drawn as a bordered 6px box on `bg-layer-1`, where upstream's is a
+ *     borderless 36px-tall pill on `bg-module-platform`;
+ *   - 13px titles against upstream's 14px.
+ *
+ * So: no hard-coded colors, and no hard-coded geometry either. If upstream restyles this
+ * page, these numbers are the thing to re-read.
  */
 .hdw-setting {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
 .hdw-setting-text {
-  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 4px;
   min-width: 0;
+  /* Upstream reserves this much so a long title never runs under the chooser. */
+  padding-right: 48px;
 }
 
 .hdw-setting-title {
-  font-size: 13px;
   color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
 }
 
 .hdw-setting-desc {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin-top: 4px;
+  color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-caption);
+  font-weight: 400;
+  line-height: 18px;
 }
 
-/* The warning icon must not shrink when long text wraps. */
-.hdw-setting-warn {
+/* The chooser's own wrapper must not be squeezed.
+   `Menu` puts its anchor inside a wrapper element of its own, and THAT wrapper is the
+   flex item here — not the button. Left to default it shrinks to less than the button
+   needs, and the button spills out past the right edge of the row while every upstream
+   row beside it ends flush. Measured in the real Settings page: 45px over. */
+.hdw-setting > :last-child {
   flex: 0 0 auto;
-  margin-top: 1px;
-  color: var(--dsw-alias-label-secondary);
 }
 
 .hdw-setting-pick {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
+  gap: 12px;
+  height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 18px;
+  background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-primary);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 22px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .hdw-setting-pick:hover {
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The chevron keeps its size when the label beside it is long. */
+.hdw-setting-pick > svg {
+  flex: none;
 }
 
 /* ------------------------------------------------- screenshot result card */

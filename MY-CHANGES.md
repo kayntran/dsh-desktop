@@ -1420,3 +1420,71 @@ byte, không mảnh nào chứa ký tự hỏng.
 
 Cả hai đã đo lại: `npm run spike:think` 15 mục, `npm run spike:relay` 19 mục, và chạy thật trong app
 — câu trả lời tiếng Việt có dấu đầy đủ, không còn thẻ nào sót.
+
+## 2026-08-18 — Panel bên phải tách theo từng chat, và trang web nằm im thì ngủ đông
+
+Nằm ở `plugins/dock/`, vẫn đúng bốn slot cũ (`shell.overlay`,
+`conversation.session.header.utilities`, `settings.general.item`, `tool.call.toolview`), **mức 1**.
+Thêm một hàng trong Settings > General: *"Put idle web pages to sleep"*.
+
+Trước đây cả app dùng **một** dải tab. Trang web mở trong một chat hiện ở mọi chat, mọi workspace —
+đúng cái chủ dự án gặp. Nay dải tab khoá theo id chat (`byChat` trong `store.ts`); riêng độ rộng
+panel, công tắc cho agent và hẹn giờ ngủ vẫn dùng chung cả app, vì chúng là tuỳ chọn chứ không phải
+việc đang làm dở.
+
+Ba quyết định đáng nhớ:
+
+**Panel vẫn dựng panes của MỌI chat, chỉ ẩn cái không thuộc chat đang xem.** Bỏ panes của chat khác
+ra khỏi cây React là giết terminal của chat đó ngay lập tức. Đây chính là bệnh nặng nhất của bản cũ:
+thư mục gốc lấy theo chat đang xem, nên đổi sang chat ở workspace khác là socket đứt và **shell đang
+chạy bị giết, không báo gì**. Nay mỗi pane lấy thư mục từ chat của chính nó.
+
+**Lệnh của agent mang theo id chat, bơm bằng `AsyncLocalStorage`.** Không luồn `exec` qua hơn ba
+mươi chỗ gọi `read`/`act`: chỗ thứ ba mươi mốt sẽ bị quên, và quên thì không lỗi — chỉ là agent
+lặng lẽ chạm vào tab của chat khác. Buộc một lần ở chỗ lời gọi đi vào, đọc một lần ở chỗ gửi đi.
+
+**`lastSeen` giữ nguyên qua các lần mở app, không đặt lại.** Nó trả lời "lần cuối nhìn thấy trang
+này là bao giờ", và câu đó không bắt đầu lại chỉ vì app khởi động lại. Đặt lại thì một trang không
+bao giờ được ngó tới vẫn thức mãi, miễn người dùng tắt mở app đủ thường xuyên.
+
+Ngủ đông chỉ áp cho trang web, **không bao giờ cho terminal**: giết một shell để tiết kiệm bộ nhớ là
+mất luôn lệnh đang chạy. Hai ngoại lệ giống Chrome — trang **đang phát tiếng** và trang **đang giữ
+chữ người dùng gõ vào**. Trang đánh thức lại vẫn còn đăng nhập (các trang dùng chung một kho
+`persist:hdw-browser` trên đĩa); thứ mất là chỗ đang cuộn.
+
+Nghiệm thu: bộ kiểm cũ `npm run spike:dock` 62/62 đạt, và bộ mới `npm run spike:chats` 13/13 đạt (một mục bỏ qua có ghi lý do) —
+dựng hai phiên thật rồi đo dải pill, terminal chat nền, ngủ và đánh thức, và việc tab agent mở rơi
+đúng chat agent khai. Phiên thứ hai phải gieo từ phía engine (`scripts/spike-session-seed.mjs`):
+bấm "New Session" trong app không sinh phiên mới, vì app khởi động vốn đã ở một phiên trống.
+
+**Hai hàng Settings thêm vào lúc đầu KHÔNG khớp với trang, và sai ở bốn chỗ cùng lúc** — mắt thường
+chỉ thấy "trông lệch lệch", nên phải đo. Gốc rễ: CSS của hàng được **bịa số** thay vì lấy số của
+upstream. Đọc rule đã dựng của `EnterBehaviorRow` — hàng nằm ngay phía trên hàng của ta trên cùng
+trang đó — ra bốn khác biệt:
+
+| Chỗ | Bản đầu (bịa) | Upstream |
+|---|---|---|
+| Đường kẻ giữa các hàng | không có | `border-bottom` 1px `--dsw-alias-border-l2` |
+| Khoảng thở dọc | không có | `padding: 16px 0` |
+| Ô chọn | hộp viền 1px, bo 6px, nền `bg-layer-1`, chữ 12px | viên thuốc cao 36px, bo 18px, không viền, nền `bg-module-platform`, chữ 14px |
+| Tiêu đề | 13px | 14px |
+
+Thiếu đường kẻ cộng thiếu padding là thứ làm hai hàng dính liền thành một khối, trong khi mọi hàng
+xung quanh đều tách bạch. Ngoài ra ô chọn còn **tràn 45px ra ngoài mép phải**: nhãn *"After 30
+minutes"* quá dài so với nhãn ngắn của upstream (*"Queue"*), và `Menu` bọc nút trong một lớp vỏ riêng
+— chính lớp vỏ đó mới là phần co giãn, và nó bị bóp nhỏ hơn nút.
+
+Nay mọi số lấy từ upstream, nhãn rút thành *"30 min"*, mô tả rút còn một dòng như các hàng khác, và
+bỏ icon cảnh báo (hàng của upstream không có icon nào). CSS của họ nằm trong CSS module mà plugin
+không import được, nên khớp nghĩa là **chép lại số**; điều không chấp nhận được là bịa số khác. Mục
+kiểm 8a/8b/8c nay canh cả ba: không tràn, đúng khoảng cách và đường kẻ, mô tả không quá hai dòng.
+
+Đã thử và KHÔNG làm được: bấm nút bật panel bằng máy. Nút nằm trong thanh tiêu đề phiên, mà app chỉ
+dựng thanh đó cho phiên đã có nội dung — spike không có model để gửi tin nhắn. Gieo sẵn một phiên
+mang tin nhắn ở phía engine cũng không cứu được: phiên dựng thành công và client biết nó, nhưng thanh
+bên vẫn bày màn hình rỗng, không có hàng phiên nào để bấm. Ghi là BỎ QUA có nêu lý do, không ghi là
+đạt.
+
+Hai mục kiểm trong `spike-dock-ui.cjs` phải sửa chỗ gieo dữ liệu theo khuôn mới. Mục 17b đáng chú ý:
+gieo theo khuôn cũ thì nó vẫn đỏ, nhưng đỏ vì *"không có tab tên đó"* chứ không phải vì rào địa chỉ
+nội bộ đã chặn — một mục kiểm hỏng vì lý do khác với điều nó khai là một mục kiểm nói dối.

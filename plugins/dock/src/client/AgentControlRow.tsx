@@ -17,11 +17,7 @@
 import { useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  IconChevronDownOutline14,
-  IconWarningOutline16,
-  Menu,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DockState } from './store.ts'
 
 /** The data the plugin passes into this row. */
@@ -48,13 +44,18 @@ export function AgentControlRow({ useDock, actions }: AgentControlRowProps): Rea
     <div className="hdw-setting">
       <div className="hdw-setting-text">
         <div className="hdw-setting-title">Let the agent control the browser</div>
+        {/*
+          One line, like every other row on this page. The earlier three-sentence version
+          explained prompt injection in full and was the only paragraph on the page — it
+          read as a warning notice bolted onto a settings list rather than a setting.
+
+          What survives is the part a reader must know to make the choice: whose sessions
+          are being used, and what turning it off actually costs. The reasoning behind the
+          gate is in `bus.ts` and `net-policy.ts`, which is where a reader who wants it
+          will be.
+        */}
         <div className="hdw-setting-desc">
-          <IconWarningOutline16 className="hdw-setting-warn" />
-          <span>
-            Inside the panel's browser the agent acts <b>on your behalf</b> — it uses your own signed-in
-            sessions. The content of the pages it reads is also instruction it may follow. Turn this off
-            and the agent can still <b>read</b> pages, it just cannot click or type.
-          </span>
+          Acts with your signed-in sessions, and page content can steer it. Off: reading only.
         </div>
       </div>
       <Menu

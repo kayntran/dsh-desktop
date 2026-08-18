@@ -18,6 +18,7 @@ import { openBridge } from './bus.ts'
 import { DockPanel } from './DockPanel.tsx'
 import { DockToggle } from './DockToggle.tsx'
 import { ScreenshotCard, SCREENSHOT_TOOL } from './ScreenshotCard.tsx'
+import { SleepTimerRow } from './SleepTimerRow.tsx'
 import { shotUrl } from './shot-loader.ts'
 import { createStageHolder } from './stage-holder.ts'
 import { createDock } from './store.ts'
@@ -107,6 +108,15 @@ export function apply(ctx: ClientContext): void {
     order: 50,
     inject: share,
   }, AgentControlRow))
+
+  // How long an idle web page in the panel may stay open. Straight after the row above:
+  // both belong to the same added feature, and this is the milder of the two.
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'hdw-sleep-timer',
+    order: 60,
+    inject: share,
+  }, SleepTimerRow))
 
   // The screenshot command's result card.
   //

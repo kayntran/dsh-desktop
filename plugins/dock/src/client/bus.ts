@@ -19,7 +19,7 @@ import { isPublicUrl } from '../net-policy.ts'
 import { PAGE_SCRIPT } from './page-script.ts'
 import type { InputEvent, Stage } from './browser-stage.ts'
 import type { StageHolder } from './stage-holder.ts'
-import type { DockActions, DockState } from './store.ts'
+import type { DockActions, DockState, Pane } from './store.ts'
 
 /** Must match `BUS_VERSION` in `bus-routes.ts`. */
 const BUS_VERSION = 2
@@ -37,32 +37,82 @@ const MAX_BACKOFF_MS = 30_000
 type CommandTable = Record<string, (params: unknown) => unknown>
 
 /**
- * Pick the tab to act on.
+ * Which chat's strip a command applies to.
  *
- * With `tab_id` left out, the web tab currently on screen is used — matching the
- * habit of "act on what I am looking at". When no web tab is on screen this
- * **raises an error** rather than picking some background tab: an agent acting on
- * the wrong tab is the kind of mistake it cannot detect itself, because every
- * command still answers "done".
+ * Every tool call carries the id of the chat the agent is running in, so an agent working
+ * in one chat can never reach into another chat's tabs — not even while the user is
+ * reading that other chat. Without this, an agent answering in a background chat would
+ * act on whatever the user happened to have on screen.
+ *
+ * `session_id` is absent on exactly one path: the diagnostic HTTP routes in
+ * `bus-routes.ts`, which no agent drives. Those fall back to the chat on screen.
  */
-function pickTab(holder: StageHolder, params: unknown): string {
+function chatIdFor(store: SnapshotStore<DockState>, params: unknown): string {
+  const given = (params as { session_id?: unknown } | null)?.session_id
+  if (typeof given === 'string' && given !== '') return given
+  const visible = store.getSnapshot().visibleChat
+  if (visible !== undefined) return visible
+  throw new Error('no chat is open, so there is no browser panel to act on')
+}
+
+/** The browser panes of one chat, in strip order. */
+function browserPanesOf(store: SnapshotStore<DockState>, chatId: string): Pane[] {
+  return (store.getSnapshot().byChat[chatId]?.panes ?? []).filter((p) => p.kind === 'browser')
+}
+
+/**
+ * Bring a sleeping page back before anything is asked of it.
+ *
+ * Done here rather than left to the panel because the agent must not have to care: it
+ * addresses a tab by name and the tab answers. The stage is rebuilt synchronously so the
+ * command that follows finds a live tag; `withPageReady` then covers the load itself.
+ */
+function wake(stage: Stage, actions: DockActions, pane: Pane): void {
+  if (pane.asleep !== true) return
+  stage.ensure(pane.id, pane.url, pane.openedBy ?? 'user')
+  actions.setPaneAsleep(pane.id, false)
+}
+
+/**
+ * Pick the tab to act on, within the calling chat's own strip.
+ *
+ * With `tab_id` left out, the web tab currently showing IN THAT CHAT is used — matching
+ * the habit of "act on what I am looking at". When that chat has no web tab showing this
+ * **raises an error** rather than picking some background tab: an agent acting on the
+ * wrong tab is the kind of mistake it cannot detect itself, because every command still
+ * answers "done".
+ */
+function pickTab(
+  store: SnapshotStore<DockState>,
+  actions: DockActions,
+  holder: StageHolder,
+  params: unknown,
+): string {
   const stage = holder.require()
+  const chatId = chatIdFor(store, params)
+  const panes = browserPanesOf(store, chatId)
   const wanted = (params as { tab_id?: unknown } | null)?.tab_id
-  const tabs = stage.list()
+  const names = panes.map((p) => p.id).join(', ')
 
   if (typeof wanted === 'string' && wanted !== '') {
-    if (!tabs.some((t) => t.id === wanted)) {
-      throw new Error(`there is no tab "${wanted}". Currently open: ${tabs.map((t) => t.id).join(', ') || '(no web tabs at all)'}`)
+    const pane = panes.find((p) => p.id === wanted)
+    if (pane === undefined) {
+      throw new Error(`there is no tab "${wanted}" in this chat. Currently open here: ${names || '(no web tabs at all)'}`)
     }
-    return wanted
+    wake(stage, actions, pane)
+    return pane.id
   }
 
-  const active = tabs.find((t) => t.active)
-  if (active !== undefined) return active.id
+  const activeId = store.getSnapshot().byChat[chatId]?.activeId
+  const active = panes.find((p) => p.id === activeId)
+  if (active !== undefined) {
+    wake(stage, actions, active)
+    return active.id
+  }
   throw new Error(
-    tabs.length === 0
-      ? 'no browser tab is open yet'
-      : `no web tab is on screen — name a tab_id. Currently open: ${tabs.map((t) => t.id).join(', ')}`,
+    panes.length === 0
+      ? 'no browser tab is open in this chat yet'
+      : `no web tab is on screen in this chat — name a tab_id. Currently open here: ${names}`,
   )
 }
 
@@ -79,8 +129,13 @@ function pickTab(holder: StageHolder, params: unknown): string {
  * router's admin page and leaving it there is ordinary; the agent has no business
  * inside it.
  */
-function pickPublicTab(holder: StageHolder, params: unknown): string {
-  const id = pickTab(holder, params)
+function pickPublicTab(
+  store: SnapshotStore<DockState>,
+  actions: DockActions,
+  holder: StageHolder,
+  params: unknown,
+): string {
+  const id = pickTab(store, actions, holder, params)
   const tab = holder.require().list().find((t) => t.id === id)
   const url = tab?.url ?? ''
   // A blank page, and a freshly created tab with no address yet: allowed through,
@@ -286,7 +341,7 @@ async function aim(stage: Stage, id: string, params: Record<string, unknown>): P
  * @param holder - the holder for the webview stage.
  * @returns the command table for the bridge.
  */
-function buildCommands(actions: DockActions, holder: StageHolder): CommandTable {
+function buildCommands(actions: DockActions, holder: StageHolder, store: SnapshotStore<DockState>): CommandTable {
   /**
    * The function that puts the screen back after a capture.
    *
@@ -300,8 +355,31 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
   return {
     ping: () => ({ at: Date.now() }),
 
-    /** Every open tab. The foundation for `browser_tabs`. */
-    tabs_list: () => ({ tabs: holder.require().list() }),
+    /**
+     * Every tab in the CALLING CHAT. The foundation for `browser_tabs`.
+     *
+     * Built from the panel's own strip rather than from the stage, because the stage only
+     * holds pages that are awake. A sleeping tab is still one of this chat's tabs — the
+     * agent may address it and it will wake — so hiding it here would be a list that lies.
+     */
+    tabs_list: (params) => {
+      const chatId = chatIdFor(store, params)
+      const chat = store.getSnapshot().byChat[chatId]
+      const live = holder.require().list()
+      const tabs = browserPanesOf(store, chatId).map((pane) => {
+        const onStage = live.find((t) => t.id === pane.id)
+        return {
+          id: pane.id,
+          url: onStage?.url ?? pane.url ?? '',
+          title: onStage?.title ?? pane.title,
+          loading: onStage?.loading ?? false,
+          active: chat?.activeId === pane.id,
+          openedBy: pane.openedBy ?? 'user',
+          asleep: pane.asleep === true,
+        }
+      })
+      return { tabs }
+    },
 
     /**
      * Prepare a capture: raise the tab, wait until it is being painted, then hand
@@ -316,7 +394,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
      * afterwards.
      */
     shot_prepare: async (params) => {
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const stage = holder.require()
       restoreAfterShot?.()
       restoreAfterShot = await stage.revealForInput(id)
@@ -347,7 +425,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
     page_eval: async (params) => {
       const code = (params as { code?: unknown } | null)?.code
       if (typeof code !== 'string' || code === '') throw new Error('missing parameter code')
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       return { tab_id: id, value: await holder.require().evaluate(id, code) }
     },
 
@@ -367,23 +445,30 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
     open_tab: (params) => {
       const url = (params as { url?: unknown } | null)?.url
       if (typeof url !== 'string' || url === '') throw new Error('missing parameter url')
-      // Mark this as an AGENT tab. The label follows the tab for its whole life, and
-      // it is what decides whether the redirect gate pulls the tab back when the page
-      // jumps to a private address on its own.
-      return { tab_id: actions.openPane('browser', url, 'agent') }
+      // Opened in the agent's OWN chat. It appears in that chat's strip, which is where
+      // the person who asked for it will look — and it stays out of every other chat,
+      // including the one the user may be reading at this moment.
+      //
+      // Marked as an AGENT tab. The label follows the tab for its whole life, and it is
+      // what decides whether the redirect gate pulls the tab back when the page jumps to a
+      // private address on its own.
+      return { tab_id: actions.openPane(chatIdFor(store, params), 'browser', url, 'agent') }
     },
 
     select_tab: (params) => {
-      const id = pickTab(holder, params)
-      actions.setActive(id)
-      holder.require().setActive(id)
+      const id = pickTab(store, actions, holder, params)
+      actions.setActive(chatIdFor(store, params), id)
+      // Raise it on the stage only when that chat is the one on screen. Raising a page
+      // belonging to a background chat would drop it over the conversation the user is
+      // actually reading.
+      if (chatIdFor(store, params) === store.getSnapshot().visibleChat) holder.require().setActive(id)
       return { tab_id: id }
     },
 
     close_tab: (params) => {
-      const id = pickTab(holder, params)
+      const id = pickTab(store, actions, holder, params)
       holder.require().remove(id)
-      actions.closePane(id)
+      actions.closePane(chatIdFor(store, params), id)
       return { tab_id: id, closed: true }
     },
 
@@ -391,7 +476,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
 
     navigate: async (params) => {
       const p = (params ?? {}) as Record<string, unknown>
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const stage = holder.require()
       const action = String(p['action'] ?? 'url')
 
@@ -426,7 +511,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
 
     read_page: async (params) => {
       const p = (params ?? {}) as Record<string, unknown>
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const options = {
         filter: p['filter'] === 'all' ? 'all' : 'interactive',
         depth: clampNumber(p['depth'], 30, 1, 60),
@@ -443,7 +528,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
       const p = (params ?? {}) as Record<string, unknown>
       const query = p['query']
       if (typeof query !== 'string' || query === '') throw new Error('missing parameter query')
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const matches = await callInPage(
         holder.require(), id,
         `window.__hdw.find(${JSON.stringify(query)})`,
@@ -455,7 +540,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
 
     get_page_text: async (params) => {
       const p = (params ?? {}) as Record<string, unknown>
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const cap = clampNumber(p['max_chars'], 20_000, 500, 200_000)
       const out = await callInPage(holder.require(), id, `window.__hdw.text(${String(cap)})`)
       return { tab_id: id, ...(out as object) }
@@ -463,7 +548,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
 
     console_log: (params) => {
       const p = (params ?? {}) as Record<string, unknown>
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       let lines = [...holder.require().consoleLog(id)]
       if (p['only_errors'] === true) lines = lines.filter((l) => l.level === 'error')
       const pattern = p['pattern']
@@ -477,7 +562,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
 
     network_log: async (params) => {
       const p = (params ?? {}) as Record<string, unknown>
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const limit = clampNumber(p['limit'], 50, 1, 200)
       const pattern = typeof p['url_pattern'] === 'string' ? p['url_pattern'] : ''
       const out = await callInPage(
@@ -492,7 +577,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
     computer: async (params) => {
       const p = (params ?? {}) as Record<string, unknown>
       const action = String(p['action'] ?? '')
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const stage = holder.require()
 
       if (action === 'wait') {
@@ -634,7 +719,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
       const p = (params ?? {}) as Record<string, unknown>
       const ref = p['ref']
       if (typeof ref !== 'string' || ref === '') throw new Error('missing parameter ref')
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const out = await callInPage(
         holder.require(), id,
         `window.__hdw.setValue(${JSON.stringify(ref)}, ${JSON.stringify(p['value'] ?? '')})`,
@@ -645,7 +730,7 @@ function buildCommands(actions: DockActions, holder: StageHolder): CommandTable 
 
     resize: (params) => {
       const p = (params ?? {}) as Record<string, unknown>
-      const id = pickPublicTab(holder, params)
+      const id = pickPublicTab(store, actions, holder, params)
       const PRESETS: Record<string, { width: number, height: number }> = {
         mobile: { width: 375, height: 812 },
         tablet: { width: 768, height: 1024 },
@@ -672,7 +757,7 @@ export function openBridge(
   holder: StageHolder,
   store: SnapshotStore<DockState>,
 ): () => void {
-  const commands = buildCommands(actions, holder)
+  const commands = buildCommands(actions, holder, store)
   let socket: WebSocket | undefined
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let step = 0

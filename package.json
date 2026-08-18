@@ -36,7 +36,8 @@
     "spike:manager": "node scripts/spike-manager.mjs",
     "spike:switch": "electron scripts/spike-switch-ui.cjs",
     "spike:think": "node scripts/spike-think-tags.mjs",
-    "spike:relay": "node scripts/spike-minimax-relay.mjs"
+    "spike:relay": "node scripts/spike-minimax-relay.mjs",
+    "spike:chats": "electron scripts/spike-dock-chats.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -35,6 +35,13 @@ export interface BrowserPaneProps {
   isHidden: boolean
   /** A preset address, when the tab was created with a URL (opened by the agent, or read back from a previous run). */
   startUrl: string | undefined
+  /**
+   * The page has been put to sleep to save memory: its tag is closed, its pill remains.
+   *
+   * While true this component builds no page at all. When it goes back to false the page
+   * is built again from the address the pane was last at.
+   */
+  asleep: boolean
   /** Who opened this tab — it decides whether the redirect gate applies to it. */
   openedBy: TabOwner
 }
@@ -44,7 +51,7 @@ export interface BrowserPaneProps {
  * @param props - see {@link BrowserPaneProps}.
  * @returns the tab element.
  */
-export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: BrowserPaneProps): React.JSX.Element {
+export function BrowserPane({ paneId, stage, isHidden, startUrl, asleep, openedBy }: BrowserPaneProps): React.JSX.Element {
   const slotRef = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<TabStatus>(() => stage.status(paneId) ?? initialStatus(startUrl))
   const [input, setInput] = useState(startUrl ?? '')
@@ -52,12 +59,18 @@ export function BrowserPane({ paneId, stage, isHidden, startUrl, openedBy }: Bro
 
   // Create the webview once. It does not depend on `startUrl` so a later address change
   // does not rebuild the tag — rebuilding wipes the page's entire state.
+  //
+  // `asleep` is the one exception, and it is not really one: the sleep sweep has already
+  // closed the tag, so this effect running again is the page being built back rather than
+  // an existing page being thrown away. It reads `startUrl` at that moment, which is
+  // where the pane had navigated to before it slept — not the address it first opened at.
   useEffect(() => {
+    if (asleep) return
     stage.ensure(paneId, startUrl, openedBy)
     // `startUrl` is deliberately left out of the dependency list: it is only a starting
     // address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, paneId, openedBy])
+  }, [stage, paneId, openedBy, asleep])
 
   // Listen for tab status. The stage reports to the whole panel, so filter for our own tab.
   useEffect(() => {

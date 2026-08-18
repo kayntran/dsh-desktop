@@ -40,11 +40,31 @@
  * @module
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { Bus } from './bus-routes.ts'
 import { assertPublicUrl } from './net-policy.ts'
 import type { ShotLink } from './shot-routes.ts'
+
+/**
+ * The chat the tool call currently running belongs to.
+ *
+ * Every command sent over the bridge carries it, and the client half uses it to act on
+ * **that chat's** tabs. Without it an agent working in a background chat would reach into
+ * whichever chat the user happened to be reading — which is the whole reason the panel's
+ * panes are keyed by chat in the first place.
+ *
+ * ## Why a store rather than an extra argument
+ *
+ * The alternative is threading `exec` through `read` and `act` and every one of their
+ * thirty-odd call sites. That works right up until someone adds the thirty-first and
+ * forgets, and a forgotten one does not fail — it quietly acts on the wrong chat's tabs.
+ * `AsyncLocalStorage` is the Node facility built for exactly this: the value is bound
+ * once, where the call enters, and it follows the call through every `await` after it,
+ * with concurrent calls kept apart. There is one place to set it and one place to read it.
+ */
+const callingChat = new AsyncLocalStorage<string | undefined>()
 
 /** Budget for a read: one round trip over the bridge, plus the page scan. */
 const READ_TIMEOUT_MS = 25_000
@@ -61,7 +81,9 @@ type SchemaProperty = Record<string, unknown>
 /** The `tab_id` parameter every tool accepts, matching `tabId` in Claude's tool set. */
 const TAB_ID: SchemaProperty = {
   type: 'string',
-  description: 'Tab to act on. Leave it out to use the web tab currently on screen.',
+  description:
+    'Tab to act on, from among the tabs belonging to THIS conversation. '
+    + 'Leave it out to use the web tab currently on screen in this conversation.',
 }
 
 /**
@@ -187,7 +209,9 @@ function browserTool(spec: {
         ? {}
         : { presentationMeta: (_args: unknown, value: unknown) => spec.presentationMeta?.(value) }),
     },
-    execute: async (args, exec) => spec.execute(args, exec),
+    // The one place the calling chat is bound. Everything `spec.execute` reaches — every
+    // `read`, every `act`, however deep the `await` chain runs — sees it from here.
+    execute: async (args, exec) => callingChat.run(exec.agent?.session.id, async () => spec.execute(args, exec)),
     // `presentCall` stays even though the web UI currently does NOT read the
     // `generic` card kind (see the comment on the screenshot tool): it matches
     // upstream's contract, costs nothing, and is the only place each call's
@@ -216,11 +240,24 @@ export function buildBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): Tool
   // The two helpers below differ only in TIME BUDGET. Blocking by the permission
   // switch lives inside `bus.call` itself — a single gate covering every route to
   // the bridge, including the diagnostic one.
+  /**
+   * Stamp the calling chat onto a command's parameters.
+   *
+   * Absent when nothing bound it — the diagnostic HTTP routes call the bridge with no
+   * agent behind them. The client half falls back to the chat on screen there, which is
+   * the only defensible answer when there is no agent to ask.
+   */
+  const addressed = (params: unknown): unknown => {
+    const chatId = callingChat.getStore()
+    if (chatId === undefined) return params
+    return { ...(params as Record<string, unknown> | null), session_id: chatId }
+  }
+
   const read = async (cmd: string, params: unknown): Promise<unknown> =>
-    bus.call(cmd, params, READ_TIMEOUT_MS)
+    bus.call(cmd, addressed(params), READ_TIMEOUT_MS)
 
   const act = async (cmd: string, params: unknown, timeoutMs = ACT_TIMEOUT_MS): Promise<unknown> =>
-    bus.call(cmd, params, timeoutMs)
+    bus.call(cmd, addressed(params), timeoutMs)
 
   return [
     // ---------------------------------------------------------------- tab
@@ -229,6 +266,7 @@ export function buildBrowserTools(ctx: Context, bus: Bus, shots: ShotLink): Tool
       name: 'browser_tabs',
       description:
         'Manage the browser tabs in the app panel: list them, open a new one, switch, close. '
+        + 'Every conversation keeps its own tabs, and you only ever see and touch the ones here. '
         + 'This is the browser on the user\'s own screen — they see everything you do. '
         + 'Only public addresses can be opened; private ones (localhost, 192.168.x.x) are refused.',
       properties: {

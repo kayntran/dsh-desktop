@@ -251,14 +251,40 @@ async function main() {
   // nạp lại. Cách này thay cho việc bấm chuột mở panel: nó đi qua đúng đường
   // đọc-lại-trạng-thái mà người dùng thật cũng đi qua mỗi lần mở app.
   await win.loadURL(baseUrl)
+
+  // Từ 2026-08-18, trạng thái panel được khoá theo TỪNG CHAT, nên không gieo mù
+  // được nữa: phải biết chat nào đang mở đã. Panel tự ghi id chat đang xem vào
+  // `visibleChat` ngay khi nó dựng xong, nên chờ đúng chỗ đó là ra.
+  const chatId = await win.webContents.executeJavaScript(`(async () => {
+    const deadline = Date.now() + 60000
+    while (Date.now() < deadline) {
+      try {
+        const saved = JSON.parse(localStorage.getItem('hdw.dock') ?? '{}')
+        if (typeof saved.visibleChat === 'string' && saved.visibleChat !== '') return saved.visibleChat
+      } catch {}
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    return null
+  })()`)
+  console.log(`  (chuẩn bị) chat đang mở: ${chatId ?? 'KHÔNG CÓ — app chưa mở sẵn phiên nào'}`)
+  if (chatId === null) {
+    record('1. plugin gắn được, panel mở ra', false, 'app không mở sẵn phiên nào nên không có chat để gieo')
+    return
+  }
+
   await win.webContents.executeJavaScript(`
     localStorage.setItem('hdw.dock', JSON.stringify({
-      open: true, width: 520,
-      panes: [
-        { id: 'p-files', kind: 'files', title: 'Files' },
-        { id: 'p-web', kind: 'browser', title: 'New page', url: ${JSON.stringify(TRANG_THU)} },
-      ],
-      activeId: 'p-web',
+      width: 520, agentControl: true, sleepAfterMinutes: 30,
+      byChat: {
+        [${JSON.stringify(chatId)}]: {
+          open: true,
+          panes: [
+            { id: 'p-files', kind: 'files', title: 'Files' },
+            { id: 'p-web', kind: 'browser', title: 'New page', url: ${JSON.stringify(TRANG_THU)} },
+          ],
+          activeId: 'p-web',
+        },
+      },
     }))
   `)
   await win.loadURL(baseUrl)
@@ -1100,13 +1126,20 @@ async function main() {
     //
     // Gieo một tab người dùng trỏ tới địa chỉ nội bộ (đường hợp lệ: người dùng
     // được phép), rồi bảo agent đọc nó.
+    // Gieo vào dải pill CỦA CHÍNH CHAT đang mở. Từ khi trạng thái panel khoá
+    // theo từng chat, một pane gieo ở ngoài `byChat` bị dọn sạch lúc đọc lại —
+    // và mục kiểm vẫn đỏ nhưng vì "không có tab tên đó", chứ không phải vì rào
+    // địa chỉ nội bộ đã chặn. Một mục kiểm đỏ vì lý do khác với điều nó khai là
+    // một mục kiểm nói dối.
     await win.webContents.executeJavaScript(`(() => {
-      const kho = JSON.parse(localStorage.getItem('hdw.dock') || '{}')
-      kho.panes = [...(kho.panes || []), {
+      const saved = JSON.parse(localStorage.getItem('hdw.dock') || '{}')
+      const chat = saved.byChat?.[${JSON.stringify(chatId)}]
+      if (!chat) return 0
+      chat.panes = [...chat.panes, {
         id: 'p-noibo', kind: 'browser', title: 'Nội bộ',
         url: 'http://192.168.1.1/', openedBy: 'user',
       }]
-      localStorage.setItem('hdw.dock', JSON.stringify(kho))
+      localStorage.setItem('hdw.dock', JSON.stringify(saved))
       return 1
     })()`)
     await win.webContents.reload()
