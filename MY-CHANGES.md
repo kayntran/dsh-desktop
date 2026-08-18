@@ -1452,7 +1452,7 @@ mất luôn lệnh đang chạy. Hai ngoại lệ giống Chrome — trang **đa
 chữ người dùng gõ vào**. Trang đánh thức lại vẫn còn đăng nhập (các trang dùng chung một kho
 `persist:hdw-browser` trên đĩa); thứ mất là chỗ đang cuộn.
 
-Nghiệm thu: bộ kiểm cũ `npm run spike:dock` 62/62 đạt, và bộ mới `npm run spike:chats` 13/13 đạt (một mục bỏ qua có ghi lý do) —
+Nghiệm thu: bộ kiểm cũ `npm run spike:dock` 62/62 đạt, và bộ mới `npm run spike:chats` 16/16 đạt —
 dựng hai phiên thật rồi đo dải pill, terminal chat nền, ngủ và đánh thức, và việc tab agent mở rơi
 đúng chat agent khai. Phiên thứ hai phải gieo từ phía engine (`scripts/spike-session-seed.mjs`):
 bấm "New Session" trong app không sinh phiên mới, vì app khởi động vốn đã ở một phiên trống.
@@ -1479,11 +1479,16 @@ bỏ icon cảnh báo (hàng của upstream không có icon nào). CSS của h�
 không import được, nên khớp nghĩa là **chép lại số**; điều không chấp nhận được là bịa số khác. Mục
 kiểm 8a/8b/8c nay canh cả ba: không tràn, đúng khoảng cách và đường kẻ, mô tả không quá hai dòng.
 
-Đã thử và KHÔNG làm được: bấm nút bật panel bằng máy. Nút nằm trong thanh tiêu đề phiên, mà app chỉ
-dựng thanh đó cho phiên đã có nội dung — spike không có model để gửi tin nhắn. Gieo sẵn một phiên
-mang tin nhắn ở phía engine cũng không cứu được: phiên dựng thành công và client biết nó, nhưng thanh
-bên vẫn bày màn hình rỗng, không có hàng phiên nào để bấm. Ghi là BỎ QUA có nêu lý do, không ghi là
-đạt.
+**Bấm được nút bật panel bằng máy, sau ba lần tắc.** Nút nằm trong thanh tiêu đề phiên, mà app chỉ
+dựng thanh đó cho phiên ĐÃ CÓ nội dung — phiên trống thì nó bày màn hình soạn tin lớn và nút không có
+chỗ mọc. Bấm "New Session" không sinh phiên mới (app vốn đã ở phiên trống); thanh bên không liệt kê
+phiên nào để bấm vào. Đường đi được: gieo ở phía engine một phiên có sẵn tin nhắn, rồi ghi thẳng id
+đó vào khoá `dsh.sessions.current` — nơi app nhớ phiên đang mở — và nạp lại. Khoá này tìm ra bằng
+cách đổ toàn bộ localStorage ra xem.
+
+Mục 0 không chỉ hỏi "panel có mở không" mà đòi dải tab sinh ra mang ĐÚNG id phiên đó. Nút không nhận
+được id thì panel vẫn mở, trông như chạy đúng, nhưng trạng thái rơi vào một ngăn không thuộc chat
+nào — loại hỏng im lặng mà chỉ con số mới lộ ra.
 
 Hai mục kiểm trong `spike-dock-ui.cjs` phải sửa chỗ gieo dữ liệu theo khuôn mới. Mục 17b đáng chú ý:
 gieo theo khuôn cũ thì nó vẫn đỏ, nhưng đỏ vì *"không có tab tên đó"* chứ không phải vì rào địa chỉ

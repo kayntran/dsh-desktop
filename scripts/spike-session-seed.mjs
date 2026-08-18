@@ -34,4 +34,27 @@ export function apply(ctx) {
   } catch (error) {
     console.log('[session-seed] không dựng được phiên thứ hai:', String(error))
   }
+
+  try {
+    const talked = ctx.sessions.create('session-hdw-spike-c', { meta: { cwd: process.cwd() } })
+    // Dựng tay đối tượng tin nhắn thay vì gọi `createUserMessage`.
+    //
+    // Plugin này nằm NGOÀI cây module của engine (nó được nạp bằng đường dẫn
+    // tuyệt đối), nên `import '@deepseek-ai/dsh-llm'` chết bằng
+    // ERR_MODULE_NOT_FOUND — đúng cái bẫy đã ghi trong `plugins/dock/src/tools.ts`.
+    // Việc duy nhất hàm kia làm thêm là gắn `id`, nên tự gắn.
+    talked.append(
+      'user/message',
+      {
+        id: 'msg-hdw-spike-seed',
+        role: 'user',
+        content: [{ type: 'text', text: 'Spike seed message.' }],
+        source: { kind: 'user' },
+      },
+      { surfaceOp: 'append' },
+    )
+    console.log('[session-seed] đã dựng phiên có tin nhắn: session-hdw-spike-c')
+  } catch (error) {
+    console.log('[session-seed] không dựng được phiên có tin nhắn:', String(error))
+  }
 }

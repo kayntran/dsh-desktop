@@ -7,9 +7,10 @@
  * có thật sự không thấy đồ của nhau không — nên nó cần dựng hai phiên thật rồi
  * chuyển qua lại, một việc bộ kia không làm và không nên làm.
  *
- * Mười ba mục:
- *   0. bấm nút bật panel trên thanh tiêu đề phiên — BỎ QUA khi phiên còn trống,
- *      vì lúc đó app chưa dựng thanh tiêu đề nên nút không có chỗ để mọc
+ * Mười sáu mục:
+ *   0. bấm THẬT vào nút bật panel trên thanh tiêu đề phiên, và dải tab sinh ra
+ *      phải mang đúng id phiên đó — nút nhận nhầm id thì panel vẫn mở, trông như
+ *      chạy đúng, nhưng trạng thái rơi vào một ngăn không thuộc chat nào
  *   1. app có hai chat thật, khác id nhau
  *   2. dải pill chỉ có tab của chat đang xem (2), trang chat kia vẫn sống ngầm
  *      (2b), và không chat nào bị dọn nhầm (2c)
@@ -19,7 +20,10 @@
  *   6. pill đang ngủ vẫn ở nguyên chỗ và mờ đi (6a), chọn lại thì trang dựng lại
  *      đúng địa chỉ cũ (6b)
  *   7. lệnh mở tab của agent rơi vào ĐÚNG chat của agent, không phải chat đang xem
- *   8. ô chọn của hai hàng thêm vào Settings không tràn ra ngoài mép hàng
+ *   8. hai hàng thêm vào Settings không tràn mép (8a), dùng đúng khoảng cách và
+ *      đường kẻ của upstream (8b), mô tả không thành đoạn văn (8c)
+ *
+ * Muốn xem tiếng nói của engine lúc khởi động thì đặt HDW_DIAG=1.
  *
  * Tên trong file này là tiếng Anh (luật 7 áp cho mọi file mới); chú thích và
  * chữ in ra terminal là tiếng Việt, vì chúng viết cho chủ dự án đọc.
@@ -212,10 +216,26 @@ async function main() {
   guards.setEngineOrigin(baseUrl)
 
   await win.loadURL(baseUrl)
-  const chatA = await currentChat(win, 90_000)
-  if (chatA === null) throw new Error('app không mở sẵn phiên nào — không có chat để kiểm')
+  if (await currentChat(win, 90_000) === null) {
+    throw new Error('app không mở sẵn phiên nào — không có chat để kiểm')
+  }
 
-  // --- 1. dựng chat thứ hai bằng chính nút của app
+  // Ép app mở phiên ĐÃ CÓ TIN NHẮN, trước mọi mục kiểm.
+  //
+  // Đây là chìa khoá của mục 0. App chỉ dựng thanh tiêu đề phiên — chỗ nút bật
+  // panel mọc ra — cho phiên có nội dung; phiên trống thì nó bày màn hình soạn tin
+  // lớn, không có thanh nào, và nút không có chỗ để mọc. Khoá `dsh.sessions.current`
+  // là nơi app nhớ phiên đang mở, nên ghi thẳng vào đó rồi nạp lại là vào đúng phiên
+  // cần. Tìm ra khoá này bằng cách đổ toàn bộ localStorage ra xem.
+  await win.webContents.executeJavaScript(
+    `localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId: 'session-hdw-spike-c' })); 1`)
+  await win.webContents.reload()
+  await idle(4000)
+  const chatA = await currentChat(win, 30_000)
+  if (chatA !== 'session-hdw-spike-c') {
+    throw new Error(`ép mở phiên có tin nhắn không thành, đang ở "${String(chatA)}"`)
+  }
+
   // --- 0. bấm THẬT vào nút bật panel, NẾU thanh tiêu đề phiên có mặt
   //
   // Nút nằm trong thanh tiêu đề của phiên, mà thanh đó chỉ dựng khi phiên đã có
@@ -230,19 +250,19 @@ async function main() {
     btn.click()
     return { found: true }
   })()`)
-  if (toggle.found !== true) {
-    console.log('  BỎ QUA  0. nút bật panel — phiên trống nên app chưa dựng thanh tiêu đề phiên')
-  } else {
-    await idle(2000)
-    const shown = await win.webContents.executeJavaScript(`(() => {
-      const el = document.querySelector('.hdw-dock')
-      const saved = JSON.parse(localStorage.getItem('hdw.dock') ?? '{}')
-      return { visible: el !== null && !el.hasAttribute('hidden'), chats: Object.keys(saved.byChat ?? {}) }
-    })()`)
-    record('0. bấm nút trên đầu phiên thì panel của ĐÚNG chat đó mở ra',
-      shown.visible === true && shown.chats.includes(chatA),
-      `panel: ${shown.visible ? 'mở' : 'đóng'}; chat có dải riêng: ${JSON.stringify(shown.chats)}`)
-  }
+  await idle(2000)
+  const shown = await win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector('.hdw-dock')
+    const saved = JSON.parse(localStorage.getItem('hdw.dock') ?? '{}')
+    return { visible: el !== null && !el.hasAttribute('hidden'), chats: Object.keys(saved.byChat ?? {}) }
+  })()`)
+  // Điều đáng ngờ nhất ở nút này là nó có nhận được id của phiên chứa nó hay không.
+  // Không nhận thì dải tab bị tạo dưới một khoá rỗng — panel vẫn mở ra, trông như
+  // chạy đúng, nhưng trạng thái rơi vào một ngăn không thuộc chat nào. Nên mục này
+  // đòi đúng id phiên đang mở, chứ không chỉ đòi "panel có mở không".
+  record('0. bấm nút trên đầu phiên thì panel của ĐÚNG chat đó mở ra',
+    toggle.found === true && shown.visible === true && shown.chats.includes(chatA),
+    `thấy nút: ${String(toggle.found)}; panel: ${shown.visible ? 'mở' : 'đóng'}; chat có dải riêng: ${JSON.stringify(shown.chats)}`)
 
   // Phiên thứ hai do lớp gieo dựng sẵn ở phía engine (xem `spike-session-seed.mjs`).
   // Bấm "New Session" KHÔNG dùng được: app khởi động vốn đã ở một phiên trống nên
