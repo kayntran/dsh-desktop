@@ -21,7 +21,7 @@
 import { lstatSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { logShell } from './log.js'
-import { dockPluginDir, dshHome, minimaxRelayDir, pluginManagerDir, thinkTagsDir } from './paths.js'
+import { dockPluginDir, dshHome, growthDir, minimaxRelayDir, pluginManagerDir, thinkTagsDir } from './paths.js'
 
 /**
  * Each plugin's package name and its real directory. The name must match that
@@ -32,6 +32,7 @@ const PLUGIN_PACKAGES: readonly { name: string, dir: () => string }[] = [
   { name: 'harness-desktop-plugin-manager', dir: pluginManagerDir },
   { name: 'harness-desktop-think-tags', dir: thinkTagsDir },
   { name: 'harness-desktop-minimax-relay', dir: minimaxRelayDir },
+  { name: 'harness-desktop-growth', dir: growthDir },
 ]
 
 function lstatOrUndefined(path: string): ReturnType<typeof lstatSync> | undefined {

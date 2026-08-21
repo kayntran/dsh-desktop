@@ -6,10 +6,13 @@
 
 import { app, shell } from 'electron'
 import { EngineStartError, reapOrphanEngine, startEngine, stopEngine } from './engine.js'
+import { startRestartLink, stopRestartLink } from './engine-restart.js'
 import { logShell, shellLogPath } from './log.js'
 import { dshHome, dshVersion, engineLogPath, nodeVersion } from './paths.js'
 import { startNotifier, stopNotifier } from './notifier.js'
+import { clearLastInstall, lastInstall, undoLastInstall } from './plugin-undo.js'
 import { startShotLink, stopShotLink } from './shot-link.js'
+import { ensureTools } from './tools.js'
 import { linkPlugins } from './plugin-link.js'
 import {
   createTray, destroyTray, hintHiddenToTray, setTrayStatus, setTrayUpdate,
@@ -57,6 +60,9 @@ if (!app.requestSingleInstanceLock()) {
     reapOrphanEngine()
     // Must finish BEFORE the engine starts: the engine scans the plugin tree at boot.
     linkPlugins()
+    // Also before: the engine's plugin command looks for pnpm on PATH, and this
+    // is what puts one there — see `tools.ts`.
+    ensureTools()
     createTray({
       open: revealWindow,
       openDataDir: () => { void shell.openPath(dshHome()) },
@@ -87,6 +93,7 @@ if (!app.requestSingleInstanceLock()) {
     beginQuit()
     stopNotifier()
     stopShotLink()
+    stopRestartLink()
     stopUpdateChecks()
     destroyTray()
     stopEngine()
@@ -101,20 +108,44 @@ async function boot(): Promise<void> {
       setTrayStatus('Engine stopped')
       stopNotifier()
       stopShotLink()
-      void showError({ message: 'The engine stopped unexpectedly while running.', tail })
+      stopRestartLink()
+      void showError({ message: 'The engine stopped unexpectedly while running.', tail, ...undoOffer() })
     })
     setTrayStatus('Running')
+    // The engine came up, so whatever plugin was installed last is not the reason
+    // it would not. Forgetting it here is what keeps the error page's offer
+    // pointed at a genuine suspect rather than at something that works.
+    clearLastInstall()
     startNotifier(engine.url, { isWindowActive, reveal: revealWindow })
     // The screenshot path the agent uses. The shell calls OUT to the engine and opens
     // no extra port on the machine — see `shot-link.ts`.
     startShotLink(engine.url)
+    // The Plugins page asks for a restart after installing something; same
+    // outbound shape, same reason — see `engine-restart.ts`.
+    startRestartLink(engine.url, restartEngine)
     await showEngine(engine.url)
   } catch (error) {
     setTrayStatus('Failed to start')
     await showError(error instanceof EngineStartError
-      ? { message: error.message, tail: error.tail }
-      : { message: String(error), tail: '' })
+      ? { message: error.message, tail: error.tail, ...undoOffer() }
+      : { message: String(error), tail: '', ...undoOffer() })
   }
+}
+
+/** The error page's undo button, when there is an install worth suspecting. */
+function undoOffer(): { undo?: { pkg: string, label: string } } {
+  const note = lastInstall()
+  return note === undefined ? {} : { undo: note }
+}
+
+/** Stop the engine and bring it back up. The route a plugin install takes. */
+function restartEngine(): void {
+  logShell('app: restarting the engine')
+  stopNotifier()
+  stopShotLink()
+  stopRestartLink()
+  stopEngine()
+  void showSplash().then(boot)
 }
 
 /** Quit for real: stop the engine, then close the app. */
@@ -130,9 +161,21 @@ function handleAction(action: string): void {
     return
   }
   if (action === 'retry') {
-    stopNotifier()
-    stopShotLink()
-    stopEngine()
-    void showSplash().then(boot)
+    restartEngine()
+    return
+  }
+  if (action === 'undo-install') {
+    // The last route back for a user whose engine will not start: take out the
+    // plugin installed since it last did, then try again.
+    void undoLastInstall().then(
+      () => { restartEngine() },
+      (error: unknown) => {
+        void showError({
+          message: error instanceof Error ? error.message : String(error),
+          tail: '',
+          ...undoOffer(),
+        })
+      },
+    )
   }
 }

@@ -1,9 +1,9 @@
 {
-  "name": "harness-desktop-plugin-manager",
+  "name": "harness-desktop-growth",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The Plugins page: turn plugins on and off, and install new ones from the community catalog.",
+  "description": "Soul and Memory: what the assistant knows about you, carried across sessions.",
   "main": "lib/index.js",
   "exports": {
     ".": { "default": "./lib/index.js" },

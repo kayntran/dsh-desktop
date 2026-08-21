@@ -42,10 +42,11 @@ Mọi thứ đăng ký qua `ctx` — sự kiện, tool, hẹn giờ — được
 | `plugin-manager/` | Tab Cài đặt → Plugins → **Bật/tắt**: gạt từng plugin, có lưu lựa chọn |
 | `think-tags/` | Lưới đỡ: cắt phần suy nghĩ bọc trong `<think>` ra khỏi câu trả lời. Không có giao diện |
 | `minimax-relay/` | Thêm `reasoning_split` vào yêu cầu gửi MiniMax, để nó trả phần nghĩ ra trường riêng. Không có giao diện |
+| `growth/` | Tab Cài đặt → **Growth**: hai trang SOUL.md / USER.md sửa được ngay trên giao diện, buổi hỏi đáp lần đầu, mẩu nhớ và skill agent tự đúc kết |
 
 ## Nạp vào app
 
-Engine được khởi động ở [../src/main/engine.ts](../src/main/engine.ts) với **năm** lớp `--patch`:
+Engine được khởi động ở [../src/main/engine.ts](../src/main/engine.ts) với **sáu** lớp `--patch`:
 
 ```ts
 spawn(node, [bin, '--profile', 'web',
@@ -53,6 +54,7 @@ spawn(node, [bin, '--profile', 'web',
   '--patch', pluginManagerPatchPath(),  // công tắc bật/tắt
   '--patch', thinkTagsPatchPath(),      // bộ lọc thẻ <think>
   '--patch', minimaxRelayPatchPath(),   // trạm chuyển tiếp MiniMax
+  '--patch', growthPatchPath(),         // Soul, hồ sơ người dùng, Memory, Skills
   '--patch', pluginStatePath(),         // lựa chọn của người dùng — PHẢI ĐỨNG CUỐI
   '--port', '0'], ...)
 ```

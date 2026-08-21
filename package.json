@@ -10,9 +10,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc && npm run plugins:build && electron .",
-    "typecheck": "tsc --noEmit && npm --prefix plugins/dock run typecheck && npm --prefix plugins/plugin-manager run typecheck && npm --prefix plugins/think-tags run typecheck && npm --prefix plugins/minimax-relay run typecheck",
-    "plugins:install": "npm --prefix plugins/dock install && npm --prefix plugins/plugin-manager install && npm --prefix plugins/think-tags install && npm --prefix plugins/minimax-relay install",
-    "plugins:build": "npm --prefix plugins/dock run build && npm --prefix plugins/plugin-manager run build && npm --prefix plugins/think-tags run build && npm --prefix plugins/minimax-relay run build",
+    "typecheck": "tsc --noEmit && npm --prefix plugins/dock run typecheck && npm --prefix plugins/plugin-manager run typecheck && npm --prefix plugins/think-tags run typecheck && npm --prefix plugins/minimax-relay run typecheck && npm --prefix plugins/growth run typecheck",
+    "plugins:install": "npm --prefix plugins/dock install && npm --prefix plugins/plugin-manager install && npm --prefix plugins/think-tags install && npm --prefix plugins/minimax-relay install && npm --prefix plugins/growth install",
+    "plugins:build": "npm --prefix plugins/dock run build && npm --prefix plugins/plugin-manager run build && npm --prefix plugins/think-tags run build && npm --prefix plugins/minimax-relay run build && npm --prefix plugins/growth run build",
     "icons": "powershell -ExecutionPolicy Bypass -File scripts/make-icons.ps1",
     "engine:install": "npm --prefix engine install --omit=dev",
     "engine:ci": "npm --prefix engine ci --omit=dev",
@@ -43,6 +43,7 @@
     "@types/node": "^22.0.0",
     "electron": "^40.0.0",
     "electron-builder": "^26.15.3",
+    "pnpm": "^11.22.0",
     "typescript": "^5.7.0"
   }
 }

@@ -1,5 +1,5 @@
 /**
- * UI probe for Settings > Plugins > On/off — the tab that turns plugins on and off.
+ * UI probe for the Plugins page — the surface that turns plugins on and off.
  *
  * ## Why this file exists
  *
@@ -53,7 +53,7 @@ const { app, BrowserWindow } = require('electron')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
 const { execFileSync, spawn } = require('node:child_process')
-const { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } = require('node:fs')
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const { pathToFileURL } = require('node:url')
@@ -64,8 +64,17 @@ const dshBin = join(root, 'engine', 'node_' + 'modules', '@deepseek-ai', 'dsh', 
 
 /** Package name of the plugin whose switch we flip, and the one under test. */
 const DOCK_PKG = 'harness-desktop-dock'
-/** Registration id of our tab. It reaches the DOM, which is why we can find it. */
-const TAB_ID = 'hdw-switch'
+/** Handle on our own sidebar button. Upstream's entry shares that slot. */
+const TRIGGER = '[data-hdw="plugins-trigger"]'
+
+/**
+ * The plugin installed for real, then removed again.
+ *
+ * Chosen on facts, not taste: zero runtime dependencies, no lifecycle scripts, a
+ * repository the npm record points back at, and it declares `dsh.bundle.patch` so
+ * a successful install has an observable effect on the profile manifest.
+ */
+const TEST_PKG = 'dsh-plugin-vetting'
 
 /** Preferred core plugin for the confirmation-dialog checks. Only ever cancelled. */
 const CORE_PREF = '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
@@ -81,15 +90,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // ------------------------------------------------------------------- engine
 
 let engine
+/** The throwaway DSH_HOME this run uses. Checks read the profile out of it. */
+let engineHome
 
 /**
  * Spawn the engine the way the shell spawns it, in a throwaway DSH_HOME.
+ * @param reuse - true to start again in the home the last run used, which is how
+ *   a plugin installed mid-run gets loaded: the engine reads its bundle list once,
+ *   at boot, so nothing installed afterwards exists until it starts again.
  * @returns {Promise<string>} the engine's loopback origin.
  */
-function startEngine() {
-  const home = mkdtempSync(join(tmpdir(), 'hdw-switch-'))
+function startEngine(reuse = false) {
+  const home = reuse ? engineHome : mkdtempSync(join(tmpdir(), 'hdw-switch-'))
+  engineHome = home
   const nmDir = join(home, 'profiles', 'node_' + 'modules')
   mkdirSync(nmDir, { recursive: true })
+  if (reuse) return spawnEngine(home)
   // Junction, not symlink: the engine resolves each client half through
   // `createRequire(<profile dir>).resolve('<pkg>/package.json')`, and Windows
   // needs a junction for a directory link without elevation.
@@ -114,6 +130,17 @@ function startEngine() {
   const statePath = join(home, 'harness-desktop-plugins.cordis.yml')
   writeFileSync(statePath, '[]\n')
 
+  return spawnEngine(home)
+}
+
+/**
+ * Start the engine process against a home that is already prepared.
+ * @param home - the DSH_HOME to run in.
+ * @returns {Promise<string>} the engine's loopback origin.
+ */
+function spawnEngine(home) {
+  const statePath = join(home, 'harness-desktop-plugins.cordis.yml')
+  const seedPatch = join(home, 'hdw-ws-seed.patch.yml')
   const patches = [
     '--patch', join(root, 'plugins', 'dock', 'cordis.patch.yml'),
     '--patch', join(root, 'plugins', 'plugin-manager', 'cordis.patch.yml'),
@@ -273,92 +300,85 @@ async function clearOverlays(win) {
 }
 
 /**
- * Open Settings, find the Plugins section, and select our tab.
+ * Open the Plugins page from the foot of the sidebar.
  *
- * Nothing here depends on visible text. Upstream's nav labels are localized
- * ("Plugins" is 插件 under zh), and the nav buttons carry no id, no role and no
- * data attribute — so the Plugins section is found by EFFECT: click each nav
- * button in turn and stop when our own tab appears. That works in any locale and
- * survives upstream inserting new sections.
+ * The page used to be a tab inside Settings, reached by clicking every nav button
+ * until our tab appeared. It is now its own surface, opened by one button that
+ * upstream renders in the `sidebar.footer.action` list — the same list upstream's
+ * own Cordis entry sits in, which is why the probe addresses OUR button by its
+ * `data-hdw` handle rather than by class or by position.
  *
- * Our tab, by contrast, is addressable: upstream builds the tab's `id` from the
- * registration id, so `hdw-switch` is really in the DOM.
+ * The ray-cast is kept from the old version and is the point of the check: "in the
+ * DOM" and "reachable by a real mouse" are different questions, and only the second
+ * one is what a user experiences. The whole `dongHopThoai` saga in
+ * `spike-dock-ui.cjs` came from the first answering yes while the second said no.
  * @returns {Promise<object>} a report of each step.
  */
 async function openSwitchTab(win) {
-  const opened = await win.webContents.executeJavaScript(`(() => {
-    const trigger = document.querySelector('[data-slot="sidebar.settings"] button[aria-haspopup="dialog"]')
-    if (trigger === null) return { ly_do: 'không thấy nút mở Cài đặt' }
-    trigger.click()
-    return { ok: true }
-  })()`)
-  if (opened.ly_do !== undefined) return opened
-
-  const panelUp = await waitUntil(win,
-    `!!document.querySelector('[role="dialog"][aria-modal="true"]')`, 15_000)
-  if (panelUp !== true) return { ly_do: `panel Cài đặt không mở: ${String(panelUp)}` }
-
-  // Walk the nav until our tab shows up.
-  const found = await win.webContents.executeJavaScript(`(async () => {
-    const panel = document.querySelector('[role="dialog"][aria-modal="true"]')
-    const buttons = [...panel.querySelectorAll('nav button')]
-    for (let i = 0; i < buttons.length; i += 1) {
-      buttons[i].click()
-      for (let wait = 0; wait < 12; wait += 1) {
-        if (document.querySelector('button[role="tab"][id$="-tab-${TAB_ID}"]') !== null) {
-          return { navCount: buttons.length, navIndex: i }
-        }
-        await new Promise((r) => setTimeout(r, 200))
+  const reach = await win.webContents.executeJavaScript(`(() => {
+    const trigger = document.querySelector('${TRIGGER}')
+    if (trigger === null) {
+      // Say WHICH of the three things went wrong, otherwise the failure reads the
+      // same whether the slot is missing, the bundle never loaded, or apply() threw.
+      const slots = [...document.querySelectorAll('[data-slot]')].map((n) => n.getAttribute('data-slot'))
+      const footer = slots.filter((n) => n.startsWith('sidebar'))
+      const served = [...document.querySelectorAll('script[src*="/plugins/"]')].map((n) => n.getAttribute('src'))
+      return {
+        ly_do: 'không thấy nút Plugins ở chân thanh bên'
+          + ' | slot sidebar.* trong trang: ' + (footer.length ? footer.join(', ') : 'KHÔNG CÓ')
+          + ' | script plugin đã nạp: ' + (served.length ? served.join(', ') : 'KHÔNG CÓ')
+          + ' | css của plugin-manager: '
+          + String(document.querySelector('style[data-plugin="harness-desktop-plugin-manager"]') !== null)
+          + ' | trong slot: ' + (document.querySelector('[data-slot="sidebar.footer.action"]')?.innerHTML ?? '?').slice(0, 400),
       }
     }
-    return { ly_do: 'bấm hết ' + buttons.length + ' mục nav mà không thấy tab của ta' }
-  })()`)
-  if (found.ly_do !== undefined) return found
-
-  // Ray-cast the tab's midpoint BEFORE clicking. "In the DOM" and "reachable by a
-  // real mouse" are different questions, and only the second one is what a user
-  // experiences. The whole `dongHopThoai` saga in `spike-dock-ui.cjs` came from
-  // the first question answering yes while the second answered no.
-  const reach = await win.webContents.executeJavaScript(`(() => {
-    const tab = document.querySelector('button[role="tab"][id$="-tab-${TAB_ID}"]')
-    const box = tab.getBoundingClientRect()
+    trigger.scrollIntoView({ block: 'center' })
+    const box = trigger.getBoundingClientRect()
     const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+    const slot = trigger.closest('[data-slot]')
     return {
-      label: tab.textContent.trim(),
-      siblings: tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]').length,
-      clickable: hit !== null && (tab === hit || tab.contains(hit)),
+      label: trigger.textContent.trim(),
+      slot: slot === null ? 'không có' : slot.getAttribute('data-slot'),
+      siblings: slot === null ? 0 : slot.querySelectorAll('button').length,
+      clickable: hit !== null && (trigger === hit || trigger.contains(hit)),
       covering: hit === null ? 'không có' : (hit.className || hit.tagName),
     }
   })()`)
+  if (reach.ly_do !== undefined) return reach
 
+  // The real button, not a synthesized event: whether a user can reach it is the
+  // question, and `dispatchEvent` would answer a different one.
   await win.webContents.executeJavaScript(
-    `document.querySelector('button[role="tab"][id$="-tab-${TAB_ID}"]').click()`)
+    `document.querySelector('${TRIGGER}').click()`)
+
   const bodyUp = await waitUntil(win, `(() => {
-    const body = document.querySelector('[role="tabpanel"][id$="-panel-${TAB_ID}"]')
-    return body !== null && body.hidden !== true && body.querySelector('.hdw-pm-list') !== null
+    const body = document.querySelector('.hdw-pm-body')
+    return body !== null && body.hidden !== true && body.querySelector('.hdw-pm-grid') !== null
   })()`, 20_000)
 
-  return { ...found, ...reach, bodyUp }
+  return { ...reach, bodyUp }
 }
 
 /** Read the whole tab body in one round trip. */
 async function readTab(win) {
   return await win.webContents.executeJavaScript(`(() => {
-    const body = document.querySelector('[role="tabpanel"][id$="-panel-${TAB_ID}"]')
+    const body = document.querySelector('.hdw-pm-body')
     if (body === null) return { ly_do: 'thân tab không có trong trang' }
     const groups = [...body.querySelectorAll('.hdw-pm-group')].map((section) => ({
       heading: section.querySelector('h3')?.textContent.trim() ?? '',
-      rows: section.querySelectorAll('.hdw-pm-row').length,
+      rows: section.querySelectorAll('.hdw-pm-card').length,
     }))
-    const rows = [...body.querySelectorAll('.hdw-pm-row')].map((row) => {
+    const rows = [...body.querySelectorAll('.hdw-pm-card')].map((row) => {
       const button = row.querySelector('button')
       return {
         entryId: row.dataset.pluginEntry,
         pkg: row.querySelector('strong')?.getAttribute('title') ?? '',
-        pill: row.querySelector('.hdw-pm-row-title span:last-child')?.textContent.trim() ?? '',
+        pill: row.querySelector('.hdw-pm-card-title span:last-child')?.textContent.trim() ?? '',
         action: button?.textContent.trim() ?? '',
         locked: button?.disabled === true,
-        hasDot: row.querySelector('.hdw-pm-row-title svg, .hdw-pm-row-title span[class*="dot"]') !== null,
+        icon: row.querySelector('.hdw-pm-card-icon svg') !== null,
+        desc: row.querySelector('.hdw-pm-card-desc')?.textContent.trim() ?? '',
+        hasDot: row.querySelector('.hdw-pm-card-title svg, .hdw-pm-card-title span[class*="dot"]') !== null,
       }
     })
     const notice = body.querySelector('.hdw-pm-notice')
@@ -378,8 +398,8 @@ async function readTab(win) {
 /** Click the on/off button of the row whose package name matches. */
 async function flip(win, pkg) {
   return await win.webContents.executeJavaScript(`(() => {
-    const body = document.querySelector('[role="tabpanel"][id$="-panel-${TAB_ID}"]')
-    const row = [...body.querySelectorAll('.hdw-pm-row')]
+    const body = document.querySelector('.hdw-pm-body')
+    const row = [...body.querySelectorAll('.hdw-pm-card')]
       .find((r) => r.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(pkg)})
     if (row === undefined) return { ly_do: 'không thấy dòng ' + ${JSON.stringify(pkg)} }
     const button = row.querySelector('button')
@@ -392,9 +412,9 @@ async function flip(win, pkg) {
 /** Wait for the tab to stop working, then hand back the notice it left behind. */
 async function noticeAfterFlip(win) {
   const settled = await waitUntil(win, `(() => {
-    const body = document.querySelector('[role="tabpanel"][id$="-panel-${TAB_ID}"]')
+    const body = document.querySelector('.hdw-pm-body')
     if (body === null) return false
-    const working = [...body.querySelectorAll('.hdw-pm-row button')]
+    const working = [...body.querySelectorAll('.hdw-pm-card button')]
       .some((b) => b.textContent.trim() === 'Working…')
     return !working && body.querySelector('.hdw-pm-notice') !== null
   })()`, 30_000)
@@ -444,14 +464,31 @@ async function pressReload(win) {
 // -------------------------------------------------------------------- main
 
 async function main() {
+  // Electron points the app path at the folder of the script it was handed, so in
+  // this probe that is `scripts/`. The shell modules loaded further down resolve
+  // `runtime/node.exe` and the engine CLI relative to it, exactly as they do in
+  // `npm run dev` — so point it where the real app would.
+  app.setAppPath(root)
+
   const baseUrl = await startEngine()
   console.log(`engine:  ${baseUrl}\n`)
+
+  // Point the shell modules at the throwaway home, then lay down the pnpm
+  // wrapper the app ships. Without this the installs below quietly use whatever
+  // pnpm the developer's machine happens to have — which is exactly the thing a
+  // user's machine will not have.
+  process.env['DSH_HOME'] = engineHome
+  const tools = await import(pathToFileURL(join(root, 'dist', 'main', 'tools.js')).href)
+  tools.ensureTools()
 
   const win = new BrowserWindow({
     width: 1500,
     height: 950,
     show: process.env['HDW_HIEN'] === '1',
     webPreferences: { webviewTag: true },
+  })
+  win.webContents.on('console-message', (_event, level, message) => {
+    if (level >= 2) console.log(`   [renderer] ${message.slice(0, 300)}`)
   })
   const guards = await loadRealGuards()
   guards.guardWebviews(win)
@@ -470,7 +507,7 @@ async function main() {
   `)
   await win.loadURL(baseUrl)
 
-  const mounted = await waitUntil(win, `!!document.querySelector('.hdw-pm, .hdw-dock, [data-slot="sidebar.settings"]')`, 60_000)
+  const mounted = await waitUntil(win, `!!document.querySelector('.hdw-pm-trigger, .hdw-dock, [data-slot="sidebar.settings"]')`, 60_000)
   if (mounted !== true) {
     record('0. trang web của engine nạp được', false, String(mounted))
     return
@@ -484,19 +521,22 @@ async function main() {
 
   // --- 1. reach the tab
   const reached = await openSwitchTab(win)
-  record('1. mở được Cài đặt → Plugins, tab của ta có mặt và bấm được bằng chuột thật',
+  record('1. nút Plugins có ở chân thanh bên, bấm được bằng chuột thật, và mở ra trang',
     reached.ly_do === undefined && reached.bodyUp === true && reached.clickable === true,
-    reached.ly_do ?? `nhãn "${reached.label}", ${reached.siblings} tab cùng dải,`
-      + ` mục nav #${reached.navIndex}/${reached.navCount}, bấm được=${reached.clickable}`
-      + ` (kẻ che: ${reached.covering}), thân tab=${String(reached.bodyUp)}`)
+    reached.ly_do ?? `nhãn "${reached.label}", slot ${reached.slot} (${reached.siblings} nút),`
+      + ` bấm được=${reached.clickable} (kẻ che: ${reached.covering}),`
+      + ` thân trang=${String(reached.bodyUp)}`)
   if (reached.bodyUp !== true) return
 
   // --- 2. the body actually rendered
   const view = await readTab(win)
-  const twoGroups = Array.isArray(view.groups) && view.groups.length === 2
+  // Three groups: ours, installed from the market, DeepSeek's own. The middle one
+  // is empty on a fresh profile and still has to be there — it is where a user
+  // goes looking for what they installed.
+  const twoGroups = Array.isArray(view.groups) && view.groups.length === 3
   const counted = twoGroups && view.groups.every((g) => /\(\d+\)/.test(g.heading))
   const oursGroup = twoGroups ? view.groups[0] : { rows: 0 }
-  record('2. thân tab dựng ra: hai nhóm có số đếm, có dòng, có lối thoát',
+  record('2. thân tab dựng ra: ba nhóm có số đếm, có dòng, có lối thoát',
     counted && view.rows.length > 20 && oursGroup.rows >= 2 && view.escape === true,
     `${JSON.stringify(view.groups)}, tổng ${view.rows.length} dòng, lối thoát=${String(view.escape)}`)
 
@@ -511,8 +551,8 @@ async function main() {
   // on the button proves nothing about whether hovering the button can ever reach
   // the element the tooltip is attached to.
   const spot = await win.webContents.executeJavaScript(`(() => {
-    const body = document.querySelector('[role="tabpanel"][id$="-panel-${TAB_ID}"]')
-    const row = [...body.querySelectorAll('.hdw-pm-row')]
+    const body = document.querySelector('.hdw-pm-body')
+    const row = [...body.querySelectorAll('.hdw-pm-card')]
       .find((r) => r.querySelector('button')?.disabled === true)
     if (row === undefined) return { ly_do: 'không có dòng nào bị khoá' }
     const button = row.querySelector('button')
@@ -622,10 +662,10 @@ async function main() {
 
   // --- 9. a core plugin asks first, and will not act until acknowledged
   const asked = await win.webContents.executeJavaScript(`(async () => {
-    const body = document.querySelector('[role="tabpanel"][id$="-panel-${TAB_ID}"]')
+    const body = document.querySelector('.hdw-pm-body')
     const groups = [...body.querySelectorAll('.hdw-pm-group')]
     const core = groups[groups.length - 1]
-    const rows = [...core.querySelectorAll('.hdw-pm-row')]
+    const rows = [...core.querySelectorAll('.hdw-pm-card')]
     const pick = rows.find((r) => r.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(CORE_PREF)}
         && r.querySelector('button')?.disabled !== true)
       ?? rows.find((r) => r.querySelector('button')?.disabled !== true
@@ -716,8 +756,8 @@ async function main() {
       }
       return real(input, init)
     }
-    const body = document.querySelector('[role="tabpanel"][id$="-panel-${TAB_ID}"]')
-    const row = [...body.querySelectorAll('.hdw-pm-row')]
+    const body = document.querySelector('.hdw-pm-body')
+    const row = [...body.querySelectorAll('.hdw-pm-card')]
       .find((r) => r.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(DOCK_PKG)})
     row.querySelector('button').click()
     let seen = null
@@ -736,11 +776,701 @@ async function main() {
     failed.ly_do === undefined,
     failed.ly_do ?? `role=${failed.role}, chữ="${failed.text}"`)
 
+  // --- 13. the cards say what each plugin does
+  //
+  // The whole point of moving off the old list: a wall of ids told the user
+  // nothing. An icon on every card and a real sentence — not a repeat of the
+  // package name — on our own plugins is what replaced it.
+  const cards = await readTab(win)
+  const ours = (cards.rows ?? []).filter((r) => r.pkg.startsWith('harness-desktop-'))
+  const allIcons = (cards.rows ?? []).every((r) => r.icon === true)
+  const oursDescribed = ours.length > 0 && ours.every((r) => r.desc.length > 0 && r.desc !== r.pkg)
+  const coreDescribed = (cards.rows ?? []).filter((r) => r.desc !== '' && r.desc !== r.pkg).length
+  record('13. mỗi thẻ có icon, và plugin của dự án có mô tả thật (không phải tên gói)',
+    allIcons && oursDescribed && coreDescribed > 20,
+    `${(cards.rows ?? []).length} thẻ, đủ icon=${String(allIcons)},`
+      + ` ${coreDescribed} thẻ có mô tả riêng; của ta: `
+      + ours.map((r) => `${r.pkg}="${r.desc.slice(0, 40)}"`).join(' | '))
+
+  // The frame worth looking at: the page open with its cards rendered. Taken here
+  // rather than at the end, where the last check leaves Settings on screen.
   if (process.env['HDW_ANH'] !== undefined) {
-    const image = await win.webContents.capturePage()
-    writeFileSync(process.env['HDW_ANH'], image.toPNG())
-    console.log(`\nảnh cuối: ${process.env['HDW_ANH']}`)
+    const shot = await win.webContents.capturePage()
+    writeFileSync(process.env['HDW_ANH'], shot.toPNG())
+    console.log(`\nảnh trang Plugins: ${process.env['HDW_ANH']}`)
   }
+
+  // --- 14. the page closes the two ways a user expects
+  const escaped = await win.webContents.executeJavaScript(`(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 600))
+    return document.querySelector('.hdw-pm-body') === null
+  })()`)
+  const reopened = await openSwitchTab(win)
+  const masked = await win.webContents.executeJavaScript(`(async () => {
+    const mask = document.querySelector('.hdw-pm-mask')
+    if (mask === null) return { ly_do: 'không thấy lớp mờ' }
+    mask.click()
+    await new Promise((r) => setTimeout(r, 600))
+    return { closed: document.querySelector('.hdw-pm-body') === null }
+  })()`)
+  record('14. bấm Escape đóng trang, mở lại được, và bấm ra ngoài cũng đóng',
+    escaped === true && reopened.bodyUp === true && masked.closed === true,
+    `Escape đóng=${String(escaped)}, mở lại=${String(reopened.bodyUp)},`
+      + ` bấm ra ngoài đóng=${masked.ly_do ?? String(masked.closed)}`)
+
+  // --- 15. collapsed sidebar: the label goes, the name must not
+  const rail = await win.webContents.executeJavaScript(`(async () => {
+    const bar = document.querySelector('[data-slot="sidebar"]')
+    const toggle = [...(bar?.querySelectorAll('button') ?? [])]
+      .find((b) => /toggle/i.test(b.className))
+    if (toggle === undefined) return { ly_do: 'không thấy nút thu thanh bên' }
+    toggle.click()
+    await new Promise((r) => setTimeout(r, 900))
+    const trigger = document.querySelector('${TRIGGER}')
+    const shape = trigger === null ? null : {
+      rail: trigger.className.includes('hdw-pm-trigger-rail'),
+      text: trigger.textContent.trim(),
+      width: Math.round(trigger.getBoundingClientRect().width),
+    }
+    return { shape }
+  })()`)
+  // Hover is retried up to three times. The collapse is animated, so the first
+  // move can land on a button that is still sliding, and one miss says nothing
+  // about whether a user can reach the tooltip.
+  let tipText = null
+  if (rail.shape !== null && rail.shape !== undefined) {
+    for (let attempt = 0; attempt < 3 && tipText === null; attempt += 1) {
+      const spot2 = await win.webContents.executeJavaScript(`(() => {
+        const box = document.querySelector('${TRIGGER}').getBoundingClientRect()
+        return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) }
+      })()`)
+      // Come from somewhere else first: a move that lands where the pointer
+      // already is produces no enter event.
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: 10, y: 10 })
+      await sleep(300)
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: spot2.x, y: spot2.y })
+      await waitUntil(win, `document.querySelector('[role="tooltip"]') !== null`, 6000)
+      tipText = await win.webContents.executeJavaScript(`(() => {
+        const el = document.querySelector('[role="tooltip"]')
+        return el === null ? null : el.textContent.trim()
+      })()`)
+    }
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: 10, y: 10 })
+    await sleep(300)
+  }
+  record('15. thu thanh bên: nút thành icon tròn, không còn nhãn, rê chuột vẫn hiện tên',
+    rail.ly_do === undefined && rail.shape?.rail === true && rail.shape?.text === ''
+      && rail.shape?.width <= 40 && tipText === 'Plugins',
+    rail.ly_do ?? `rail=${String(rail.shape?.rail)}, chữ="${rail.shape?.text ?? '?'}",`
+      + ` rộng ${String(rail.shape?.width)}px, tooltip=${JSON.stringify(tipText)}`)
+
+  // Put the sidebar back, so the last check runs against the normal layout.
+  await win.webContents.executeJavaScript(`(() => {
+    const bar = document.querySelector('[data-slot="sidebar"]')
+    const toggle = [...(bar?.querySelectorAll('button') ?? [])].find((b) => /toggle/i.test(b.className))
+    toggle?.click()
+  })()`)
+  await sleep(900)
+
+  // --- 16. one job, one place: the old tab inside Settings must be gone
+  //
+  // Not cosmetic. Two surfaces doing the same thing is how a user ends up
+  // flipping a switch in one place and not believing the other. Upstream's own
+  // read-only tab must survive — that one is theirs, not ours.
+  const settingsTabs = await win.webContents.executeJavaScript(`(async () => {
+    const trigger = document.querySelector('[data-slot="sidebar.settings"] button[aria-haspopup="dialog"]')
+    if (trigger === null) return { ly_do: 'không thấy nút mở Cài đặt' }
+    trigger.click()
+    for (let wait = 0; wait < 40; wait += 1) {
+      const panel = document.querySelector('[role="dialog"][aria-modal="true"]')
+      if (panel !== null) break
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    const panel = document.querySelector('[role="dialog"][aria-modal="true"]')
+    if (panel === null) return { ly_do: 'panel Cài đặt không mở' }
+    const buttons = [...panel.querySelectorAll('nav button')]
+    for (let i = 0; i < buttons.length; i += 1) {
+      buttons[i].click()
+      for (let wait = 0; wait < 10; wait += 1) {
+        const tabs = [...panel.querySelectorAll('[role="tab"]')]
+        if (tabs.length > 0) return { labels: tabs.map((t) => t.textContent.trim()) }
+        await new Promise((r) => setTimeout(r, 200))
+      }
+    }
+    return { ly_do: 'bấm hết ' + buttons.length + ' mục nav mà không thấy dải tab nào' }
+  })()`)
+  const labels = settingsTabs.labels ?? []
+  record('16. Settings không còn tab "On/off" của ta, mà tab của DeepSeek vẫn còn',
+    settingsTabs.ly_do === undefined && labels.length > 0
+      && !labels.some((l) => /on\/off/i.test(l)),
+    settingsTabs.ly_do ?? `tab trong Settings: ${JSON.stringify(labels)}`)
+
+
+  // --- 17..19 the Market tab. Reopened from scratch: check 16 left Settings up.
+  await win.webContents.executeJavaScript(`(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })()`)
+  await sleep(600)
+  await clearOverlays(win)
+  const back = await openSwitchTab(win)
+  if (back.bodyUp !== true) {
+    record('17. chuyển sang tab Market', false, `không mở lại được trang: ${back.ly_do ?? String(back.bodyUp)}`)
+    return
+  }
+
+  // --- 17. the tab strip: click, and the arrow keys upstream's own strips answer to
+  const strip = await win.webContents.executeJavaScript(`(async () => {
+    const tabs = [...document.querySelectorAll('.hdw-pm-tab')]
+    if (tabs.length !== 2) return { ly_do: 'dải tab có ' + tabs.length + ' tab, chờ 2' }
+    const labels = tabs.map((t) => t.textContent.trim())
+    tabs[1].click()
+    await new Promise((r) => setTimeout(r, 400))
+    const afterClick = document.querySelector('.hdw-pm-tab[data-active="true"]')?.textContent.trim()
+    // Back to the first with the keyboard, then forward again: only the selected
+    // tab is in the tab order, so arrows are the only way through the strip.
+    tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 400))
+    const afterArrow = document.querySelector('.hdw-pm-tab[data-active="true"]')?.textContent.trim()
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 400))
+    return {
+      labels, afterClick, afterArrow,
+      tabIndexes: tabs.map((t) => t.tabIndex),
+      ended: document.querySelector('.hdw-pm-tab[data-active="true"]')?.textContent.trim(),
+    }
+  })()`)
+  record('17. hai tab Installed/Market: bấm chuyển được, và phím mũi tên cũng chuyển được',
+    strip.ly_do === undefined && JSON.stringify(strip.labels) === '["Installed","Market"]'
+      && strip.afterClick === 'Market' && strip.afterArrow === 'Installed' && strip.ended === 'Market',
+    strip.ly_do ?? `${JSON.stringify(strip.labels)}, bấm→"${strip.afterClick}",`
+      + ` ArrowLeft→"${strip.afterArrow}", ArrowRight→"${strip.ended}",`
+      + ` tabindex=${JSON.stringify(strip.tabIndexes)}`)
+
+  // --- 18. the catalog really arrives, and every card carries what an install needs
+  const listed = await waitUntil(win, `(() => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    return body !== null && (body.querySelector('.hdw-pm-grid') !== null
+      || body.querySelector('[role="alert"]') !== null)
+  })()`, 90_000)
+  const market = await win.webContents.executeJavaScript(`(() => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    if (body === null) return { ly_do: 'không thấy thân tab đang hiện' }
+    const alert = body.querySelector('[role="alert"]')
+    if (alert !== null) return { ly_do: 'chợ báo lỗi: ' + alert.textContent.trim().slice(0, 160) }
+    const cards = [...body.querySelectorAll('.hdw-pm-card')]
+    return {
+      cards: cards.length,
+      chips: body.querySelectorAll('.hdw-pm-chips button').length,
+      total: body.querySelector('.hdw-pm-pager .hdw-pm-status')?.textContent.trim() ?? '',
+      allIcons: cards.every((c) => c.querySelector('.hdw-pm-card-icon svg') !== null),
+      allVersions: cards.every((c) => {
+        const title = c.querySelector('.hdw-pm-card-title')
+        const last = title === null ? null : title.lastElementChild
+        // Doubled backslashes: this whole block is a template literal, and a
+        // single \\d there collapses to a plain d before the page ever sees it.
+        return /^\\d+\\.\\d+\\.\\d+$/.test(last?.textContent.trim() ?? '')
+      }),
+      allRepos: cards.every((c) => (c.querySelector('.hdw-pm-card-meta a')?.href ?? '')
+        .startsWith('https://github.com/')),
+      sample: cards[0]?.querySelector('strong')?.textContent.trim() ?? '',
+    }
+  })()`)
+  record('18. chợ tải được: có thẻ, có icon, mỗi thẻ có phiên bản cố định và link về repo GitHub',
+    market.ly_do === undefined && market.cards > 20 && market.chips > 5
+      && market.allIcons === true && market.allVersions === true && market.allRepos === true,
+    market.ly_do ?? `${market.cards} thẻ, ${market.chips} nhóm, "${market.total}",`
+      + ` icon=${String(market.allIcons)}, phiên bản=${String(market.allVersions)},`
+      + ` repo=${String(market.allRepos)}, thẻ đầu="${market.sample}" (chờ chợ: ${String(listed)})`)
+  if (market.ly_do !== undefined) return
+
+  if (process.env['HDW_ANH'] !== undefined) {
+    // Settle first. The probe window is never shown, so Chromium composites
+    // lazily and a capture taken the instant a tab switches hands back the frame
+    // from before the switch — measured: the first attempt at this shot came out
+    // showing the tab we had just left.
+    await sleep(2000)
+    const shot = await win.webContents.capturePage()
+    const path = process.env['HDW_ANH'].replace(/\.png$/i, '') + '-market.png'
+    writeFileSync(path, shot.toPNG())
+    console.log(`\nảnh tab Market: ${path}`)
+  }
+
+  // --- 19. search, category filter and paging each change the list
+  const before = market.cards
+  await typeInto(win, '.hdw-pm-body:not([hidden]) .hdw-pm-search input', 'terminal')
+  await sleep(1200)
+  const searched = await win.webContents.executeJavaScript(`(() => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    return {
+      cards: body.querySelectorAll('.hdw-pm-card').length,
+      total: body.querySelector('.hdw-pm-pager .hdw-pm-status')?.textContent.trim() ?? '',
+    }
+  })()`)
+  await typeInto(win, '.hdw-pm-body:not([hidden]) .hdw-pm-search input', '')
+  await sleep(1200)
+  const paged = await win.webContents.executeJavaScript(`(async () => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    const first = body.querySelector('.hdw-pm-card')?.dataset.marketId
+    const next = [...body.querySelectorAll('.hdw-pm-pager button')]
+      .find((b) => /next/i.test(b.textContent))
+    if (next === undefined || next.disabled) return { ly_do: 'không có nút Next bấm được' }
+    next.click()
+    await new Promise((r) => setTimeout(r, 1200))
+    // Read every value BEFORE the next click. These are live DOM nodes: reading
+    // them afterwards reports the state that came later, and the check then
+    // compares a thing with itself.
+    const body2 = document.querySelector('.hdw-pm-body:not([hidden])')
+    const second = body2.querySelector('.hdw-pm-card')?.dataset.marketId
+    const pageText = body2.querySelector('.hdw-pm-pager .hdw-pm-status')?.textContent.trim() ?? ''
+
+    const chip = [...body2.querySelectorAll('.hdw-pm-chips button')][1]
+    const label = chip?.textContent.trim() ?? ''
+    chip?.click()
+    await new Promise((r) => setTimeout(r, 1200))
+    const body3 = document.querySelector('.hdw-pm-body:not([hidden])')
+    const afterChip = body3.querySelector('.hdw-pm-pager .hdw-pm-status')?.textContent.trim() ?? ''
+    return { first, second, pageText, chipLabel: label, afterChip }
+  })()`)
+  record('19. gõ tìm kiếm, sang trang sau, và lọc theo nhóm — cả ba đều đổi danh sách thật',
+    paged.ly_do === undefined && searched.cards > 0 && searched.cards <= before
+      && searched.total !== '' && paged.first !== paged.second
+      && /page 2 of/.test(paged.pageText) && paged.afterChip !== paged.pageText,
+    paged.ly_do ?? `tìm "terminal": ${before} → ${searched.cards} thẻ ("${searched.total}");`
+      + ` sang trang: "${paged.pageText}"; lọc nhóm "${paged.chipLabel}": "${paged.afterChip}"`)
+
+  // --- 20..22 install a real plugin, then take it away again.
+  //
+  // Nothing below is mocked. It reaches npm, runs the engine's own CLI, and then
+  // reads the profile manifest off disk to ask whether the install had the effect
+  // that makes a plugin load at the next boot.
+  const readProfile = () => {
+    try {
+      return JSON.parse(readFileSync(join(engineHome, 'profiles', 'web', 'package.json'), 'utf8'))
+    } catch (error) {
+      return { ly_do: error.message }
+    }
+  }
+
+  // Check 19 left a category selected. Clear it first, or the search below runs
+  // inside that category and finds nothing for a reason that has nothing to do
+  // with installing.
+  await win.webContents.executeJavaScript(`(() => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    const all = body.querySelector('.hdw-pm-chips button')
+    if (all !== null && all.getAttribute('aria-pressed') !== 'true') all.click()
+  })()`)
+  await sleep(1200)
+  await typeInto(win, '.hdw-pm-body:not([hidden]) .hdw-pm-search input', TEST_PKG)
+  await sleep(1500)
+
+  // --- 20. the confirmation names what is about to run, and blocks until ticked
+  const asked20 = await win.webContents.executeJavaScript(`(async () => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    const card = [...body.querySelectorAll('.hdw-pm-card')]
+      .find((c) => c.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(TEST_PKG)})
+    if (card === undefined) return { ly_do: 'không tìm thấy thẻ ' + ${JSON.stringify(TEST_PKG)} }
+    const button = card.querySelector('button')
+    const label = button.textContent.trim()
+    button.click()
+    for (let wait = 0; wait < 25; wait += 1) {
+      const box = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')]
+        .find((d) => /^Install /.test(d.getAttribute('aria-label') ?? ''))
+      if (box !== undefined) {
+        const buttons = [...box.querySelectorAll('button')]
+        const confirm = buttons[buttons.length - 1]
+        const check = box.querySelector('input[type="checkbox"]')
+        return {
+          buttonLabel: label,
+          title: box.getAttribute('aria-label'),
+          text: box.textContent.trim(),
+          confirmBlocked: confirm.disabled === true,
+          hasCheckbox: check !== null,
+        }
+      }
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    return { ly_do: 'bấm Install mà không có hộp xác nhận nào bật lên' }
+  })()`)
+  record('20. bấm Install: hộp xác nhận nêu đúng tên gói và repo, và còn KHOÁ khi chưa tích ô',
+    asked20.ly_do === undefined && asked20.buttonLabel === 'Install'
+      && asked20.confirmBlocked === true && asked20.hasCheckbox === true
+      && asked20.text.includes(TEST_PKG) && asked20.text.includes('github.com'),
+    asked20.ly_do ?? `"${asked20.title}", ô tích=${String(asked20.hasCheckbox)},`
+      + ` nút xác nhận khoá=${String(asked20.confirmBlocked)},`
+      + ` có tên gói=${String(asked20.text.includes(TEST_PKG))},`
+      + ` có repo=${String(asked20.text.includes('github.com'))}`)
+  if (asked20.ly_do !== undefined) return
+
+  // --- 21. tick, confirm, and let it run for real
+  const beforeDeps = Object.keys(readProfile().dependencies ?? {})
+  await win.webContents.executeJavaScript(`(async () => {
+    const box = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')]
+      .find((d) => /^Install /.test(d.getAttribute('aria-label') ?? ''))
+    box.querySelector('input[type="checkbox"]').click()
+    await new Promise((r) => setTimeout(r, 400))
+    const buttons = [...box.querySelectorAll('button')]
+    buttons[buttons.length - 1].click()
+  })()`)
+  const settled = await waitUntil(win, `(() => {
+    const banner = document.querySelector('.hdw-pm-job')
+    return banner !== null && banner.dataset.jobStatus !== 'running'
+  })()`, 300_000)
+  const outcome = await win.webContents.executeJavaScript(`(() => {
+    const banner = document.querySelector('.hdw-pm-job')
+    return banner === null ? null : {
+      status: banner.dataset.jobStatus,
+      // The whole head line: its first child is the state dot, whose own span is
+      // empty, so picking that span alone reports nothing.
+      text: banner.querySelector('.hdw-pm-job-head')?.textContent.trim() ?? '',
+    }
+  })()`)
+  const afterProfile = readProfile()
+  const afterDeps = Object.keys(afterProfile.dependencies ?? {})
+  const bundles = afterProfile.dsh?.profile?.bundles ?? []
+  record('21. cài THẬT: chạy xong, gói vào dependencies, VÀ được ghi vào danh sách bundle của profile',
+    settled === true && outcome?.status === 'done'
+      && !beforeDeps.includes(TEST_PKG) && afterDeps.includes(TEST_PKG)
+      && bundles.includes(TEST_PKG),
+    `chờ xong=${String(settled)}, trạng thái=${String(outcome?.status)}, "${outcome?.text ?? ''}";`
+      + ` dependencies ${JSON.stringify(beforeDeps)} → ${JSON.stringify(afterDeps)};`
+      + ` bundles=${JSON.stringify(bundles)}`)
+  if (outcome?.status !== 'done') return
+
+  // --- 21b. the note the shell reads when the engine will not come back
+  const notePath = join(engineHome, 'harness-desktop-last-install.json')
+  let noteAfterInstall
+  try {
+    noteAfterInstall = JSON.parse(readFileSync(notePath, 'utf8'))
+  } catch (error) {
+    noteAfterInstall = { ly_do: error.message }
+  }
+
+  // --- 21c. installed, not restarted yet: the Installed tab has to SAY so
+  //
+  // Reported from the real app: install something, switch to Installed, and the
+  // market group read "(0)". The user had just installed it; the page said
+  // otherwise. The plugin tree only learns about it at the next boot, so the tab
+  // has to carry the gap itself.
+  const waiting = await win.webContents.executeJavaScript(`(async () => {
+    const installed = [...document.querySelectorAll('.hdw-pm-tab')]
+      .find((t) => t.textContent.trim() === 'Installed')
+    installed.click()
+    await new Promise((r) => setTimeout(r, 1500))
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    const group = [...body.querySelectorAll('.hdw-pm-group')]
+      .find((g) => /market/i.test(g.querySelector('h3').textContent))
+    if (group === undefined) return { ly_do: 'không thấy nhóm plugin cài từ chợ' }
+    const card = group.querySelector('[data-plugin-pending]')
+    const notice = group.querySelector('.hdw-pm-notice')
+    return {
+      heading: group.querySelector('h3').textContent.trim(),
+      pkg: card?.getAttribute('data-plugin-pending') ?? null,
+      pill: card?.querySelector('.hdw-pm-card-title')?.lastElementChild?.textContent.trim() ?? null,
+      desc: card?.querySelector('.hdw-pm-card-desc')?.textContent.trim().slice(0, 40) ?? null,
+      buttons: card === null ? [] : [...card.querySelectorAll('button')]
+        .map((b) => b.textContent.trim() || b.getAttribute('aria-label') || '(không nhãn)'),
+      notice: notice?.textContent.trim() ?? null,
+    }
+  })()`)
+  record('21c. cài xong mà chưa khởi động lại: tab Installed vẫn hiện plugin đó, nói rõ chưa nạp, và mời khởi động lại',
+    waiting.ly_do === undefined && waiting.pkg === TEST_PKG
+      && /\(1\)/.test(waiting.heading ?? '') && waiting.pill === 'not loaded yet'
+      && (waiting.buttons ?? []).some((b) => /^Remove /.test(b))
+      && /Restart/.test(waiting.notice ?? ''),
+    waiting.ly_do ?? `nhóm "${waiting.heading}", thẻ ${JSON.stringify(waiting.pkg)},`
+      + ` pill "${waiting.pill}", nút ${JSON.stringify(waiting.buttons)},`
+      + ` thông báo "${(waiting.notice ?? '').slice(0, 80)}", mô tả "${waiting.desc}"`)
+
+  // Back to Market, where the next check expects to be.
+  await win.webContents.executeJavaScript(`(() => {
+    [...document.querySelectorAll('.hdw-pm-tab')].find((t) => t.textContent.trim() === 'Market').click()
+  })()`)
+  await sleep(1200)
+
+  // --- 22. the same card now offers Remove, and removing really undoes it
+  const removed = await win.webContents.executeJavaScript(`(async () => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    const card = [...body.querySelectorAll('.hdw-pm-card')]
+      .find((c) => c.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(TEST_PKG)})
+    if (card === undefined) return { ly_do: 'thẻ biến mất sau khi cài' }
+    const button = card.querySelector('button')
+    const label = button.textContent.trim()
+    if (label !== 'Remove') return { ly_do: 'nút trên thẻ vẫn là "' + label + '", chờ "Remove"' }
+    button.click()
+    return { label }
+  })()`)
+  const removedSettled = removed.ly_do === undefined && await waitUntil(win, `(() => {
+    const banner = document.querySelector('.hdw-pm-job')
+    return banner !== null && banner.dataset.jobStatus === 'done'
+      && /removed/i.test(banner.textContent)
+  })()`, 300_000)
+  const finalDeps = Object.keys(readProfile().dependencies ?? {})
+  record('22. thẻ đổi sang nút Remove, và bấm vào thì gói biến mất khỏi profile',
+    removed.ly_do === undefined && removedSettled === true && !finalDeps.includes(TEST_PKG),
+    removed.ly_do ?? `nút="${removed.label}", chờ xong=${String(removedSettled)},`
+      + ` dependencies còn ${JSON.stringify(finalDeps)}`)
+
+  // --- 23. the note: written on install, and gone once the plugin is removed
+  let noteAfterRemove = 'còn'
+  try {
+    readFileSync(notePath, 'utf8')
+  } catch {
+    noteAfterRemove = 'đã xoá'
+  }
+  record('23. cài xong thì ghi lại tên gói cho trang lỗi, gỡ xong thì xoá đi',
+    noteAfterInstall.ly_do === undefined && noteAfterInstall.pkg === TEST_PKG
+      && noteAfterRemove === 'đã xoá',
+    noteAfterInstall.ly_do ?? `ghi chú sau khi cài=${JSON.stringify(noteAfterInstall.pkg)},`
+      + ` sau khi gỡ: ${noteAfterRemove}`)
+
+  // --- 24. the restart handshake, both halves
+  //
+  // The shell holds `wait` open and the page rings `restart`. Driven from inside
+  // the page so both requests carry the headers the trust gate expects, exactly
+  // as they do in the app.
+  const handshake = await win.webContents.executeJavaScript(`(async () => {
+    const started = Date.now()
+    const held = fetch('/hdw/lifecycle/wait', { cache: 'no-store' }).then((r) => r.json())
+    await new Promise((r) => setTimeout(r, 500))
+    const rang = await fetch('/hdw/lifecycle/restart', { method: 'POST' })
+    const answer = await held
+    return { ok: rang.ok, restart: answer.restart, tookMs: Date.now() - started }
+  })()`)
+  record('24. trang bấm "Restart now" thì yêu cầu tới được lớp vỏ đang chờ sẵn',
+    handshake.ok === true && handshake.restart === true && handshake.tookMs < 20_000,
+    `POST ok=${String(handshake.ok)}, trả lời restart=${String(handshake.restart)},`
+      + ` mất ${handshake.tookMs}ms (chờ tối đa 25s rồi tự trả "chưa")`)
+
+  // --- 25. the way back in: the REAL shell function, against the real profile
+  //
+  // Not a copy of it. `undoLastInstall` is what the error page calls when the
+  // engine will not start, and that is the one moment nobody can test by hand
+  // because the app is already broken. It reads DSH_HOME at call time, so
+  // pointing this process at the throwaway home is enough to exercise it here.
+  const reinstalled = await win.webContents.executeJavaScript(`(async () => {
+    const res = await fetch('/hdw/market/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: ${JSON.stringify('truelove-dreamer/' + 'dsh-plugin-vetting')} }),
+    })
+    if (!res.ok) return { ly_do: 'không bắt đầu cài lại được: ' + res.status }
+    for (let wait = 0; wait < 600; wait += 1) {
+      const seen = await (await fetch('/hdw/market/job', { cache: 'no-store' })).json()
+      if (seen.job !== null && seen.job.status !== 'running') return { status: seen.job.status }
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    return { ly_do: 'cài lại không xong sau 5 phút' }
+  })()`)
+  if (reinstalled.status !== 'done') {
+    record('25. lối lùi: nút trên trang lỗi gỡ đúng plugin vừa cài', false,
+      reinstalled.ly_do ?? `cài lại kết thúc ở trạng thái ${String(reinstalled.status)}`)
+  } else {
+    const undo = await import(pathToFileURL(join(root, 'dist', 'main', 'plugin-undo.js')).href)
+    const before25 = undo.lastInstall()
+    let failed25
+    try {
+      await undo.undoLastInstall()
+    } catch (error) {
+      failed25 = error.message
+    }
+    const deps25 = Object.keys(readProfile().dependencies ?? {})
+    const noteGone = undo.lastInstall() === undefined
+    record('25. lối lùi: hàm trang lỗi gọi gỡ đúng plugin vừa cài, và quên nó đi',
+      failed25 === undefined && before25?.pkg === TEST_PKG
+        && !deps25.includes(TEST_PKG) && noteGone,
+      failed25 ?? `ghi chú trước=${JSON.stringify(before25?.pkg)},`
+        + ` dependencies còn ${JSON.stringify(deps25)}, ghi chú đã xoá=${String(noteGone)}`)
+  }
+
+  // --- 26. the package manager the app ships, not the one this machine has
+  //
+  // A developer machine has pnpm; the machine an installer lands on does not.
+  // Comparing the VERSION is what makes this check mean something: the wrapper
+  // has to resolve to the pnpm shipped inside this build, not to whatever
+  // happens to be first on PATH. Every install above already went through it.
+  const shim = join(engineHome, 'tools', 'bin', 'pnpm.cmd')
+  let shimVersion
+  try {
+    shimVersion = execFileSync(shim, ['--version'], { encoding: 'utf8', shell: true }).trim()
+  } catch (error) {
+    shimVersion = `LỖI: ${error.message.slice(0, 120)}`
+  }
+  const shipped = require(join(root, 'node_' + 'modules', 'pnpm', 'package.json')).version
+  record('26. app tự mang theo pnpm, nên máy chưa có pnpm vẫn cài được plugin',
+    existsSync(shim) && shimVersion === shipped,
+    `wrapper=${existsSync(shim) ? 'có' : 'KHÔNG CÓ'}, bản chạy được=${shimVersion},`
+      + ` bản đóng gói=${shipped}`)
+
+  // --- 27. dark mode, measured rather than assumed
+  //
+  // Rule 4 says colors come from the --dsw-* variables and never from a literal.
+  // The way that rule breaks is invisible in light mode: a hard-coded white panel
+  // looks perfect until someone switches themes. So flip the real theme source
+  // and read the painted colors back.
+  const readPaint = () => win.webContents.executeJavaScript(`(() => {
+    const pick = (selector) => {
+      const el = document.querySelector(selector)
+      if (el === null) return null
+      const style = getComputedStyle(el)
+      return { bg: style.backgroundColor, fg: style.color }
+    }
+    return { panel: pick('.hdw-pm-panel'), card: pick('.hdw-pm-card'), tab: pick('.hdw-pm-tab') }
+  })()`)
+  /** Rough perceived lightness of an `rgb(...)` string, 0 dark to 1 light. */
+  const lightness = (color) => {
+    const parts = /rgba?\(([^)]+)\)/.exec(color ?? '')
+    if (parts === null) return null
+    const [r, g, b] = parts[1].split(',').map((n) => Number(n.trim()))
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  }
+
+  const { nativeTheme } = require('electron')
+  const beforeTheme = nativeTheme.themeSource
+  nativeTheme.themeSource = 'light'
+  await sleep(900)
+  const lightPaint = await readPaint()
+  nativeTheme.themeSource = 'dark'
+  await sleep(900)
+  const darkPaint = await readPaint()
+  nativeTheme.themeSource = beforeTheme
+
+  const lightPanel = lightness(lightPaint.panel?.bg)
+  const darkPanel = lightness(darkPaint.panel?.bg)
+  const darkCard = lightness(darkPaint.card?.bg)
+  const darkText = lightness(darkPaint.tab?.fg)
+  record('27. đổi sang chế độ tối: nền trang và nền thẻ tối theo, chữ sáng lên — không mảng nào kẹt trắng',
+    lightPanel !== null && darkPanel !== null && lightPanel > 0.7 && darkPanel < 0.3
+      && darkCard !== null && darkCard < 0.35 && darkText !== null && darkText > 0.4,
+    `nền trang sáng=${lightPaint.panel?.bg} (${lightPanel?.toFixed(2)})`
+      + ` → tối=${darkPaint.panel?.bg} (${darkPanel?.toFixed(2)});`
+      + ` nền thẻ tối=${darkPaint.card?.bg} (${darkCard?.toFixed(2)});`
+      + ` chữ tab tối=${darkPaint.tab?.fg} (${darkText?.toFixed(2)})`)
+
+  // --- 28..30 what a market plugin looks like ONCE IT IS LOADED.
+  //
+  // Everything above stops at the moment the install finishes. That is not where
+  // the user stops: they restart, and then they look at the thing they installed.
+  // Three defects lived in exactly that gap and were only found by opening the
+  // real app — the page called the plugin "one of DeepSeek's core plugins",
+  // demanded an acknowledgement to turn off something the user had added five
+  // minutes earlier, and offered no way to take it off again.
+  const reinstall = await win.webContents.executeJavaScript(`(async () => {
+    const res = await fetch('/hdw/market/install', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: ${JSON.stringify('truelove-dreamer/' + 'dsh-plugin-vetting')} }),
+    })
+    if (!res.ok) return { ly_do: 'không cài lại được: ' + res.status }
+    for (let wait = 0; wait < 600; wait += 1) {
+      const seen = await (await fetch('/hdw/market/job', { cache: 'no-store' })).json()
+      if (seen.job !== null && seen.job.status !== 'running') return { status: seen.job.status }
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    return { ly_do: 'cài lại không xong sau 5 phút' }
+  })()`)
+  if (reinstall.status !== 'done') {
+    record('28. plugin từ chợ sau khi khởi động lại: nằm đúng nhóm, có nút Remove', false,
+      reinstall.ly_do ?? `cài lại kết thúc ở ${String(reinstall.status)}`)
+    return
+  }
+
+  // Restart the engine in the same home — the only way a freshly installed
+  // plugin is ever loaded.
+  try {
+    execFileSync('taskkill', ['/pid', String(engine.pid), '/T', '/F'], { stdio: 'ignore' })
+  } catch { /* đã tắt */ }
+  const secondUrl = await startEngine(true)
+  guards.setEngineOrigin(secondUrl)
+  await win.loadURL(secondUrl)
+  await waitUntil(win, `!!document.querySelector('.hdw-pm-trigger')`, 60_000)
+  await clearOverlays(win)
+  const afterRestart = await openSwitchTab(win)
+  if (afterRestart.bodyUp !== true) {
+    record('28. plugin từ chợ sau khi khởi động lại: nằm đúng nhóm, có nút Remove', false,
+      `không mở lại được trang sau khi engine khởi động lại: ${afterRestart.ly_do ?? String(afterRestart.bodyUp)}`)
+    return
+  }
+
+  // --- 28. the plugin is loaded, in the market group, with a way back out
+  const placed = await win.webContents.executeJavaScript(`(() => {
+    const body = document.querySelector('.hdw-pm-body:not([hidden])')
+    const groups = [...body.querySelectorAll('.hdw-pm-group')].map((g) => g.querySelector('h3').textContent.trim())
+    const card = [...body.querySelectorAll('.hdw-pm-card')]
+      .find((c) => c.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(TEST_PKG)})
+    if (card === undefined) return { ly_do: 'không thấy thẻ của plugin vừa cài trong tab Installed', groups }
+    return {
+      groups,
+      group: card.closest('.hdw-pm-group').querySelector('h3').textContent.trim(),
+      // The remove control is icon-only, so its name lives in aria-label.
+      buttons: [...card.querySelectorAll('button')]
+        .map((b) => b.textContent.trim() || b.getAttribute('aria-label') || '(không nhãn)'),
+      desc: card.querySelector('.hdw-pm-card-desc')?.textContent.trim().slice(0, 60) ?? '',
+      phase: card.querySelector('.hdw-pm-card-title').lastElementChild.textContent.trim(),
+    }
+  })()`)
+  record('28. plugin từ chợ sau khi khởi động lại: đang chạy, nằm nhóm riêng (KHÔNG phải nhóm lõi), có mô tả và nút Remove',
+    placed.ly_do === undefined && /market/i.test(placed.group ?? '')
+      && (placed.buttons ?? []).some((b) => /^Remove /.test(b)) && placed.phase === 'running'
+      && (placed.desc ?? '').length > 0,
+    placed.ly_do ?? `nhóm "${placed.group}", nút ${JSON.stringify(placed.buttons)},`
+      + ` pill "${placed.phase}", mô tả "${placed.desc}"; các nhóm: ${JSON.stringify(placed.groups)}`)
+
+  if (process.env['HDW_ANH'] !== undefined) {
+    await sleep(2000)
+    const shot = await win.webContents.capturePage()
+    const path = process.env['HDW_ANH'].replace(/\.png$/i, '') + '-installed.png'
+    writeFileSync(path, shot.toPNG())
+    console.log(`\nảnh tab Installed có plugin từ chợ: ${path}`)
+  }
+
+  // --- 29. turning it off is the user's business, not a risk to acknowledge
+  const noAsk = await win.webContents.executeJavaScript(`(async () => {
+    const card = [...document.querySelectorAll('.hdw-pm-card')]
+      .find((c) => c.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(TEST_PKG)})
+    const toggle = [...card.querySelectorAll('button')]
+      .find((b) => /^(Disable|Enable)$/.test(b.textContent.trim()))
+    toggle.click()
+    await new Promise((r) => setTimeout(r, 900))
+    const dialog = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')]
+      .find((d) => /^Disable /.test(d.getAttribute('aria-label') ?? ''))
+    for (let wait = 0; wait < 40; wait += 1) {
+      if (document.querySelector('.hdw-pm-notice') !== null) break
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    const list = await (await fetch('/hdw/plugins/list', { cache: 'no-store' })).json()
+    const row = list.entries.find((e) => e.moduleName === ${JSON.stringify(TEST_PKG)})
+    return { asked: dialog !== undefined, enabled: row?.enabled, origin: row?.origin }
+  })()`)
+  record('29. tắt plugin từ chợ: KHÔNG bắt xác nhận như plugin lõi, và tắt được thật',
+    noAsk.asked === false && noAsk.enabled === false && noAsk.origin === 'market',
+    `hỏi xác nhận=${String(noAsk.asked)}, engine báo enabled=${String(noAsk.enabled)},`
+      + ` origin=${String(noAsk.origin)}`)
+
+  // --- 30. removing it takes the stored on/off row with it
+  const statePath = join(engineHome, 'harness-desktop-plugins.cordis.yml')
+  const before30 = readFileSync(statePath, 'utf8')
+  const gone = await win.webContents.executeJavaScript(`(async () => {
+    const card = [...document.querySelectorAll('.hdw-pm-card')]
+      .find((c) => c.querySelector('strong')?.getAttribute('title') === ${JSON.stringify(TEST_PKG)})
+    const remove = [...card.querySelectorAll('button')]
+      .find((b) => /^Remove /.test(b.getAttribute('aria-label') ?? ''))
+    if (remove === undefined) return { ly_do: 'thẻ không có nút Remove' }
+    remove.click()
+    for (let wait = 0; wait < 600; wait += 1) {
+      await new Promise((r) => setTimeout(r, 500))
+      const j = await (await fetch('/hdw/market/job', { cache: 'no-store' })).json()
+      if (j.job !== null && j.job.status !== 'running') return { status: j.job.status, installed: j.installed }
+    }
+    return { ly_do: 'gỡ không xong sau 5 phút' }
+  })()`)
+  const after30 = readFileSync(statePath, 'utf8')
+  const rowsOf = (text) => [...text.matchAll(/^-\s+id:\s*(\S+)/gm)].map((m) => m[1])
+  record('30. gỡ plugin xong thì dòng bật/tắt của nó cũng biến mất, không để lại rác trong file lựa chọn',
+    gone.ly_do === undefined && gone.status === 'done'
+      && rowsOf(before30).length > rowsOf(after30).length
+      && !rowsOf(after30).some((id) => rowsOf(before30).includes(id) === false),
+    gone.ly_do ?? `gỡ=${String(gone.status)}, còn cài ${JSON.stringify(gone.installed)};`
+      + ` file lựa chọn ${JSON.stringify(rowsOf(before30))} → ${JSON.stringify(rowsOf(after30))}`)
 }
 
 app.whenReady().then(main).then(
@@ -752,7 +1482,7 @@ function finish(code) {
   console.log('\n=== KẾT QUẢ ===')
   const failed = results.filter((r) => !r.ok)
   console.log(failed.length === 0 && code === undefined
-    ? `Tất cả ${results.length} mục đạt. Tab Bật/tắt chạy đúng trong trang thật.`
+    ? `Tất cả ${results.length} mục đạt. Trang Plugins chạy đúng trong trang thật.`
     : `${failed.length}/${results.length} mục KHÔNG đạt${failed.length ? ': ' + failed.map((r) => r.name).join(', ') : ''}`)
   try {
     execFileSync('taskkill', ['/pid', String(engine.pid), '/T', '/F'], { stdio: 'ignore' })

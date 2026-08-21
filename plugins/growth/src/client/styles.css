@@ -1,0 +1,351 @@
+/*
+ * Styles for the Growth settings page.
+ *
+ * Only upstream's --dsw-* variables, no hard-coded colors: that is what makes the
+ * page follow light and dark mode like the rest of the app. Every class carries
+ * the hdw-gr- prefix so it cannot reach upstream's own styling.
+ */
+
+.hdw-gr {
+  display: flex;
+  flex-direction: column;
+  /* 12px and 760px are upstream's own settings-section metrics, not a guess. */
+  gap: 12px;
+  width: 100%;
+  max-width: 760px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-gr-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.hdw-gr-intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.hdw-gr-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hdw-gr-card h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.hdw-gr-note,
+.hdw-gr-status {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hdw-gr-path {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-caption);
+  word-break: break-all;
+}
+
+.hdw-gr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hdw-gr-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.hdw-gr-search {
+  max-width: 320px;
+}
+
+.hdw-gr-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hdw-gr-group h4 {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
+
+.hdw-gr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hdw-gr-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.hdw-gr-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hdw-gr-row-text p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.hdw-gr-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hdw-gr-row-id {
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Keep the delete button from being squeezed by a long fact. */
+.hdw-gr-row > button {
+  flex: none;
+}
+
+.hdw-gr-empty {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hdw-gr-preview {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.hdw-gr-preview-label {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+.hdw-gr-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/*
+ * The strip under the composer. Sits beside upstream's stats line in the same
+ * band, so it borrows the same muted weight rather than competing with it.
+ */
+.hdw-gr-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-caption);
+  white-space: nowrap;
+}
+
+.hdw-gr-provenance {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.hdw-gr-provenance code {
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+}
+
+.hdw-gr-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.hdw-gr-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/*
+ * The in-page editor. Mirrors upstream's Input.module.css wrapper — same border,
+ * same focus colour, same radius — because it stands in for a primitive they do
+ * not ship. Any divergence here shows up as "this box looks wrong".
+ */
+.hdw-gr-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hdw-gr-editor-box {
+  width: 100%;
+  /* Without this the padding and border are ADDED to the 100%, and the box hangs
+     22px past the panel's right edge — measured, not guessed. */
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  /* The app's own text face, inherited. An earlier version set the mono stack
+     here to echo the file's markdown, and it read as a code box rather than a
+     place to write prose about yourself. */
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 21px;
+  resize: vertical;
+}
+
+.hdw-gr-editor-box:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.hdw-gr-editor-box:disabled {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.hdw-gr-count {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.hdw-gr-count-over {
+  color: var(--dsw-alias-label-error, var(--dsw-alias-label-primary));
+}
+
+.hdw-gr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hdw-gr-head .hdw-gr-note {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The tab row, copied rule for rule from upstream's Plugins section
+   (PluginsSettingsSection.module.css) so the two strips look like one system:
+   plain buttons, tertiary label, a 2px underline under the active one. */
+.hdw-gr-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  margin-top: 2px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.hdw-gr-tab {
+  position: relative;
+  border: 0;
+  padding: 7px 1px 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.hdw-gr-tab:hover,
+.hdw-gr-tab[data-active='true'] {
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-gr-tab[data-active='true']::after,
+.hdw-gr-tab:focus-visible::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--dsw-alias-label-primary);
+  content: '';
+}
+
+.hdw-gr-tab:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The count beside a tab label. Upstream has no tabs that carry one, so this is
+   plain text at the caption weight rather than a pill, which would put a filled
+   shape back into a strip that has none. */
+.hdw-gr-tab-count {
+  margin-left: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}

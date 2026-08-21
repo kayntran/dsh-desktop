@@ -50,6 +50,7 @@
   <p class="msg" id="msg">Loading details…</p>
   <div class="row">
     <button class="primary" onclick="location.href='harness-action:retry'">Retry</button>
+    <button id="undo" hidden onclick="location.href='harness-action:undo-install'"></button>
     <button onclick="location.href='harness-action:open-log'">Open the log file</button>
   </div>
   <details id="wrap" hidden>
@@ -59,11 +60,18 @@
 </main>
 <script>
   // The main process calls this as soon as the page finishes loading.
-  window.__setError = ({ message, tail }) => {
+  window.__setError = ({ message, tail, undo }) => {
     document.getElementById('msg').textContent = message
     if (tail) {
       document.getElementById('tail').textContent = tail
       document.getElementById('wrap').hidden = false
+    }
+    // Only offered when a plugin was installed since the last time the app
+    // started successfully — that install is then the one thing that changed.
+    if (undo) {
+      const button = document.getElementById('undo')
+      button.textContent = 'Remove ' + undo.label + ' and retry'
+      button.hidden = false
     }
   }
 </script>

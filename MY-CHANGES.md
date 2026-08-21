@@ -1493,3 +1493,470 @@ nào — loại hỏng im lặng mà chỉ con số mới lộ ra.
 Hai mục kiểm trong `spike-dock-ui.cjs` phải sửa chỗ gieo dữ liệu theo khuôn mới. Mục 17b đáng chú ý:
 gieo theo khuôn cũ thì nó vẫn đỏ, nhưng đỏ vì *"không có tab tên đó"* chứ không phải vì rào địa chỉ
 nội bộ đã chặn — một mục kiểm hỏng vì lý do khác với điều nó khai là một mục kiểm nói dối.
+
+## 2026-08-18 — Soul và Memory: app bắt đầu nhớ chủ dự án là ai
+
+Plugin mới `plugins/growth/`, cắm vào `settings.section` — **mức 1**, một trang Settings mới tên
+**Growth**. Đây là giai đoạn 1 của bốn trụ cột kiểu Hermes Agent (Soul, Memory, Skills, Cron); hai
+trụ sau còn để dành, thang chống bỏ sót cũng vậy.
+
+**Soul** là một file `~/.dsh/growth/SOUL.md` chủ dự án tự viết, được nạp vào **phần đầu của system
+prompt** (`systemPrompt.section`, order 20 — dải trống giữa persona của bản triển khai ở 0 và hướng
+dẫn tool từ 100). **Memory** là những mẩu sự thật model tự lưu bằng tool `remember`, nạp vào bằng
+`systemPrompt.context` chứ **không** phải `section`. Khác biệt này là cả thiết kế: `section` nằm
+trong phần đã đệm sẵn nên chỉ hợp với thứ không đổi giữa phiên; `context` phát ra sau lịch sử và
+**im lặng hoàn toàn khi nội dung không đổi**, nên danh sách mẩu nhớ đổi giữa chừng không phá bộ đệm.
+Hệ quả cứng: văn bản render ra không được chứa ngày giờ hay bất cứ thứ gì đổi theo đồng hồ, nếu
+không mỗi bước model lại sinh thêm một bản chụp gần giống hệt.
+
+Memory chia hai tầng: chung, và riêng theo thư mục dự án (khớp `session.header.cwd`, chuẩn hóa
+không phân biệt hoa thường vì Windows coi `D:\proj` và `d:\proj\` là một). Soul chỉ có một bản
+chung — giọng điệu không đổi theo thư mục, thứ đổi theo thư mục là sự thật, và Memory đã lo.
+
+**Bẫy đáng nhớ nhất: `{{ }}` giết cả lượt chat.** Engine nội suy `{{ten}}` rất nghiêm, gặp biến lạ
+là ném lỗi khi render và hỏng lượt, không có cú pháp thoát. Cả hai nguồn đều có thể mang nó: SOUL.md
+là văn xuôi người viết, còn mẩu nhớ thì **chính model viết ra** — nghĩa là model có thể tự lưu một
+mẩu làm chết mọi cuộc trò chuyện sau đó cho tới khi ai đó sửa tay file JSON. Hàm `neutralize()` bẻ
+`{{` và `}}`, áp **cả lúc ghi lẫn lúc đọc**. Đã thử thật: lưu `{{name}}` xong, lượt chat vẫn chạy.
+
+Cũng vì HTML comment không lồng được: bản đầu của file mẫu có câu giải thích *chứa* dấu đóng
+comment, nên khối chú thích đóng sớm và một dòng rác lọt vào prompt của mọi cuộc trò chuyện. Lỗi
+này chỉ lộ ra khi mở app xem `preview` — typecheck và build đều xanh.
+
+Ba thứ không import lúc chạy, vì plugin nằm ngoài cây module của engine và import giá trị làm engine
+**chết lúc khởi động** với `ERR_MODULE_NOT_FOUND`: `defineTool`, `defineDomain`, `renderPrompt`. Tool
+và domain spec đều dựng bằng object literal; bộ kiểm tra bản ghi viết tay thay zod và **không bao giờ
+ném** — một `parse` ném lỗi sẽ làm hỏng `open`, hỏng `apply`, và giết plugin chỉ vì một dòng JSON
+hỏng. `build.mjs` có thêm chốt thứ tư quét đúng lỗi này ở nửa Node (nửa client được miễn, vì ở đó
+các gói ấy là import giá trị hợp lệ do shell cấp).
+
+Kho dữ liệu: domain `harness_desktop_growth`, một bảng `facts`, rơi vào backend `json` mặc định của
+profile web — `~/.dsh/storages/harness_desktop_growth.json`, người đọc được. Giữ `version: 1` và
+không khai trước bảng nào chưa dùng: backend JSON coi bảng thiếu là bảng rỗng, nên giai đoạn 2 thêm
+hàng đợi duyệt skill không cần nâng version cũng không cần chuyển đổi dữ liệu.
+
+Sáu lớp `--patch` thay vì năm; lớp của growth đứng trước lớp lựa chọn người dùng, để tắt được.
+
+## 2026-08-18 — Vòng tự cải thiện: app tự đúc kết kỹ năng sau khi làm việc xong
+
+Giai đoạn 2 của `plugins/growth/`. Thêm hai thứ vào cùng trang **Settings → Growth** (vẫn mức 1,
+vẫn một chỗ cắm `settings.section` duy nhất): hàng đợi **skill chờ duyệt**, và **vòng chạy nền** tự
+nhìn lại cuộc trò chuyện vừa xong.
+
+**Vòng nền không phải thứ ta tự dựng.** Engine đã có sẵn hai nhà cung cấp agent con, và một trong
+hai là `fork` — nó tạo agent con **mang theo nguyên các lượt đã hoàn tất của phiên cha**. Đó đúng
+bằng cơ chế Hermes Agent dùng (đọc thẳng `agent/background_review.py` của họ). Nên phần "nhân bản
+để nhìn lại" chỉ là một lời gọi `ctx.subagents.start('fork', …)`, không có mã điều phối nào của ta.
+
+Ba chốt chặn, mỗi cái chặn một kiểu hỏng khác nhau:
+
+- **Ngưỡng 10 lượt gọi công cụ.** Đo thật: mỗi lần chạy tốn 30–60 nghìn token. Chạy sau mọi câu chat
+  là đốt tiền. Phiên hỏi đáp nhẹ không kích hoạt gì.
+- **`toolFilter: { allow: ['remember', 'propose_skill'] }`.** Đây là cơ chế của engine, không phải
+  lời dặn trong prompt: hai tool đó là tất cả những gì agent nền **nhìn thấy**, mọi tool khác biến
+  mất khỏi prompt của nó **và** bị từ chối lúc chạy. Nó không sửa được file, không chạy được lệnh.
+- **Bỏ qua phiên con và phiên review.** Không có chốt này thì mỗi lần review lại sinh một review.
+
+**Skill đi đường khác memory, có chủ ý.** Memory ghi thẳng; skill chỉ **xếp hàng**. Một mẩu nhớ sai
+là một câu sai, xóa một cú bấm. Một skill sai là chỉ thị thường trực mà agent sẽ tuân theo trong mọi
+việc cùng loại. Trang Settings hiện đủ ba thứ trước khi nút Approve với tới được: file sẽ ghi ở đâu,
+nội dung đầy đủ sẽ ghi, và **nội dung đang có nếu việc duyệt là ghi đè**.
+
+Duyệt xong thì ghi vào **chính thư mục skill của engine** (`~/.dsh/skills` hoặc
+`<dự án>/.dsh/skills`) — nơi engine vốn đã quét và theo dõi thay đổi. Nghĩa là plugin không có một
+dòng mã tìm kiếm skill nào, và skill vừa duyệt dùng được ngay ở **phiên chat kế tiếp** (không phải
+phiên đang mở: danh mục skill được chụp ở đầu phiên).
+
+**Đã chạy thật, không phải suy luận.** Một phiên chat 10 lệnh + một quy tắc làm việc → vòng nền tự
+khởi động (thanh tiêu đề hiện "1 subagent", 30–60K token, 4–7 giây) → nó tự ghi một mẩu nhớ và tự
+viết skill `dsh-release-check` gồm bốn bước cùng năm cạm bẫy → duyệt → file `SKILL.md` xuất hiện
+đúng chỗ → phiên chat mới liệt kê skill đó trong danh sách của mình.
+
+Cũng đã thấy đúng thứ mà bước duyệt sinh ra để chặn: skill nó viết trộn vài chi tiết **không có
+thật** (lệnh `pnpm`, một cổng máy chủ, một cấu trúc thư mục) suy diễn từ ngữ cảnh khác. Nếu ghi
+thẳng thì từ đó về sau agent tin những điều đó. Đây là lập luận sống cho việc skill phải chờ duyệt.
+
+Bảng `pending_skills` thêm vào domain cũ, **giữ nguyên `version: 1`**: backend JSON đọc bảng thiếu
+trong file là bảng rỗng, nên không cần nâng phiên bản cũng không cần chuyển đổi dữ liệu. Nâng
+version sẽ làm engine từ chối đúng cái file mà mọi người dùng hiện có đang giữ.
+
+## 2026-08-18 — Vòng nền báo cáo ngay dưới ô nhập, và mọi thứ đã nhớ đều truy được nguồn
+
+Chủ dự án bấm vào nút "1 subagent" và hỏi: có cần một trang riêng như vậy không, chỉ cần một dòng
+gọn là đủ. Đúng — nên thêm hai thứ, không bỏ thứ nào.
+
+**Một dòng ngay dưới ô nhập** (`conversation.composer.dock`, **mức 1**): *"Growth review · remembered
+1 · proposed 1 skill · 2m ago · 1 waiting for you"* kèm nút **Preview** mở hộp so sánh **cũ/mới**
+ngay tại chỗ. Chỗ này là dải mà upstream đã để dòng thống kê của họ; slot loại `list` nên hai bên
+ngồi cạnh nhau, không ai chiếm của ai.
+
+Đã cân nhắc chỗ **cuối lượt chat** (`conversation.chat.turnTail`) vì đó là chỗ chủ dự án mô tả, và
+loại nó vì một lý do đo được: slot đó hỏi plugin một câu **đồng bộ** ngay lúc vẽ — *"lượt này có gì
+không?"* — trong khi vòng nền chạy sau khi lượt đã đóng và mất 4–7 giây. Dòng sẽ chỉ xuất hiện ở
+lần mở lại phiên sau, tức đúng chỗ nhưng sai lúc.
+
+**Truy nguồn trên mọi bản ghi.** Mỗi mẩu nhớ và mỗi skill nay hiện *"3m ago · chat 0a9aa32b"*, rê
+chuột ra giờ tuyệt đối và id phiên đầy đủ. Kèm theo là một sửa lỗi thật: bản ghi do vòng nền tạo
+trước đây mang id của **phiên fork** — thứ người dùng chưa bao giờ nhìn thấy và không tra được.
+Nay nó ghi id của **cuộc trò chuyện gốc**. Vì thế `reviewSessions` đổi từ `Set` sang `Map` con → cha:
+cần cả hai dữ kiện, một để đóng dấu `source: 'review'`, một để trả lời "việc này đến từ chat nào".
+
+Dải chỉ hỏi lại máy chủ **khi đang có một vòng chạy**, xong thì ngưng. Một bộ đếm giờ thường trực
+dưới mọi cuộc trò chuyện là chi phí không ai nhìn thấy.
+
+Đã chạy thử: dải hiện đúng, Preview mở ra đủ ba phần (đích ghi file, nội dung đang có, nội dung sẽ
+ghi). **Lưu ý vận hành:** giao diện plugin chỉ gắn vào khi trang tải — sau khi build lại, phải tải
+lại trang mới thấy, đúng như nút "Reload now" ở tab bật/tắt plugin đã cảnh báo.
+
+## 2026-08-18 — Dòng Growth chỉ hiện sau khi tải lại trang: đã sửa
+
+Chủ dự án hỏi "sao tôi không thấy dòng Growth nào?" và câu hỏi đó chỉ ra một lỗi thật, không phải
+hiểu nhầm.
+
+Dòng dưới ô nhập hỏi máy chủ **đúng một lần, lúc trang vừa mở**. Sau đó nó chỉ hỏi lại khi *đã thấy*
+một vòng nền đang chạy. Nhưng vòng nền **luôn khởi động sau khi lượt chat đóng lại** — nghĩa là ở
+thời điểm trang hỏi, câu trả lời luôn là "chưa có gì", và trang không bao giờ hỏi lại nữa. Kết quả:
+dòng chỉ xuất hiện nếu người dùng tình cờ tải lại trang. Đó chính xác là điều đã xảy ra khi thử.
+
+Sửa: dòng đọc thêm cờ **lượt chat đang chạy hay đã xong** từ chính khung soạn tin (slot đã đưa sẵn
+dữ liệu này và tự vẽ lại, không cần đăng ký lắng nghe gì). Khi lượt vừa chuyển từ *đang chạy* sang
+*đã xong*, nó theo dõi thêm **90 giây** — đúng khoảng thời gian vòng nền có thể khởi động — rồi
+ngưng hẳn. Thấy vòng chạy xong thì ngưng sớm.
+
+Vì sao không đơn giản là hỏi lại mỗi vài giây: một bộ đếm giờ thường trực dưới **mọi** cuộc trò
+chuyện đang mở là chi phí không ai nhìn thấy và không ai tắt được. Cửa sổ 90 giây gắn với một sự
+kiện có thật thì chỉ tốn khi thật sự có việc.
+
+## 2026-08-18 — USER.md, buổi hỏi đáp lần đầu, và sửa được ngay trên trang Growth
+
+Chủ dự án chỉ ra một chỗ lệch: **SOUL.md là linh hồn của trợ lý, không phải hồ sơ của người dùng.**
+Đúng. Rà lại OpenClaw thì họ tách hẳn hai file — `SOUL.md` cho trợ lý, `USER.md` cho người — nên
+làm theo.
+
+**`USER.md`, trần 3000 ký tự.** Thấp hơn `SOUL.md` (8000) có chủ ý: hồ sơ dài hơn thế đã thành nhật
+ký, mà mỗi ký tự đều phải trả tiền ở **mọi tin nhắn của mọi cuộc trò chuyện**. OpenClaw để 4000; chủ
+dự án chọn hạ xuống 3000.
+
+**Trợ lý chỉ được nối thêm, không được viết đè.** Mọi dòng nó ghi đều nằm dưới một đề mục riêng
+(`## Notes from the assistant`) và **có ngày tháng**. Phần trên là chữ của người dùng, không bao giờ
+bị chạm tới. Lý do không phải lịch sự mà là an toàn: một model được quyền viết lại cả trang là một
+model có thể lặng lẽ xoá đúng những giới hạn nó vừa được dặn phải tuân theo. Có ngày tháng thì một
+dòng đã cũ mới nhìn ra được.
+
+**Buổi hỏi đáp lần đầu, bằng một file tự xoá.** Lần chạy đầu tiên sinh ra `START.md`; khi nào nó còn
+đó thì nội dung của nó nằm trong prompt và trợ lý mở lời hỏi bốn câu. Ghi hồ sơ xong là file bị xoá,
+không bao giờ hỏi lại. **Sự tồn tại của file chính là cờ "chưa cài đặt"** — không có biến đếm nào,
+không có ô trạng thái nào có thể mâu thuẫn với đĩa. Muốn hỏi lại thì chỉ việc đặt file về chỗ cũ.
+
+Khác OpenClaw một điểm và đây là chủ ý: họ hỏi **từng câu một**, ta hỏi **cả bốn câu trong một tin
+nhắn**. Người ta mở app lên là để làm việc, bắt họ đi bốn vòng trước khi được việc gì là cái giá thật.
+
+**Sửa ngay trên trang, không phải mở Notepad nữa.** Đây là **thứ duy nhất trong plugin tự vẽ**, và
+đã kiểm tra kỹ trước khi viết: bộ primitive của DeepSeek **không có ô nhập nhiều dòng**. Chính chú
+thích đầu file `Input.tsx` của họ nói rõ *"textareas are NOT this atom — they live with the
+conversation package"*, mà cái ở gói kia thì hàn chết trong khung soạn tin và không xuất ra ngoài.
+Nên ô soạn thảo ở đây là một `<textarea>` trần, bọc **đúng theo khuôn `Input` của họ**, dùng lại
+nguyên bộ biến `--dsw-*` cho viền, nền, chữ và màu khi focus — vì thế nó vẫn theo chế độ sáng/tối
+như mọi ô nhập khác. Trần ký tự chặn ở **hai lớp**: nút Save mờ đi khi vượt, và máy chủ vẫn từ chối
+một lần nữa nếu ai đó gọi thẳng.
+
+**Hai lỗi thật, cả hai chỉ lộ ra khi mở app chạy thử:**
+
+1. *Đề mục rỗng lọt vào prompt.* Sau khi trợ lý ghi dòng đầu tiên, file không còn "chỉ có đề mục"
+   nữa, nên mấy đề mục mẫu chưa ai viết gì cũng đi theo — sáu dòng vô nghĩa, trả tiền ở mọi tin
+   nhắn. Nay đề mục không có nội dung bên dưới thì bị bỏ.
+2. *Ngày tháng lặp hai lần.* Model đọc file, thấy `- 2026-08-18 — …`, rồi viết lại đúng cái vỏ đó,
+   trong khi phần vỏ do ta thêm — ra `- 2026-08-18 — 2026-08-18 — …`. Nay dấu đầu dòng và ngày ở
+   đầu câu bị lột bỏ trước khi ghi.
+
+**Chữ trên trang đã rút gọn** theo yêu cầu: ngắn nhưng đủ nghĩa. Ví dụ thẻ Soul từ ba dòng còn một —
+*"How the assistant should behave with you. Read at the start of every conversation."*
+
+Hai lỗi nữa, cũng chỉ lộ ra khi chạy thử thật:
+
+3. *`remember` và `update_profile` giẫm chân nhau.* Bảo "ghi vào hồ sơ giúp tôi" mà model vẫn chọn
+   `remember` — vì mô tả cũ của `remember` mở đầu bằng đúng chữ *"a durable fact about the user"*,
+   tức là nó tự nhận luôn phần đất của tool kia. Đã tách lại ranh giới: `update_profile` lo **con
+   người** và **luật hành xử**, `remember` lo **dự án và mã nguồn**. Thử lại thì vào đúng chỗ.
+4. *Dòng mới rơi xuống dưới đề mục của người dùng.* Hàm ghi nối vào **cuối file**, mà cuối file chỉ
+   trùng với cuối phần của trợ lý cho tới khi người dùng viết thêm một đề mục bên dưới — sau đó mọi
+   dòng trợ lý ghi đều nằm dưới đề mục ấy, trông như chính người dùng viết. Nay nó chèn vào **cuối
+   đúng phần của trợ lý**.
+
+## 2026-08-18 — Bốn tab, sửa thẳng không cần bấm Edit, và cắt ngày tháng khỏi prompt
+
+Chủ dự án soi ba chỗ, cả ba đều đúng.
+
+**Bỏ ngày tháng khỏi phần model đọc.** Ngày là để **người** nhìn ra dòng nào đã cũ; model không làm
+được gì với nó. Đã tra lại tài liệu chính thức của OpenClaw: họ **không** ghi ngày trong `USER.md` —
+ngày chỉ nằm ở *tên file* nhật ký theo ngày. Phần ghi ngày trong dòng là ta tự thêm. Nay **ngày vẫn
+nằm trên đĩa, nhưng bị lột trước khi đưa cho model**.
+
+Cộng với hai thứ đã lọc từ trước — chú thích và đề mục rỗng — con số đo được: file `USER.md` **847
+ký tự trên đĩa, chỉ 465 ký tự tới model**. Cắt 45%.
+
+**Chú thích thì model có đọc được không — đã chứng minh, không phải nói suông.** Cắm hai mã vào
+`USER.md`: một mã nằm trong chú thích, một mã nằm ở dòng thường. Hỏi model đọc cả hai. Nó trả lời
+đúng mã ở dòng thường và nói thẳng *"không thấy ở bất kỳ đâu"* với mã trong chú thích. Cách tự kiểm
+lại bất cứ lúc nào: mở **What the model sees** — đó chính là văn bản đã nạp, không phải bản mô tả
+lại.
+
+**Font chữ:** ô soạn thảo bỏ font mã nguồn, dùng font mặc định của app. Font mono biến một trang
+viết về bản thân thành một hộp code.
+
+**Bỏ nút Edit / Open file / Copy path.** Ô soạn thảo **chính là file** — gõ thẳng rồi bấm Save. Bắt
+người ta bấm Edit trước khi gõ là bắt họ khai lại một ý định mà cú bấm đã khai rồi.
+
+**Chia bốn tab** — About you · Soul · Skills · Remembered facts — vì bốn việc đó không liên quan gì
+tới nhau trong cùng một lúc. **"What the model sees" nằm ngoài tab**, gập lại: nó trả lời câu hỏi
+vắt qua cả bốn.
+
+Không có component tab trong bộ của DeepSeek (cái trong app thuộc về khung Cài đặt và khung hội
+thoại, đều không xuất ra). Nên hàng tab **ghép từ `Button`** — nút đang chọn giữ biến thể `primary`,
+còn lại `ghost`. Không vẽ thêm gì, chỉ xếp chỗ và kẻ một đường phân cách. Phím mũi tên trái/phải
+chuyển tab, và chỉ tab đang chọn nằm trong thứ tự Tab — đó là phần một hàng tab tự chế hay đánh mất.
+
+**Một lỗi nữa lộ ra ngay tại chỗ:** bộ đếm ghi 774 trong khi ô soạn thảo chỉ có 754 ký tự. File đang
+xuống dòng kiểu Windows — mỗi dòng cõng thêm một ký tự vô hình, tính vào trần và đi cả vào prompt,
+còn ô soạn thảo của trình duyệt thì lặng lẽ bỏ nó đi. Nay mọi lần đọc và ghi đều quy về một kiểu
+xuống dòng, hai con số khớp nhau.
+
+Dọn theo: route mở file bằng trình soạn ngoài và hàm gọi nó đã xoá, vì không còn nút nào gọi tới.
+
+## 2026-08-18 — Hàng tab dựng theo đúng khuôn của DeepSeek, và ô soạn thảo tràn viền
+
+Chủ dự án gửi kèm ảnh chụp tab của chính DeepSeek và chỉ ra hai chỗ. Cả hai đều đúng, và cả hai chỉ
+nhìn ra được bằng mắt.
+
+**Hàng tab.** Bản đầu tôi ghép từ `Button`, nút đang chọn để biến thể `primary` — ra một viên thuốc
+tô đậm nằm cạnh những hàng tab gạch chân của họ, trông như của app khác. Mở mã gốc ra xem thì tab của
+họ (`PluginsSettingsSection.module.css`) **không dùng component `Button`**: là `<button>` trần, chữ
+màu `label-tertiary`, gạch chân 2px bằng `::after` cho tab đang chọn, khoảng cách 22px, đường kẻ
+`border-bottom` dưới cả hàng. Nay chép lại **từng dòng CSS một**, kèm cả hợp đồng bàn phím của họ:
+mũi tên trái/phải, Home, End, và tiêu điểm đi theo.
+
+Bài học: *"dùng vật liệu của hệ thống"* không chỉ là component xuất ra được. Khi upstream đã dựng
+sẵn đúng thứ mình cần bằng CSS trần, thì bản mẫu chính là chỗ đó.
+
+**Ô soạn thảo tràn qua viền phải đúng 22px.** `width: 100%` cộng `padding` 10+10 cộng viền 1+1, mà
+`box-sizing` mặc định là `content-box` — nên bề rộng thật là 586 trong khung 564. Đo được, không phải
+đoán. Thêm `box-sizing: border-box` là hết.
+
+**Rà lại luôn những gì đã sửa**, theo yêu cầu, và ra thêm ba chỗ lệch:
+
+1. *Thiếu tiêu đề mục.* Mọi trang cài đặt của họ mở đầu bằng `h2` 18px/600 rồi một dòng giới thiệu
+   màu nhạt; trang Growth nhảy thẳng vào hàng tab. Đã thêm cho khớp.
+2. *Khoảng cách giữa các khối* để 20px trong khi họ dùng 12px. Đã sửa.
+3. *Tiêu đề lặp.* Tab đã ghi "Remembered facts" rồi mà thẻ bên dưới ghi lại lần nữa. Bỏ hai `h3`.
+
+Đã quét lại toàn bộ bốn tab bằng cách đo từng phần tử so với khung chứa: **không phần tử nào còn
+tràn**. Ghi thử một dòng rồi xoá đi, file vẫn đúng số ký tự và vẫn một kiểu xuống dòng.
+
+## 2026-08-19 — Plugins thành trang riêng ở chân thanh bên, mỗi plugin có icon và mô tả
+
+Trước: muốn bật/tắt một plugin phải vào `Settings → Plugins → tab "On/off"`, và ở đó mỗi plugin chỉ
+là một dòng gồm tên rút gọn cộng một mã dài (`dsh-base:1a2b`) — không có gì nói plugin đó làm gì.
+
+Nay: **một nút "Plugins" ở chân thanh bên, ngay trên Settings**, mở ra một trang chiếm cả cửa sổ.
+Mỗi plugin là một **thẻ có icon + tên + một dòng mô tả**, xếp lưới hai cột. Tab "On/off" cũ trong
+Settings **đã bỏ** — một việc thì một chỗ làm. Tab "Plugin list" chỉ-đọc của DeepSeek vẫn nguyên.
+
+Ở `plugins/plugin-manager/`, **mức 1**, cắm vào `sidebar.footer.action`.
+
+**Ba quyết định đáng nhớ:**
+
+*Trang vẽ bằng một lớp phủ tự trải, không phải `Modal`.* Upstream không có router và không có slot
+nào dành cho một trang. Ba vùng bố cục (`sidebar`, `conversation`, `details`) đều là slot `single`
+đã có chủ — chiếm là mức 3, cấm. Cách upstream tự làm cho chính Settings là **vẽ một lớp
+`position: fixed; inset: 0` ngay bên cạnh cái nút**, và panel Cordis của họ cũng vậy. Nên trang này
+chép đúng khuôn đó: cùng hình dạng overlay/mask/panel, cùng ba lối đóng (nút X, bấm ra ngoài,
+Escape), cùng việc đưa tiêu điểm về nút đóng khi mở. `Modal` là ứng viên còn lại và sai hình dạng:
+nó là một thẻ hỏi-đáp ở giữa màn hình, không phải một mặt phẳng để duyệt.
+
+*Mô tả lấy từ hồ sơ gói, không có bảng viết tay.* `src/pkg-meta.ts` đọc trường `description` trong
+`package.json` của từng plugin, qua cây phân giải dưới `~/.dsh/profiles/node_modules`. Đọc thẳng
+file thay vì `require.resolve` là cố ý — có gói không mở `./package.json` trong `exports`, và lỗi đó
+trông y hệt "plugin không tồn tại". Kết quả đo được: **156/160 thẻ có mô tả riêng**.
+
+*Icon chọn theo từ khoá trong tên gói, không liệt kê từng plugin.* Một bảng liệt kê là một danh sách
+phải bảo trì; mỗi lần nâng cấp engine lại có gói mới không ai viết dòng cho nó, và tất cả rơi về
+cùng một icon trống. Luật theo từ khoá cho gói mới một icon hợp lý ngay ngày nó xuất hiện. Toàn bộ
+icon lấy từ bộ 70 của engine, ép về cùng cỡ 16 để glyph 14 và 20 không đứng lệch nét trong cùng lưới.
+
+**Bộ kiểm `npm run spike:switch` cập nhật theo, và mọc thêm bốn mục** (13 → 17): mỗi thẻ có icon và
+mô tả thật; Escape đóng trang, mở lại được, bấm ra ngoài cũng đóng; thu thanh bên thì nút thành icon
+tròn 36px không nhãn mà rê chuột vẫn hiện tên; và Settings không còn tab "On/off" của ta.
+
+Một bài học nhỏ nhưng tốn một vòng: mục kiểm rê chuột lên nút ở chế độ thanh bên thu **chập chờn**,
+vì thao tác thu có hoạt ảnh và cú rê đầu tiên rơi vào lúc nút còn đang trượt. Nay thử lại tối đa ba
+lần — một lần trượt không nói lên điều gì về việc người dùng có với tới được tooltip hay không.
+
+## 2026-08-19 — Cài được plugin từ chợ cộng đồng, ngay trong app
+
+Trang Plugins mọc thêm tab **Market**. Người dùng duyệt hơn **1.300 plugin** của cộng đồng, tìm
+kiếm, lọc theo 12 nhóm, và **cài thẳng vào app** — trước đó app chỉ bật/tắt được 5 plugin do chính
+dự án đóng gói sẵn, không thêm được cái thứ 6.
+
+Toàn bộ nằm trong `plugins/plugin-manager/`, **mức 1**, không thêm vị trí giao diện nào: tab Market
+dùng chung trang đã có.
+
+### Bốn quyết định đáng nhớ
+
+**Không tự viết trình cài đặt.** Engine đã có sẵn `dsh plugin --profile web add <gói>`, và nó làm
+một việc mà tự viết lại sẽ hỏng dần sau mỗi lần nâng cấp: sau khi cài xong, nó đọc lại hồ sơ profile
+và **tự cập nhật danh sách bundle** — mọi gói khai `dsh.bundle.patch` được thêm vào danh sách engine
+nạp lúc khởi động. Ta gọi đúng lệnh đó. Hai thứ ta biết mà nó không biết đều là **sự thật về tiến
+trình đang chạy**, không phải phỏng đoán: `process.execPath` chính là `node.exe` app đóng gói, và
+`process.argv[1]` chính là file CLI mà engine được khởi động bằng.
+
+**Không tin kho một chiều.** Kho nói gói đã kiểm chứng; trước khi ghi bất cứ thứ gì xuống đĩa,
+`src/npm-check.ts` hỏi lại **chính npm** bốn câu, đều fail-closed: đúng phiên bản đó có tồn tại
+không; gói có **chạy mã lúc cài** không (`preinstall`/`install`/`postinstall`/`prepare` → từ chối
+thẳng); nó có trỏ ngược về **đúng repo mà người dùng đã nhìn thấy** không; và npm có phục vụ qua
+https không. "Kho nói vậy" và "npm nói vậy" là hai lời khẳng định khác nhau, chỉ cái thứ hai nói về
+những byte thật sự sẽ chạy.
+
+**Hỏi vòng, không dựng WebSocket.** Việc cài chạy trong tiến trình engine nên nó **sống lâu hơn
+trang** — đóng trang giữa chừng không huỷ gì và không mất nhật ký, mở lại là thấy tiếp. Vì vậy không
+có gì cần một socket giữ mở: nửa giây một lần hỏi lại, tốn một request nội bộ. Cùng lý do đó, yêu
+cầu **khởi động lại** đi bằng một request HTTP giữ mở (`/hdw/lifecycle/wait`) chứ không phải
+WebSocket — plugin này hiện **không có phụ thuộc lúc chạy nào**, và giữ nguyên như vậy đáng giá hơn
+việc kéo `ws` vào. Lớp vỏ **gọi ra**, không mở thêm cổng nào trên máy người dùng — đúng khuôn
+`shot-link.ts` đã ghi lại lý do.
+
+**Lối lùi khi engine không khởi động nổi.** Một plugin lạ viết cho phiên bản engine khác có thể làm
+app không lên được, và đúng lúc đó trang Plugins vô dụng — vì nó nằm trong engine đang chết. Nên sau
+mỗi lần cài, plugin ghi tên gói vào `~/.dsh/harness-desktop-last-install.json`; lớp vỏ **xoá tờ ghi
+chú ngay khi một lần khởi động thành công**. Tờ ghi chú còn đó lúc engine chết nghĩa là chỉ có đúng
+một nghi phạm, và trang lỗi mọc thêm nút **"Remove <tên> and retry"**. Không có nút đó, nước cờ cuối
+cùng của người dùng là cài lại cả app.
+
+### App tự mang theo pnpm — +19 MB
+
+Lệnh cài của engine gọi `pnpm` từ PATH. Máy lập trình viên có; máy người cài một app desktop thì
+không, và lỗi là `exit 127` kèm câu "pnpm not found on PATH" — vô nghĩa với người dùng. Nay app
+đóng gói **pnpm bản JavaScript** và viết một wrapper một dòng vào `~/.dsh/tools/bin/pnpm.cmd`, rồi
+chỉ thêm thư mục đó vào **PATH của tiến trình con**. Hai ranh giới cố ý:
+
+- **Không đụng PATH của máy.** Một app sửa biến môi trường của người dùng làm đổi cách mọi chương
+  trình khác tìm `pnpm`, và nó sống sót cả sau khi app bị gỡ.
+- **Không ưu tiên pnpm sẵn có của người dùng.** Cùng một phiên bản ở mọi nơi nghĩa là cài chạy được
+  ở đây thì chạy được ở đó; "cái pnpm nào đứng trước trên PATH" là cách một lỗi trở thành không tái
+  hiện được.
+
+Giá, đo trên bản dựng thật chứ không ước lượng: **452 file, 18,8 MB** trong thư mục app; bộ cài ra
+**175,0 MB**. Đã cắt `artifacts/` (17,4 MB — đầu vào để pnpm dựng file exe độc lập của họ, ta không
+dùng) khỏi bộ cài, và không dùng bản `@pnpm/win-x64` đứng một mình vì nó **93,6 MB**.
+
+Wrapper `.cmd` là đủ vì CLI của engine gọi pnpm qua shell trên Windows. Nó sẽ **không** đủ cho một
+plugin tự gọi `pnpm` bằng `spawn(shell: false)` — đáng nhớ, vì lúc đó cách sửa là một file thực thi
+thật chứ không phải file batch.
+
+### Kho lấy từ đâu
+
+`https://deepseek1024.com/api/v1/plugins` — quét thẻ `dsh-plugin` trên GitHub. **Đây là đường ra
+Internet mới của app**, chỉ tải danh mục, không gửi gì của người dùng đi. Tải nguyên khối một lần
+(8,6 MB), **giữ lại chỉ mục có gói npm đã kiểm chứng** (6.096 → 1.314), cắt còn các trường thẻ cần
+(~350 KB), nhớ đệm ra đĩa 24 giờ. Gõ tìm kiếm **không** gửi request nào ra ngoài — lọc tại chỗ.
+
+Kho **không có icon riêng cho từng plugin**, nên thẻ dùng bộ 70 icon đơn sắc của engine, chọn theo
+nhóm rồi mới tới từ khoá trong tên.
+
+### Bộ kiểm
+
+`npm run spike:switch` từ 17 lên **28 mục**, và giờ nó **cài thật một plugin rồi gỡ đi**
+(`dsh-plugin-vetting` — không phụ thuộc, không script lúc cài, repo khớp). Nó cũng chạy **đúng hàm
+lớp vỏ gọi khi engine chết** chứ không phải bản sao của hàm đó, và đo màu ở chế độ tối thay vì tin
+là đúng: nền trang 1.00 → 0.17, nền thẻ 0.14, chữ 0.70.
+
+Ba bài học trả giá trong lúc làm, ghi lại vì cả ba đều **không** hiện ra dưới dạng lỗi:
+
+1. *Chụp màn hình cửa sổ chạy ẩn bắt phải khung hình cũ.* Chromium không vẽ khi không ai nhìn, nên
+   ảnh chụp ngay sau khi đổi tab lại ra tab trước đó. Phải cho nó kịp vẽ.
+2. *Regex trong chuỗi template mất dấu gạch chéo.* `\d` trong một template literal thành `d`, và mục
+   kiểm phiên bản đỏ trong khi app đúng.
+3. *Đọc DOM sau khi nó đã đổi.* Giữ tham chiếu phần tử rồi bấm tiếp rồi mới đọc — mục kiểm phân
+   trang khi đó so một thứ với chính nó và luôn sai.
+
+## 2026-08-19 — Mở app thật ra dùng, và năm lỗi chỉ chịu lộ ra ở đó
+
+Bộ kiểm 28 mục đã xanh hết. Rồi mở app thật, cài hai plugin từ chợ
+(`dsh-find-plugin`, `@anionex/dsh-turn-rewind`), khởi động lại, bật tắt, gỡ đi — **năm lỗi rơi ra**,
+và không lỗi nào trong số đó bộ kiểm cũ nhìn thấy được. Ghi lại vì cái *hình dạng* của chúng lặp
+lại: cả năm đều nằm ở khoảng sau khi việc cài kết thúc — chỗ mà bộ kiểm dừng, còn người dùng thì
+không.
+
+**1. Nhật ký cài hiện chữ Trung Quốc.** `TerminalBlock` của upstream có nhãn mặc định là tiếng
+Trung (`已完成`, `复制`), và **mọi chỗ gọi nó bên trong upstream đều truyền nhãn đã dịch**. Ta không
+truyền, nên giữa một trang tiếng Anh có hai chữ Trung. Đúng loại lỗi Luật 7 sinh ra để chặn, và
+không có kiểm lỗi kiểu nào bắt được. Nay truyền `labels` tiếng Anh.
+
+**2. Khởi động lại engine ném người dùng vào trang lỗi — tuỳ lúc.** Bấm "Restart now" thì log ghi
+`engine: exited unexpectedly with code 1` chen vào giữa hai dòng khởi động bình thường. Nguyên nhân:
+`stopEngine()` giết engine cũ, nhưng **Windows báo cái chết đó bất đồng bộ**, thường là sau khi
+engine mới đã chạy — mà `startEngine` đã kịp đặt lại cờ `stopping = false`. Thế là cái chết của
+engine cũ bị tính cho engine mới, và app bật trang "không khởi động được" **đè lên một engine đang
+chạy tốt**. Nay mỗi trình xử lý gắn với đúng tiến trình sinh ra nó, và bỏ qua tin tức về một tiến
+trình đã bị thay. Đo lại sau khi sửa: dòng đó biến mất.
+
+**3. Plugin cài từ chợ không có mô tả.** `pkg-meta.ts` chỉ tìm trong cây gói của profile gốc, còn
+trình quản lý gói đặt thứ nó cài vào cây gói của riêng profile `web`. Kết quả: đúng những plugin mà
+cái tên nói lên ít nhất lại là những cái có thẻ trống. Nay tìm cả hai gốc.
+
+**4. App nói sai với người dùng.** Một plugin **họ vừa tự cài từ chợ** bị xếp vào nhóm "DeepSeek
+core plugins", và bấm tắt thì hiện hộp xác nhận nói rằng *"đây là một trong các plugin lõi của
+DeepSeek"*. Câu đó sai. Gốc rễ: mã chỉ biết hai loại — của ta, và của DeepSeek. Nay có **ba**:
+`ours` / `market` / `core`, phân loại theo danh sách phụ thuộc của profile. Ba hệ quả:
+
+- Tab Installed có nhóm thứ ba, **"Installed from the market"**, luôn hiện kể cả khi rỗng — đó là
+  chỗ người dùng sẽ đi tìm thứ họ vừa cài.
+- Chỉ plugin **lõi thật** mới hỏi xác nhận khi tắt.
+- Thẻ plugin từ chợ mọc thêm nút **Remove** ngay tại tab Installed. Trước đó muốn gỡ phải mò lại
+  trong danh sách chợ 1.300 mục — một lối đi không ai chọn.
+
+**5. File lựa chọn bật/tắt tích rác.** Gỡ một plugin xong, dòng bật/tắt của nó vẫn nằm lại mãi mãi.
+Hai cái giá đều lặng lẽ: file phình theo tuổi đời của app, và một plugin sau này trùng `id` sẽ thừa
+hưởng một trạng thái mà người dùng chưa từng chọn. Nay gỡ xong thì xoá luôn các dòng ấy — lấy id từ
+**hai** nguồn: những gì loader đang gán cho gói đó, **và** những gì chính gói khai trong
+`cordis.patch.yml` của nó. Chỉ nguồn thứ nhất là chưa đủ: một gói vừa cài mà chưa khởi động lại thì
+chưa được nạp, và đó đúng là lúc người ta hay đổi ý.
+
+### Bộ kiểm học được gì
+
+28 → **31 mục**. Nhưng cái mới quan trọng nhất không phải ba mục đó, mà là **bộ kiểm giờ tự khởi
+động lại engine giữa chừng**. Trước đây nó dừng ngay khi lệnh cài chạy xong — nên toàn bộ vùng "sau
+khi cài, plugin thật sự được nạp" chưa từng bị soi, và đó chính là nơi ba trong năm lỗi trên nằm.
+
+Bài học chung, đáng nhớ hơn từng lỗi riêng lẻ: **"cài xong" không phải là đích của người dùng.**
+Đích của họ là *dùng được thứ vừa cài*, và giữa hai điểm ấy có một lần khởi động lại mà bộ kiểm cũ
+không bước qua.
+
+### Lỗi thứ sáu, do chủ dự án tìm ra: "cài xong rồi, sao không thấy đâu?"
+
+Chủ dự án cài `modlens` trong app thật, chuyển sang tab Installed, và thấy
+**"Installed from the market (0)"**. Câu hỏi của anh — *"nó nằm bên nào? sao tôi không thấy nó?"* —
+chính là lời mô tả chuẩn xác nhất của lỗi: **anh vừa cài, mà trang lại nói là chưa có gì.**
+
+Hai nguyên nhân chồng lên nhau, và cả hai đều phải sửa:
+
+**a. Danh sách Installed chỉ biết những gì engine đang nạp.** Engine đọc danh sách bundle **một lần
+duy nhất, lúc khởi động** — nên plugin cài trong lúc app đang chạy thì có trên đĩa và không có ở
+đâu khác. Trang bỏ qua khoảng đó, và thành ra nói sai. Nay `/hdw/plugins/list` trả thêm danh sách
+**đã cài nhưng chưa nạp** (hiệu của "profile phụ thuộc gì" trừ đi "cây plugin đang có gì"), và tab
+Installed vẽ chúng thành thẻ riêng: nhãn **"not loaded yet"**, không có công tắc (không có gì đang
+chạy để mà tắt), **vẫn gỡ được** — vì đổi ý trước khi khởi động lại là chuyện bình thường — kèm một
+dòng thông báo *"N plugins are installed but not loaded yet. Restart the app to finish."* và nút
+**Restart now** ngay đó.
+
+**b. Tab bị ẩn vẫn cầm dữ liệu cũ.** Tab Installed **cố ý** không bị gỡ khỏi trang khi chuyển sang
+Market — để ô tìm kiếm của anh không mất. Nhưng nó cũng vì thế mà giữ nguyên danh sách đọc từ lúc
+mở, nên cài ở tab Market xong quay lại thì vẫn là ảnh chụp cũ. Nay nó đọc lại mỗi lần được đưa ra
+màn hình.
+
+Mục kiểm **21c** khoá đúng tình huống này lại: cài xong, **chưa** khởi động lại, chuyển sang tab
+Installed — phải thấy thẻ, thấy nhãn "not loaded yet", thấy nút gỡ, và thấy lời mời khởi động lại.
+Bộ kiểm: 31 → **32 mục**.
+
+Đây là lần thứ hai trong cùng một ngày cùng một khoảng trống sinh ra lỗi: **giữa "lệnh cài chạy
+xong" và "plugin thật sự dùng được" có một lần khởi động lại**, và mọi thứ nằm trong khoảng đó đều
+từng bị bỏ sót.

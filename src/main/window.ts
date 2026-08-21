@@ -33,6 +33,15 @@ export interface EngineErrorPayload {
   message: string
   /** The engine's log tail, for someone technical. */
   tail: string
+  /**
+   * The plugin installed since the last successful start, when there is one.
+   *
+   * Present only while it is a genuine suspect: the app forgets it as soon as a
+   * start succeeds. When it is here, the page offers to remove it — that is the
+   * only route back for a user whose engine will not start, because the Plugins
+   * page lives inside the engine that will not start.
+   */
+  undo?: { pkg: string, label: string }
 }
 
 let window: BrowserWindow | undefined

@@ -17,6 +17,7 @@ import {
   dshBinPath,
   engineLogPath,
   enginePidPath,
+  growthPatchPath,
   nodeExePath,
   minimaxRelayPatchPath,
   pluginManagerPatchPath,
@@ -224,7 +225,7 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   // `--profile` and `--patch` are launcher flags and must come BEFORE `--port`,
   // which is forwarded to the app.
   //
-  // FIVE `--patch` LAYERS, AND THE ORDER IS MANDATORY. The engine applies them in
+  // SIX `--patch` LAYERS, AND THE ORDER IS MANDATORY. The engine applies them in
   // command-line order, and a layer can only edit rows that already exist when it
   // applies:
   //
@@ -232,19 +233,21 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   //   2. the plugin on/off switch
   //   3. the think-tag rewriter
   //   4. the MiniMax relay
-  //   5. the user's own choices — MUST COME LAST
+  //   5. Soul and Memory
+  //   6. the user's own choices — MUST COME LAST
   //
   // Put the last layer earlier and it cannot see the rows the ones above insert, so a
   // user who disables the panel — or the switch itself — finds them enabled again on
   // the next launch, with nothing reporting an error. Measured:
   // `npm run spike:loader`, checks 9 and 10.
   ensurePluginState()
-  child = spawn(node, [
+  const spawned = spawn(node, [
     bin, '--profile', 'web',
     '--patch', dockPatchPath(),
     '--patch', pluginManagerPatchPath(),
     '--patch', thinkTagsPatchPath(),
     '--patch', minimaxRelayPatchPath(),
+    '--patch', growthPatchPath(),
     '--patch', pluginStatePath(),
     '--port', '0',
   ], {
@@ -252,7 +255,9 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     windowsHide: true,
   })
 
-  const pid = child.pid
+  child = spawned
+
+  const pid = spawned.pid
   if (pid === undefined) throw new EngineStartError('The engine process could not be spawned.', '')
   const mark: EngineMark = { pid, spawnedAt: Date.now() }
   writeFileSync(enginePidPath(), JSON.stringify(mark))
@@ -262,9 +267,9 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     logStream?.write(chunk)
     tail = (tail + chunk).slice(-TAIL_LIMIT)
   }
-  child.stdout?.setEncoding('utf8')
-  child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', collect)
+  spawned.stdout?.setEncoding('utf8')
+  spawned.stderr?.setEncoding('utf8')
+  spawned.stderr?.on('data', collect)
 
   let ready = false
   const url = await new Promise<string>((resolve, reject) => {
@@ -274,7 +279,7 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     const settle = (fn: () => void): void => { clearTimeout(timer); fn() }
 
     let stdout = ''
-    child?.stdout?.on('data', (chunk: string) => {
+    spawned.stdout?.on('data', (chunk: string) => {
       collect(chunk)
       if (ready) return
       stdout += chunk
@@ -287,7 +292,15 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     // The engine can print the URL line and still die right afterwards (a sibling
     // plugin failing at mount), so exit has to be watched rather than trusting the
     // URL line alone.
-    child?.on('exit', (code) => {
+    spawned.on('exit', (code) => {
+      // News about an engine that has already been replaced is not news about the
+      // running one. A restart kills the old process and Windows delivers that
+      // exit ASYNCHRONOUSLY — measured: often after the replacement is already
+      // serving. Without this guard the old engine's death was reported against
+      // the new one, and the app threw up its "could not start" page over a
+      // perfectly healthy engine. `stopping` alone cannot catch it: the next
+      // `startEngine` clears that flag before the late exit arrives.
+      if (spawned !== child) return
       if (ready) {
         if (stopping) return
         logShell(`engine: exited unexpectedly with code ${String(code)}`)
@@ -296,7 +309,8 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
       }
       settle(() => reject(new EngineStartError(`The engine exited early with code ${String(code)}.`, tail)))
     })
-    child?.on('error', (error) => {
+    spawned.on('error', (error) => {
+      if (spawned !== child) return
       if (ready) return
       settle(() => reject(new EngineStartError(error.message, tail)))
     })

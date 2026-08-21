@@ -1,19 +1,212 @@
 /*
- * Styles for the plugin on/off tab.
+ * Styles for the Plugins page.
  *
  * Only upstream's --dsw-* variables, no hard-coded colors: that is what makes this
- * tab follow light and dark mode like the rest of the app. Every class carries the
+ * page follow light and dark mode like the rest of the app. Every class carries the
  * hdw-pm- prefix so it cannot reach upstream's own styling.
+ *
+ * The trigger and the overlay geometry are copied from upstream's Settings
+ * (SettingsRoot.module.css) rather than invented, so the two controls sit on one
+ * rhythm and the surface behaves like the one the user already knows.
  */
 
-.hdw-pm {
+/* ---------------------------------------------------------------- trigger */
+
+/* Matches upstream's Settings trigger: the sidebar's 34px compact row. */
+.hdw-pm-trigger {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 8px);
+  height: 34px;
+  margin: 4px -4px 4px;
+  padding: 6px 2px 6px 10px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.hdw-pm-trigger:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Rail trigger: the same 36x36 circle box as the other collapsed controls. */
+.hdw-pm-trigger-rail {
+  width: 36px;
+  height: 36px;
+  margin: 8px 0 10px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.hdw-pm-trigger-label {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- surface */
+
+.hdw-pm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hdw-pm-mask {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+}
+
+/*
+ * One height taken from the viewport rather than from the content, for the same
+ * reason upstream gives: a content-sized panel would resize under the pointer
+ * every time the list is filtered. Whatever does not fit scrolls in `.hdw-pm-body`.
+ */
+.hdw-pm-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 880px;
+  height: min(800px, calc(100vh - 48px));
+  max-width: calc(100vw - 48px);
+  border-radius: 24px;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.hdw-pm-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 24px 8px;
+}
+
+.hdw-pm-heading {
+  margin: 0;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+}
+
+.hdw-pm-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hdw-pm-close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Visible to a screen reader, not to the eye — the icon carries the meaning. */
+.hdw-pm-hidden-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
+ * Tab strip, copied line for line from upstream's own
+ * (`PluginsSettingsSection.module.css`): tertiary label, 2px underline drawn with
+ * ::after on the active tab, 22px gap, one rule under the whole row. The
+ * primitive set has no Tabs component, and an earlier attempt built from `Button`
+ * produced a filled pill that read as a different app's control.
+ */
+.hdw-pm-tabs {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  margin: 0 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.hdw-pm-tab {
+  position: relative;
+  border: 0;
+  padding: 7px 1px 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.hdw-pm-tab:hover,
+.hdw-pm-tab[data-active='true'] {
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-pm-tab[data-active='true']::after,
+.hdw-pm-tab:focus-visible::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--dsw-alias-label-primary);
+  content: '';
+}
+
+.hdw-pm-tab:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l2);
+  outline-offset: 2px;
+  border-radius: 2px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.hdw-pm-body {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  width: 100%;
-  max-width: 760px;
-  color: var(--dsw-alias-label-primary);
+  min-height: 0;
+  padding: 14px 24px 24px;
+  overflow-y: auto;
 }
+
+/* `hidden` on a flex container is overridden by `display: flex` — say it again. */
+.hdw-pm-body[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------------- text */
 
 .hdw-pm-intro,
 .hdw-pm-status,
@@ -33,7 +226,7 @@
 .hdw-pm-escape code {
   padding: 1px 4px;
   border-radius: 4px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-layer-3);
   font-family: var(--dsw-font-mono, ui-monospace, monospace);
   word-break: break-all;
 }
@@ -46,7 +239,7 @@
   padding: 10px 12px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-layer-1);
   font-size: 13px;
   line-height: 20px;
 }
@@ -59,6 +252,7 @@
 
 .hdw-pm-search {
   max-width: 320px;
+  box-sizing: border-box;
 }
 
 .hdw-pm-group {
@@ -74,41 +268,61 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.hdw-pm-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* ------------------------------------------------------------------ cards */
+
+/*
+ * Two columns while there is room, one when there is not. `auto-fill` with a
+ * minimum rather than a fixed count: the panel is capped by the viewport, and on a
+ * narrow window a forced second column would crush the description to two words.
+ */
+.hdw-pm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.hdw-pm-row {
+.hdw-pm-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
 }
 
-.hdw-pm-row-text {
+.hdw-pm-card-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hdw-pm-card-text {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.hdw-pm-row-title {
+.hdw-pm-card-title {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
-.hdw-pm-row-title strong {
+.hdw-pm-card-title strong {
   overflow: hidden;
   font-size: 13px;
   line-height: 20px;
@@ -118,11 +332,34 @@
 }
 
 /*
- * Wrapper the tooltip anchors to on a locked row.
+ * Two lines, then cut. DeepSeek's own descriptions run to several sentences, and
+ * one long card would set the row height for every short card beside it.
+ */
+.hdw-pm-card-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* The action button keeps its own width against a long name. */
+.hdw-pm-card > button,
+.hdw-pm-card > .hdw-pm-lock {
+  flex: none;
+  align-self: center;
+}
+
+/*
+ * Wrapper the tooltip anchors to on a locked card.
  *
  * The button itself cannot be the anchor. A `disabled` button suppresses mouse
  * events outright — and they do not bubble to the parent either — and it cannot
- * take focus, so a tooltip attached to it has no way to open. The tab's intro
+ * take focus, so a tooltip attached to it has no way to open. The page's intro
  * sentence tells the user to hover the button for the reason, so that was a
  * promise the user could see broken. Caught by `npm run spike:switch`, check 3.
  *
@@ -144,12 +381,88 @@
   outline-offset: 2px;
 }
 
-.hdw-pm-row-id {
-  overflow: hidden;
-  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+/* ----------------------------------------------------------------- market */
+
+.hdw-pm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hdw-pm-toolbar .hdw-pm-search {
+  flex: 1;
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.hdw-pm-sorts,
+.hdw-pm-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* The third line on a market card: counts and the repository link. */
+.hdw-pm-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 2px 0 0;
   font-size: 11px;
   line-height: 16px;
   color: var(--dsw-alias-label-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.hdw-pm-card-meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--dsw-alias-label-secondary);
+  text-decoration: none;
+}
+
+.hdw-pm-card-meta a:hover {
+  color: var(--dsw-alias-label-primary);
+  text-decoration: underline;
+}
+
+/* The install/remove banner: one line of state, and the raw log under it. */
+.hdw-pm-job {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.hdw-pm-job-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.hdw-pm-job-head button {
+  flex: none;
+  margin-left: auto;
+}
+
+.hdw-pm-job-log {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.hdw-pm-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 4px;
 }

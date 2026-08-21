@@ -5,7 +5,7 @@
 
 import { app } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -144,6 +144,16 @@ export function minimaxRelayPatchPath(): string {
   return join(minimaxRelayDir(), 'cordis.patch.yml')
 }
 
+/** Directory of Soul and Memory: what the assistant knows about the user. */
+export function growthDir(): string {
+  return join(pluginsRoot(), 'growth')
+}
+
+/** Config file that enables Soul and Memory, passed to the engine via `--patch`. */
+export function growthPatchPath(): string {
+  return join(growthDir(), 'cordis.patch.yml')
+}
+
 /**
  * File recording which plugins are turned off.
  *
@@ -155,6 +165,49 @@ export function minimaxRelayPatchPath(): string {
  */
 export function pluginStatePath(): string {
   return join(dshHome(), 'harness-desktop-plugins.cordis.yml')
+}
+
+/**
+ * Note left by the Plugins page naming the plugin it just installed.
+ *
+ * Written inside the engine process, read out here — so like `pluginStatePath()`
+ * it lives under `<DSH_HOME>` and this path must match `lastInstallPath()` in
+ * `plugins/plugin-manager/src/lifecycle.ts`. Drift means the error page never
+ * offers to undo anything, and a plugin that stops the engine from starting
+ * leaves the user with no way back in.
+ */
+export function lastInstallPath(): string {
+  return join(dshHome(), 'harness-desktop-last-install.json')
+}
+
+/**
+ * The package manager the engine's plugin command shells out to.
+ *
+ * Shipped with the app rather than expected on the user's machine: `dsh plugin
+ * add` runs `pnpm` from `PATH` and exits with "not found" when there is none, and
+ * most people installing a desktop app have never installed pnpm. It is the
+ * plain JavaScript build, run on the same `node.exe` the engine runs on — the
+ * standalone executable is 93 MB against this one's 19 MB.
+ */
+export function pnpmEntryPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'pnpm', 'bin', 'pnpm.cjs')
+    : join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
+}
+
+/**
+ * The app's private command directory, when it has been laid down.
+ *
+ * Installing a plugin runs the engine's CLI, which shells out to `pnpm` from
+ * `PATH`. A packaged app cannot assume the user has one, so the app writes its
+ * own wrapper here and prepends this directory to the CHILD's `PATH` only — never
+ * the machine's. A developer machine that already has pnpm works without it,
+ * which is why this is optional rather than required.
+ * @returns the directory, or undefined when the app has not written one.
+ */
+export function toolsBinDir(): string | undefined {
+  const dir = join(dshHome(), 'tools', 'bin')
+  return existsSync(dir) ? dir : undefined
 }
 
 /** Static resources shipped with the app (splash, error page, icons). */

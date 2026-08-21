@@ -1,20 +1,25 @@
 /**
- * Client half of the plugin switch. The engine serves this file at
+ * Client half of the plugin manager. The engine serves this file at
  * `/plugins/harness-desktop-plugin-manager/client.js`.
  *
- * **Level 1 — additive only.** One registration, into `settings.plugins.tab` — a
- * `list` slot upstream leaves open and already fills with their own read-only
- * "Plugin list" tab. Theirs stays; ours sits beside it.
+ * **Level 1 — additive only.** One registration, into `sidebar.footer.action` — a
+ * `list` slot upstream leaves open, rendered just above the Settings row.
+ * Upstream's own Cordis panel already sits in that list; ours joins it.
+ *
+ * This used to register a tab into `settings.plugins.tab` instead. That tab is
+ * gone on purpose: one job deserves one place, and Settings was the wrong one —
+ * managing plugins now includes installing them, which is not a setting. Upstream's
+ * read-only "Plugin list" tab inside Settings is untouched.
  * @module
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { PluginSwitchTab } from './PluginSwitchTab.tsx'
+import { PluginsPage } from './PluginsPage.tsx'
 import styles from './styles.css'
 
 // Pull upstream's slot declarations into the program. Without this line
-// `settings.plugins.tab` does not exist as far as the type system is concerned.
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// `sidebar.footer.action` does not exist as far as the type system is concerned.
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 export const name = 'harness-desktop-plugin-manager'
 
@@ -45,12 +50,12 @@ export function apply(ctx: ClientContext): void {
   // been declared throws. It waits until the slot owner mounts, and re-registers if
   // that owner crashes and comes back.
   //
-  // `order` 20 puts this tab AFTER upstream's "Plugin list" (order 10): their
-  // read-only list is the place to look, this tab is the place to act.
-  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
-    name: 'settings.plugins.tab',
-    id: 'hdw-switch',
+  // `order` 20 leaves room below upstream's own footer entry (the Cordis panel),
+  // so the app's shipped control keeps its place and ours lands under it.
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'hdw-plugins',
     order: 20,
-    label: 'On/off',
-  }, PluginSwitchTab))
+    label: 'Plugins',
+  }, PluginsPage))
 }

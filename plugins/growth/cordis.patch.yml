@@ -1,0 +1,10 @@
+# Enables Soul and Memory.
+#
+# `name` must be the PACKAGE NAME, not a file path. The engine resolves the client half
+# through `createRequire(<profile dir>).resolve('<name>/package.json')`; an absolute path
+# still loads the Node half, but the client half is never served and nothing reports an
+# error. The junction inside the profile's resolution tree is built by
+# `src/main/plugin-link.ts`.
+- insert:
+    - id: hdw-growth
+      name: harness-desktop-growth

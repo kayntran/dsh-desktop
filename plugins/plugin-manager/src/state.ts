@@ -26,7 +26,7 @@ import { dirname, join, resolve } from 'node:path'
  * shell's `dshHome()` (`src/main/paths.ts`): an empty value counts as unset, and
  * `~` is expanded. Drift here means the app writes a file the engine never reads.
  */
-function dshHome(): string {
+export function dshHome(): string {
   const fromEnv = process.env['DSH_HOME']
   const selected = fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : join(homedir(), '.dsh')
   return resolve(selected.startsWith('~') ? join(homedir(), selected.slice(1)) : selected)
@@ -37,9 +37,19 @@ export function statePath(): string {
   return join(dshHome(), 'harness-desktop-plugins.cordis.yml')
 }
 
+/**
+ * The engine's profiles directory — the root of the tree every plugin package is
+ * resolved through. `pkg-meta.ts` reads plugin manifests out of it.
+ * @returns the absolute directory path.
+ */
+export function profilesDir(): string {
+  return join(dshHome(), 'profiles')
+}
+
 const HEADER = `# Plugins you turned on or off yourself in Harness Desktop.
 #
-# The app writes this file when you flip a switch in Settings > Plugins > On/off.
+# The app writes this file when you flip a switch on the Plugins page, opened from
+# the button just above Settings in the sidebar.
 # The engine reads it as the topmost configuration layer, so it can disable both
 # DeepSeek's own plugins and the app's.
 #
@@ -83,6 +93,26 @@ export function readChoices(): PluginChoices {
     if (match[1] !== undefined) choices.set(match[1], match[2] === 'true')
   }
   return choices
+}
+
+/**
+ * Drop the stored choices for plugins that are no longer installed.
+ *
+ * Removing a package leaves its rows behind otherwise, and they never expire.
+ * Two costs, both quiet: the file grows for the life of the app, and a later
+ * plugin that happens to use one of those bare ids inherits a state its user
+ * never chose. Caught by installing a plugin, disabling it, removing it, and
+ * reading the file.
+ * @param ids - bare ids that belonged to the removed package.
+ */
+export function forgetChoices(ids: readonly string[]): void {
+  if (ids.length === 0) return
+  const choices = readChoices()
+  let touched = false
+  for (const id of ids) {
+    if (choices.delete(id)) touched = true
+  }
+  if (touched) writeChoices(choices)
 }
 
 /**

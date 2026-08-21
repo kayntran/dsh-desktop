@@ -32,6 +32,20 @@ extraResources:
     to: engine/node_modules
   - from: runtime/node.exe
     to: runtime/node.exe
+  # pnpm, in its plain JavaScript form. The engine's `dsh plugin add` shells out
+  # to `pnpm` from PATH; without one the installer works but installing a plugin
+  # dies with "not found". Run on the node.exe above, so nothing else is needed.
+  #
+  # `artifacts/` is 17.4 MB of build inputs for pnpm's own standalone executable —
+  # a thing we do not use — so only `bin/` and `dist/` ship: 19 MB instead of 36.
+  # The whole standalone build (@pnpm/win-x64) would have been 93 MB.
+  - from: node_modules/pnpm
+    to: pnpm
+    filter:
+      - package.json
+      - LICENSE
+      - bin/**/*
+      - dist/**/*
   - from: plugins/dock
     to: plugins/dock
     filter:
@@ -64,6 +78,15 @@ extraResources:
   # Trạm chuyển tiếp MiniMax. Cũng không giao diện, không phụ thuộc lúc chạy.
   - from: plugins/minimax-relay
     to: plugins/minimax-relay
+    filter:
+      - package.json
+      - cordis.patch.yml
+      - lib/**/*
+      - '!**/*.map'
+  # Soul và Memory. Có giao diện, nhưng cả hai nửa đã nằm trong lib/ và không có
+  # phụ thuộc lúc chạy nào.
+  - from: plugins/growth
+    to: plugins/growth
     filter:
       - package.json
       - cordis.patch.yml
