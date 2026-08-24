@@ -45,8 +45,15 @@ export type PaneKind = 'files' | 'terminal' | 'browser'
 /** The narrowest width at which the directory tree is still readable. */
 export const MIN_WIDTH = 220
 
-/** The widest width, so the panel does not swallow the conversation. */
-export const MAX_WIDTH = 720
+/**
+ * The slice of conversation the panel must always leave beside itself.
+ *
+ * There is no fixed maximum width: the panel may be dragged as wide as the user likes,
+ * up to the point where the chat column would shrink below this — the same way Claude's
+ * side panel keeps a readable chat rather than capping the panel at one hard number. The
+ * ceiling therefore follows the window: a wider window allows a wider panel.
+ */
+export const MIN_CONVERSATION_WIDTH = 480
 
 /** How long a background web page may sit idle before it is put to sleep. `0` means never. */
 export const SLEEP_CHOICES = [0, 15, 30, 60, 120] as const
@@ -337,7 +344,13 @@ export function createDock(): Dock {
       toggle: (chatId) => { store.update((d) => { const c = chatOf(d, chatId); c.open = !c.open }) },
       close: (chatId) => { store.update((d) => { chatOf(d, chatId).open = false }) },
       setWidth: (px) => {
-        store.update((d) => { d.width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(px))) })
+        store.update((d) => {
+          // The ceiling follows the window: as wide as the user drags, so long as
+          // MIN_CONVERSATION_WIDTH of chat is left. On a very narrow window that cap could
+          // fall below MIN_WIDTH, so the panel's own floor still wins.
+          const cap = Math.max(MIN_WIDTH, window.innerWidth - MIN_CONVERSATION_WIDTH)
+          d.width = Math.min(cap, Math.max(MIN_WIDTH, Math.round(px)))
+        })
       },
 
       openPane: (chatId, kind, url, openedBy = 'user') => {

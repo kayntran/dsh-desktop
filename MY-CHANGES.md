@@ -1960,3 +1960,660 @@ Bộ kiểm: 31 → **32 mục**.
 Đây là lần thứ hai trong cùng một ngày cùng một khoảng trống sinh ra lỗi: **giữa "lệnh cài chạy
 xong" và "plugin thật sự dùng được" có một lần khởi động lại**, và mọi thứ nằm trong khoảng đó đều
 từng bị bỏ sót.
+
+## 2026-08-21 — Đo trước khi dựng: trang ngoài phiên có bấm nút chạy skill được không
+
+Plugin sắp làm (`seo-pipeline`, dây chuyền nội dung SEO cho thị trường Philippines) đứng trên một
+giả định phải kiểm trước khi viết một dòng giao diện nào.
+
+Chủ dự án chọn dựng dashboard thành **trang riêng toàn cửa sổ** mở từ chân thanh bên, đúng khuôn
+trang Plugins. Hệ quả kỹ thuật: trang đó nằm **ngoài phạm vi phiên**. Mọi thành phần trong phiên
+được engine trao sẵn `inputActions` để đặt chữ vào ô nhập rồi gửi; trang ngoài phiên thì không —
+`sidebar.footer.action` chỉ nhận đúng một cờ `wide`.
+
+Nếu không có đường thay thế thì **mọi nút trên trang là nút chết**, và cả thiết kế phải đổi. Đó
+đúng loại hỏng im lặng mà bộ luật dự án sinh ra để chống, nên nó bị đóng lại bằng một phép thử chứ
+không bằng việc đọc code cho kỹ.
+
+**Đường thay thế có thật, và không phải đồ tự chế.** Upstream cho plugin lấy agent theo id
+(`ctx.agents.get(id)`) rồi gọi `followup(message)` — "xếp một tin nhắn lượt kế tiếp và đánh thức bộ
+chạy". Phiên do app web mở cũng do `ctx.agents` giữ (`packages/api/remotes/src/agent-lookup.ts`
+tái dùng agent đang sống trước khi nghĩ tới việc resume), nên id lấy từ phía client dùng được ngay.
+
+Còn một cái lợi ngoài dự tính: phía client có `ctx.workspaces.startSession()` — chính hàm nút "New
+session" của thanh bên gọi. Nên **nút mở được một chat mới cho từng công đoạn**, và vì app tự tạo
+chat theo cách của nó nên model, thư mục làm việc và mức quyền đều đúng, không phải đoán. Việc này
+giải luôn nỗi lo phình ngữ cảnh: mỗi công đoạn một chat, không chat nào cõng lịch sử chat trước.
+
+Bộ kiểm: `npm run spike:seo` (`scripts/spike-seo-agent.mjs` + plugin gieo `scripts/spike-seo-probe.mjs`),
+**8/8 mục đạt**. Nó đo bằng dấu vết chứ không bằng lời văn — mục nặng nhất đọc lại nhật ký sự kiện
+của phiên để xác nhận tin nhắn thật sự rơi vào đó, thay vì tin rằng lời gọi không ném lỗi là xong.
+
+Một lỗi bắt được ngay trong lúc dựng chính bộ kiểm: bản đầu đọc model từ `provider.models` và nhận
+mảng rỗng, nên bài kiểm **bỏ qua đúng phần lõi mà vẫn in ra màu xanh**. Model phải hỏi riêng bằng
+`ctx.llm.listModels(id)`. Bài học cũ lặp lại ở một chỗ mới: một mục kiểm bỏ qua trông giống hệt một
+mục kiểm đạt, nếu không ai đọc kỹ dòng SKIP.
+
+### Khung plugin `seo-pipeline` dựng xong
+
+`plugins/seo-pipeline/` — nút **SEO** ở chân thanh bên, mở một lớp phủ toàn cửa sổ. **Mức 1, chỉ
+cộng thêm**: một đăng ký vào `sidebar.footer.action`, cùng cột với nút Plugins và nút Settings của
+upstream, `order` 30 nên nằm dưới cả hai. Hình dạng lớp phủ, ba đường đóng (nút header, bấm nền mờ,
+phím Escape) và việc đưa tiêu điểm về nút đóng đều sao theo trang Plugins, vốn sao theo Settings của
+upstream.
+
+Lớp `--patch` thứ sáu trong `src/main/engine.ts`, chèn **trước** lớp lưu lựa chọn người dùng — lớp
+đó vẫn phải đứng cuối, nếu không thì plugin mới không tắt được mà chẳng có lỗi nào báo.
+
+Bản sao **thứ ba** của rào tin cậy trình duyệt (`src/trust.ts`), sau `dock` và `plugin-manager`.
+Logic ba bản y hệt nhau, chỉ khác chú thích. Không gộp được: plugin phân giải module từ thư mục của
+chính nó và không import chéo nhau được. **Sau mỗi lần nâng cấp engine phải so lại cả ba** với bản
+gốc của upstream — một cái rào lệch khỏi bản gốc còn tệ hơn không có rào, vì nó vẫn trông như một
+cái rào.
+
+Route `/hdw/seo/health` tồn tại để làm **dấu vết**, không phải để trang trí: một plugin có nửa Node
+nạp hỏng trông y hệt một plugin chạy tốt, trang chỉ đơn giản là không bao giờ điền dữ liệu vào.
+
+Bộ kiểm `npm run spike:seo` lên **10 mục**, thêm hai mục cho chính khung này: nửa Node đã nạp (route
+sống), và nửa giao diện được phục vụ đúng dạng bundle qua **tên gói** — chỗ hỏng im lặng kinh điển
+khi junction đặt sai hoặc `exports` thiếu.
+
+### Lỗi chủ dự án tìm ra ngay khi mở app: nút SEO là một mẩu tròn cụt ở mép
+
+Bộ kiểm `spike:seo` **xanh toàn bộ 10/10** trong khi nút SEO trên màn hình thật là một hình tròn bị
+cắt, không nhãn, dí sát mép phải thanh bên. Lần thứ ba trong dự án cùng một khoảng trống sinh ra
+lỗi: **"engine phục vụ đúng file" và "người dùng thấy đúng thứ" là hai câu khác nhau**, và khoảng
+giữa chúng là bố cục — thứ chỉ tồn tại khi có trang thật mở ra và CSS thật chạy.
+
+**Nguyên nhân.** `sidebar.footer.action` là slot `list`, và khung chứa nó (`.footerActions` trong
+`SidebarRoot.module.css` của upstream) là **hàng ngang `display: flex` không xuống dòng**. Nút
+Plugins lấy `width: calc(100% + 8px)` — đúng khi nó ở đó một mình, sai ngay khi có nút thứ hai: nút
+mới bị đẩy khỏi mép và cắt cụt. CSS của upstream không phải của ta để mà thêm `flex-wrap`.
+
+**Cách sửa.** Hai nút **chia nhau một hàng** thay vì tranh nhau: `flex: 1 1 0` chia đều,
+`min-width: 0` cho nhãn co lại bằng dấu ba chấm thay vì ép tràn. Đổi ở cả `plugin-manager` lẫn
+`seo-pipeline`. Chân thanh bên nay là `[Plugins] [SEO]` trên một hàng, `Settings` ở dưới.
+
+**Bộ kiểm mới: `npm run spike:seo-ui`** (`scripts/spike-seo-ui.cjs`, 11 mục) — mở BrowserWindow
+thật trỏ vào engine thật, đóng hộp thoại chào mừng, rồi **đo hình học** của hai nút và bấm thật vào
+nút SEO. Theo đúng phương pháp `spike-dock-ui.cjs` đã đặt ra. Nó cũng **chụp ảnh** chân thanh bên ra
+`tmp/seo-sidebar.png` — số đo bắt được lỗi bố cục, nhưng chỉ có mắt mới bắt được nhãn xấu, icon lệch
+tông, hai nút chật chội.
+
+Hai bài học nhỏ trả giá trong lúc dựng chính bộ kiểm đó:
+
+- **Bản đầu so với `parentElement` và in ra "mép cha 0".** Slot bọc phần tử trong những div không có
+  hộp, nên phép so vô nghĩa — nó bắt trúng lỗi vì lý do sai, tức là lần sau sẽ bắt trượt. Nay đi
+  ngược lên tới tổ tiên đầu tiên có bề rộng thật.
+- **Chụp ảnh ngay sau khi bấm Escape ra một tấm xám mờ**, vì tấm nền còn đang tan. Ảnh vẫn "chụp
+  được" nhưng vô dụng đúng ở việc nó sinh ra để làm.
+
+### Kho dữ liệu và máy trạng thái năm công đoạn
+
+`plugins/seo-pipeline/src/` — `paths.ts`, `store.ts`, `artifacts.ts`, `knowledge.ts`, `stage.ts`.
+Đây là chỗ đặt luật của cả plugin, và luật nằm trong mã chứ không nằm trong prompt: dây chuyền chạy
+bằng DeepSeek và MiniMax, mà model rẻ không tuân thủ một danh sách luật dài, mỗi model lại hỏng ở
+chỗ khác nhau. Một câu từ chối chỉ đúng dòng sai thì model nào cũng sửa được mà không phải thuộc gì.
+
+**Trạng thái đọc từ đĩa, không ghi nhớ.** Một công đoạn xong khi file nó sinh ra có mặt. Không chỗ
+nào ghi "brand research: done", vì hai bản ghi cùng một sự thật rồi sẽ lệch nhau — và bản được ghi
+nhớ luôn là bản nói dối, vẫn báo xong cho một file người dùng đã xoá tay. Đây cũng là thứ làm phiên
+chat thành đồ dùng xong bỏ: phiên mới hỏi một câu là biết cả tình hình, nên mỗi công đoạn chạy được
+trong một chat riêng mà không cõng lịch sử chat trước.
+
+Thứ duy nhất đĩa không suy ra được là **cổng duyệt** — có người nhìn bản đồ chủ đề và gật hay chưa.
+Đó là phán đoán của con người, nên nó nằm trong `_index.json`.
+
+**Kho kiến thức chia hai vùng bằng một ranh giới cứng**: vùng nghiên cứu plugin ghi đè thoải mái,
+vùng ghi chú của người dùng **plugin không bao giờ chạm tới**. Không có ranh giới đó thì lần làm mới
+tự động đầu tiên xoá sạch kinh nghiệm chủ dự án gõ vào — và xoá trong im lặng, chỉ phát hiện ra rất
+lâu sau, nếu có.
+
+Bộ kiểm `npm run spike:seo-store` — **24 mục**, không cần engine. Nó đi được cả những nhánh app thật
+khó dựng lại: model gửi câu thiếu nguồn, model nhảy cóc công đoạn, đường dẫn cố thoát khỏi
+workspace, hai lượt ghi chỉ mục cùng lúc.
+
+**Lại một mục đạt vì lý do sai, bắt được ngay trong ngày.** Mục "thiếu đối thủ và từ khoá thì bản đồ
+chưa xong" đo SAU khi file bản đồ đã tồn tại, nên nó xanh nhờ file có mặt chứ không nhờ luật thứ tự
+— tức là nó sẽ vẫn xanh kể cả khi luật thứ tự hỏng hẳn. Đã tách làm hai mục, đo trước và đo sau.
+Cùng bài học với `spike:seo` sáng nay: **một mục kiểm đạt vì lý do sai còn nguy hơn một mục kiểm
+đỏ.**
+
+### Chín tool, và cái guard đóng cửa sau
+
+`plugins/seo-pipeline/src/tools.ts` + `guard.ts` + `geo.ts` + `keywords-csv.ts`.
+
+**Hai luật được làm thành cấu trúc chứ không phải phép kiểm.** `seo_fact_write` nhận mỗi sự thật
+dưới dạng `{ text, confidence, source }` rồi tự dựng dòng biên lai — model **không có chỗ nào để đặt
+một sự thật không nguồn**. Mạnh hơn hẳn việc soi văn bản sau khi đã viết. Tương tự, `seo_keywords_import`
+đọc CSV xuất từ Ahrefs: ô trống thành `not stated`, không bao giờ thành một con số bịa.
+
+**Cửa sau — do chủ dự án hỏi mà lòi ra.** Mọi hàng rào ở trên chỉ ràng buộc model nào chịu đi qua
+tool của ta. App còn có tool sửa file dùng chung, và model hoàn toàn có thể ghi thẳng `brand.md` bằng
+nó. Cả 34 mục kiểm vẫn xanh, file bịa vẫn nằm đó. Model rẻ không đi cửa sau vì ác ý — nó đi sau khi
+cửa trước từ chối hai lần, mà chính bộ luật này tạo ra tình huống đó.
+
+`ctx.tools.guard()` đóng lại: chạy trước mọi lần gọi tool, trả về một câu là chặn. Nó **chỉ chặn
+được, không cho phép được**, nên không plugin nào đăng ký sau gỡ được lệnh chặn. Câu chặn nêu đích
+danh tool cần dùng — model bị nói "không" thì thử biến thể khác, model được chỉ cửa thì đi qua cửa đó.
+
+**Một phát hiện về môi trường:** bundle web của upstream TẮT `tool-fs`, `tool-fs-search`,
+`tool-str-replace-editor`, `tool-bash`, `tool-pwsh` ở tầng chung — chúng nằm sau agent preset. Nên
+trong spike agent trần chúng không tồn tại, còn trong app thật với preset thì có. Guard đăng ký ở
+context chung nên phủ cả hai.
+
+**Ba lần liên tiếp cùng một bệnh trong một ngày, lần này nặng nhất.** Mục kiểm "cửa sau bị chặn" báo
+ĐỎ trong khi guard đã chạy đúng ngay từ đầu — vì engine **không ném ngoại lệ** khi guard chặn, nó
+trả về một kết quả mang cờ `isError`, mà bài kiểm chỉ bắt ngoại lệ. Suýt nữa thì đi sửa một thứ
+không hỏng. Cùng lượt đó còn hai tên tôi đoán sai: `ctx.tools.list()` không tồn tại (phải là
+`schemas()`), và mục kiểm "file thường không bị chặn oan" đạt nhờ tool không tồn tại chứ không nhờ
+guard thả.
+
+Bài học gộp lại một câu: **khi một mục kiểm đỏ, nghi bài kiểm trước, nghi mã sau.**
+
+Bộ kiểm: `spike:seo` 10 → **13 mục** (thêm: chín tool đã đăng ký, cửa sau bị chặn, đường thường không
+bị chặn oan). `spike:seo-store` 24 → **34 mục** (thêm bảy mục guard và ba mục đọc CSV).
+
+### Trang SEO chạy được: chọn workspace, thêm domain, bảng công đoạn, nút giao việc
+
+Trang giờ làm thật: chọn workspace trong danh sách engine đã biết, thêm domain bằng form, xem bảng
+năm công đoạn của từng site với nút sáng tắt theo thứ tự, và bấm một nút là app **mở một chat mới**
+rồi giao việc vào đó.
+
+**Nút giao việc đi bằng đường của chính app.** Trang gọi `ctx.workspaces.connectWorkspace()` — đúng
+hàm nút "New Session" ở thanh bên gọi — nên model, thư mục làm việc và mức quyền là thứ app tự chọn,
+không phải thứ ta đoán. Rồi route `/hdw/seo/run` giao đúng một dòng vào chat đó bằng
+`agent.followup`. Mỗi công đoạn một chat, không chat nào cõng lịch sử chat trước.
+
+**Cổng duyệt bản đồ hiện nội dung, không chỉ hiện đường dẫn.** Route `/hdw/seo/map` trả về bản đồ
+dạng chữ, hộp thoại dựng bằng `MarkdownText` của upstream. Một cái cổng chỉ đưa đường dẫn để mở nơi
+khác là cái cổng người ta bấm qua cho xong.
+
+Bộ kiểm `spike:seo-ui` 11 → **21 mục**: bộ chọn workspace, kho thị trường báo thiếu, mở form, **thiếu
+URL chính chủ bị từ chối ngay trên màn hình**, thêm domain hợp lệ, thứ tự khoá đúng, thanh độ tin
+cậy, bấm nút chạy thì trang đóng và việc sang chat.
+
+**Một lỗi thật, bắt được vì hai đường đi lệch nhau.** Thêm domain từ TRANG chỉ ghi vào chỉ mục, còn
+thêm bằng TOOL thì ghi thêm `site.md` — nên site thêm từ trang bị báo "Site setup chưa xong" và mọi
+công đoạn sau khoá cứng, không có lối ra. Nay cả hai gọi chung một hàm `registerSite`. Bài học: **hai
+đường vào cùng một trạng thái thì phải đi qua cùng một hàm**, nếu không chúng sẽ lệch, và lệch âm
+thầm.
+
+**Bốn lần liên tiếp phép đo sai chứ không phải mã sai.** Lần này nặng nhất: mục kiểm chờ một chuỗi
+chữ trong `document.body` và **thua cuộc đua với lần tải đầu**, báo đỏ trong khi trang hoàn toàn
+đúng. Tôi đã kịp thêm một vòng thử lại để "sửa" — rồi số liệu cứng cho thấy giả thiết sai và tôi gỡ
+nó ra. Suýt nữa để lại một đoạn mã thừa vá cho một lỗi không tồn tại.
+
+Nhưng cuộc đua đó lộ ra **một lỗi thật của trang**: lúc chưa tải xong, nó nói *"No workspace yet"* —
+một câu sai. Nay có trạng thái "đang đọc" riêng: `null` là chưa biết, `[]` mới là không có.
+
+**Hai lỗi chỉ MẮT bắt được, số đo mù hoàn toàn.** Ảnh chụp cho thấy "Needs first: PH market research"
+**dính liền** vào "Not browsing from the Philippines" thành một dòng chạy liền, và nhãn nút
+"Research PH market" bị bẻ đôi dòng. DOM đúng, nội dung đúng, 21/21 xanh. Đây chính là lý do bộ kiểm
+phải chụp ảnh chứ không chỉ đếm.
+
+Và một bẫy của chính việc chụp: cửa sổ probe chạy ẩn nên Chromium **giữ lại khung hình cũ** — lần
+chụp đầu ra một trang chưa có site trong khi số đo ngay trước đó đã đọc đủ các hàng. Phải chụp hai
+lần, bỏ lần đầu.
+
+### "country unknown" — chủ dự án bắt được ngay lần mở app đầu
+
+Trên máy chủ dự án, dải trên cùng của trang SEO hiện **"country unknown"** màu cam.
+
+**Nguyên nhân đo được, không phải đoán:** dịch vụ tra IP tôi chọn (`ipapi.co`) trả về **HTTP 429 —
+hết hạn mức miễn phí**. Ba dịch vụ khác gọi từ đúng runtime của engine đều chạy và đều báo `VN`.
+
+**Nhưng lỗi nặng hơn nằm ở thiết kế của tôi.** Trang coi *"không tra được"* và *"đang ở nước khác"*
+là một: `geoBlocked = !inPh`. Nên một bên thứ ba hết hạn mức **khoá luôn nút Brand research**, và
+người dùng không có cách nào biết vì sao hay đi tiếp. Một dịch vụ miễn phí ngoài tầm kiểm soát không
+bao giờ được phép chặn cả dây chuyền.
+
+Hai chỗ sửa:
+
+- **Bốn dịch vụ nối tiếp** (`api.country.is` → `ifconfig.co` → `ipinfo.io` → `ipapi.co`), lấy cái đầu
+  tiên trả về mã hai chữ cái. Cái đang hỏng bị đẩy xuống cuối chứ không bỏ hẳn — nó sẽ hồi hạn mức.
+- **Thêm cờ `blocked` tách bạch với `!inPh`**: chỉ bật khi BIẾT CHẮC đang ở nước khác. Không tra được
+  thì không chặn gì cả, và dòng chữ chuyển sang màu thường kèm *"not blocking"* — màu cam là tin xấu,
+  không phải là thiếu thông tin. Tô cam một thứ người dùng không sửa được chỉ khiến họ đi tìm một cái
+  lỗi không phải của họ.
+
+Bộ kiểm `spike:seo` 13 → **15 mục**: tra được nước qua chuỗi dự phòng, và không tra được thì không
+chặn.
+
+### Gỡ bỏ hẳn phần kiểm tra IP
+
+Chủ dự án hỏi *"tra IP làm gì? đâu có cần đâu nhỉ?"* — và câu hỏi đó đúng.
+
+Phần này là **tôi đề xuất, không phải chủ dự án yêu cầu**. Lý do ban đầu có thật: nhiều nhà cái
+Philippines phục vụ nội dung khác nhau tuỳ IP, nên nghiên cứu từ Việt Nam có thể ra một `brand.md`
+mạch lạc mà không phải thứ người Philippines thấy. Nhưng lập luận đó yếu ở ba chỗ:
+
+- **Nó đoán, không đo.** IP ở PH không chứng minh nhà cái đã phục vụ nội dung PH, và ngược lại.
+- **Nó gọi ra bên thứ ba từ máy người dùng** mỗi lần mở trang — một phụ thuộc bên ngoài mà dây
+  chuyền không cần để chạy.
+- **Nó đã gây hại thật:** dịch vụ hết hạn mức → trang khoá luôn nút Brand research.
+
+Đã gỡ: `geo.ts`, tool `seo_geo_check` (9 → **8 tool**), route `/hdw/seo/geo`, dòng chữ trên dải
+workspace, và cả ba prop cổng geo trong bảng công đoạn. Bộ kiểm `spike:seo` về **13 mục**.
+
+Cách giải đúng vấn đề gốc để dành cho skill nghiên cứu brand: mở trang nhà cái rồi **tự nhìn** đơn vị
+tiền tệ, phương thức nạp rút, ngôn ngữ — đo thứ thật sự quan trọng thay vì đoán qua IP.
+
+Bài học chung, đáng nhớ hơn cả đoạn mã vừa gỡ: **một tính năng do tôi tự nghĩ ra, người dùng chỉ gật
+trong một menu tôi đưa, là tính năng cần bị hỏi lại.** Nó đã kịp gây một lỗi trước khi ai kịp dùng nó
+một lần.
+
+### Skill đầu tiên: `seo-brand-research`
+
+Dựng theo `casino-brand-playbook` của kho `SEO IE VN` — bản đó 387 dòng skill cộng 1.100 dòng
+reference, chạy cho thị trường Việt Nam trong Claude Code. Bản này chạy cho Philippines, trong app,
+trên model rẻ.
+
+**Skill nằm trong plugin, không chép vào `~/.dsh/skills`.** Đăng ký qua `ctx.skills.registerProvider`,
+nên tắt plugin là skill biến mất theo; bật lại thì có. Chép file ra ngoài thì tắt plugin xong skill
+vẫn nằm trong bảng lệnh, trỏ vào những tool không còn tồn tại — và không có lỗi nào báo.
+
+**Chia hai tầng để tiết kiệm ngữ cảnh.** `SKILL.md` là cách làm; `references/browser-recipes.md` là
+lệnh gọi cụ thể, chỉ đọc khi tới lúc cần. Engine trao cho model đường dẫn thư mục gốc của skill
+(`resourceBase`), model tự mở file reference. Nhét cả hai vào một file thì mỗi lượt nghiên cứu brand
+phải cõng thêm 200 dòng công thức mà phần lớn lượt không dùng tới.
+
+**Điểm khác lớn nhất so với bản gốc: skill không còn là nơi giữ luật.** Bản `SEO IE VN` viết *"bạn
+là tầng lưu trữ — mọi artifact ghi bằng `Write`/`Edit`"*, và mọi kỷ luật về nguồn nằm trong lời văn.
+Bản này ghi qua `seo_fact_write` và `seo_artifact_write`; ghi tay vào `brand.md` bị guard chặn và
+trả về đúng tên tool phải dùng. Skill làm chất lượng tốt lên, tool giữ chất lượng không tụt xuống
+dưới đáy — và chỉ tầng dưới mới còn nguyên khi model đọc lướt.
+
+**Đã sửa lại theo đúng tool của app này**, không bê nguyên tên tool của Claude Code. Bốn chỗ khác
+nhau và cả bốn đều hỏng im lặng nếu bê nguyên: `duration` tính bằng **mili-giây**; `url_pattern` là
+**regex** chứ không phải glob `*api*`; **không có** cách lấy body theo `requestId` (chỉ giữ 5 body
+gần nhất, 8 KB mỗi cái, và chỉ của `fetch()`); **không có** zoom ảnh chụp. Đường đáng tin để lấy JSON
+của site là tự gọi `fetch()` trong trang bằng `browser_javascript`.
+
+**Phần kiểm tra IP đã gỡ được thay bằng thứ đo được thật:** skill mở trang nhà cái rồi tự nhìn đơn vị
+tiền tệ (PHP/₱), phương thức nạp rút (GCash, Maya, InstaPay), và ngôn ngữ (English/Taglish). Thấy
+VND với danh sách ngân hàng Việt Nam thì dừng lại hỏi, chứ không lặng lẽ nghiên cứu nhầm thị trường.
+
+**Chữ trong artifact là tiếng Anh** — khác bản gốc viết tiếng Việt. Thị trường Philippines dùng tiếng
+Anh, giao diện app tiếng Anh, và Luật 7 của dự án cũng vậy. Chuỗi tiếng Tagalog/Taglish trên site thì
+giữ **nguyên văn**, vì chính nó là từ khoá.
+
+Bộ kiểm mở rộng, **13 → 18 mục** cho `spike:seo` và **21 → 23 mục** cho `spike:seo-ui`:
+
+- Engine có nhìn thấy skill không, thân có nạp được không, front-matter đã cắt chưa.
+- `resourceBase` có trỏ tới thư mục có thật, có kèm file reference không. Sai đường dẫn ở đây không
+  sinh lỗi nào: model đọc chỉ dẫn "mở `references/browser-recipes.md`", mở không được, rồi tự xoay
+  xở bằng trí nhớ — đúng kiểu hỏng mà không ai thấy.
+- Mọi tên tool skill nhắc tới có tồn tại thật không: `seo_*` đối chiếu registry, `browser_*` đối
+  chiếu mã nguồn của plugin dock.
+- **Và trong app thật**: gõ `/seo-` vào ô nhập thì skill có hiện trong bảng lệnh không, kèm một ảnh
+  chụp để mắt xác nhận. Engine thấy skill mà `userInvocable` sai thì hai phép đo đó tách đôi — engine
+  xanh, bảng lệnh trống trơn, không lỗi nào báo.
+
+Một chi tiết bắt được nhờ nhìn ảnh chứ không nhờ số đo: engine nhồi **danh mục skill vào ngữ cảnh
+mỗi lượt**, và nó cắt mô tả ở **500 ký tự**. Mô tả đầu tiên của tôi dài 578 — phần bị cắt đúng là câu
+"RESEARCH ONLY", tức là phần quan trọng nhất cho việc định tuyến. Đã rút còn 435.
+
+Lại một lần nữa: hai mục kiểm đỏ, và cả hai lần lỗi nằm ở **mục kiểm**, không ở mã. Lần này là một
+ký tự backspace lọt vào biểu thức tìm kiếm, khiến nó không khớp gì hết và báo "skill không nhắc tới
+tool nào".
+
+
+### Nâng `brand.md` lên đúng chuẩn bản mẫu `SEO IE VN/brands/alo789`
+
+Chủ dự án chỉ vào bộ mẫu và yêu cầu kết quả cuối phải kỹ như vậy. Đối chiếu thì bản của ta thiếu bốn
+thứ, và cả bốn đều là thiếu ở **công cụ**, không phải ở skill:
+
+| Bản mẫu có | Ta có trước đó |
+|---|---|
+| `brand.md` **mười hai mục đánh số cố định** | một danh sách gạch đầu dòng phẳng |
+| **Bảng** cho sảnh game, nhà cung cấp, khuyến mãi, thanh toán, kiểm kê nội dung | chỉ có bullet |
+| Front-matter mang số độ phủ: `routes_scanned`, `surfaces_scanned`, `fact_count`, `high_confidence_pct`… | `{brand, updated_at}` |
+| `playbook.md` — trang một mặt: tóm tắt, độ phủ, độ tươi, việc chưa giải quyết, bàn giao | không có |
+
+**Vì sao mười hai mục phải do công cụ viết, không phải model.** Công đoạn viết bài về sau gọi thẳng
+"§6 khuyến mãi, §7 thanh toán". Một model được bảo "dựng lại mười hai tiêu đề" sẽ dựng đủ mười một
+cái, hoặc đảo hai cái, ở một số lượt chứ không phải mọi lượt — và **không có gì báo**: file vẫn đẹp,
+chỉ là mọi tham chiếu về sau trỏ nhầm chỗ. Nên model không viết tiêu đề nữa: nó **gọi tên mục**, công
+cụ đặt dữ kiện vào đúng chỗ. `brand-file.ts` mới giữ việc đó.
+
+**Bảng cũng phải mang nguồn, chỉ là ở hình dạng khác.** `seo_fact_write` nhận thêm `table`, và **từ
+chối bảng không khai cột `source`**, từ chối cả hàng có ô `source` trống. Cùng một luật với biên lai
+của bullet — một tuyên bố tới cùng bằng chứng, hoặc không tới.
+
+**§12 và mười một mục kia là hai chiều ngược nhau, và trộn chúng là cách một phỏng đoán được rửa
+thành dữ kiện.** Nên tool chặn **cả hai chiều**: một `fact` có nguồn không được nằm ở §12 (nó thuộc
+về mục nó nói tới), và một `note` không nguồn không được nằm ở §1–§11 dưới bất kỳ cách diễn đạt nào.
+
+**Một chỗ ta làm chặt hơn bản mẫu.** Bản mẫu để model tự ghi `fact_count: 118` và
+`high_confidence_pct: 86` vào front-matter. Bản này **đếm từ chính file** — một model vừa viết mười
+một dòng là thứ cuối cùng nên hỏi nó đã viết bao nhiêu dòng. Model khai đè cũng không được; mục kiểm
+40 đo đúng điều đó.
+
+Thêm loại artifact `playbook`, và guard bảo vệ luôn `playbook.md`.
+
+Bộ kiểm `spike:seo-store` **34 → 40 mục**. Mục 37 đỏ, và lần này là **lỗi thật, không phải lỗi bộ
+kiểm**: mục rỗng được ghi kèm dòng `_Not researched yet._`, và lượt đọc lại giữ luôn dòng đó — nên
+dữ kiện đầu tiên ghi vào một mục sẽ nằm **ngay dưới** một dòng nói rằng chưa ai nghiên cứu mục này.
+File tự mâu thuẫn với chính nó mà không có lỗi nào báo. Đã sửa: dòng đó sinh lúc ghi, cắt lúc đọc.
+
+### Chạy thật trên site Philippines: 14/14
+
+`npm run spike:seo-run` — app Electron thật, engine thật, model thật (MiniMax M3), site thật
+(`arionplay.com`), IP Philippines thật. Bộ kiểm mới, **14 mục, đạt cả 14**.
+
+Model nạp skill qua tool `skill`, gọi `seo_stage_read` trước, đọc năm file `_knowledge/`, mở đúng
+`references/browser-recipes.md`, đóng bộ route, dừng ở GATE A hỏi phạm vi quét, rồi quét. Để lại
+**17 file bằng chứng** và một `brand.md` **41 dòng, 41/41 mang biên lai nguồn**.
+
+Ba điều lượt chạy này chứng minh, mà không bộ kiểm tĩnh nào chứng minh nổi:
+
+- **Tool từ chối, model tự sửa.** Model ghi bản kiểm kê thiếu nguồn → tool trả lỗi → model viết lại
+  kèm biên lai → qua. Nếu luật đó chỉ nằm trong lời văn của skill, file đã ra đời với những dòng
+  không nguồn và không ai biết.
+- **Bị chặn thì không bịa.** Ở lượt trước đó, IP còn là Việt Nam, `arionplay.com` trả về trang
+  "Access Restricted" có logo, có huy hiệu PAGCOR, có dòng 21+ — thừa nguyên liệu để viết một
+  `brand.md` mạch lạc và sai hoàn toàn. Model tự mở `ifconfig.co`, xác nhận IP là Bến Tre/Viettel,
+  **dừng lại hỏi người dùng**, và **không ghi một dòng nào**.
+- **Kỷ luật nguồn giữ được ở chỗ khó nhất.** Trang FAQ của chính nhà cái ghi *"Our license number is
+  `[LICENSE-NUMBER]`"* — placeholder chưa thay. Model ghi `medium`, phrase là *claim*, và thêm một
+  dòng `low` riêng nói rõ chưa mở register của PAGCOR.
+
+**Bốn lỗi trong lượt này, cả bốn nằm ở BỘ KIỂM chứ không ở app.** Cửa sổ probe thiếu `webviewTag`
+nên trình duyệt của agent hỏng (app thật có bật; probe thì quên — nay probe gọi chính
+`guardWebviews` trong `dist/`). Đếm phiên bằng `sessions.values()` trong khi engine dùng `list()`.
+Mục "model có dừng lại hỏi không" dò chuỗi chữ trong lời model nói, mà phần trích chữ của probe trả
+rỗng — nay đo bằng lời gọi `ask_user_question`. Và bộ chọn tự trả lời cổng duyệt chỉ dò
+`role="radio"`/`li`/`label` trong khi các dòng phương án là `div` thường, nên lượt chạy đứng chín
+phút ở GATE A **mà log vẫn sạch bong** — vì nó chỉ in khi trả lời được. Nay in cả khi trượt.
+
+Thêm một lỗi của riêng tôi, đáng ghi vì nó xoá sạch bằng chứng: chạy nền với `| tail -80` thì chỉ
+phần đuôi được giữ, và phần đuôi toàn tiếng ồn của Electron — mất trắng mọi dòng PASS/FAIL. Ghi
+thẳng ra file bằng `>` thì không.
+
+**Quyết định của chủ dự án: cho agent bấm cổng tuổi.** Mọi site casino PH mở đầu bằng một modal
+Responsible Gaming che toàn trang, chỉ có `Exit` và `I AGREE ALL`. Không bấm thì skill dừng ở trang
+chủ mọi lần. Quyền này được khoanh hẹp trong skill: **đúng một modal, đúng một cú bấm, và phải ghi
+lại** vào file bằng chứng — nhãn nút, nội dung modal, ngày. Vẫn cấm tuyệt đối: tạo tài khoản, đăng
+nhập, mọi xác nhận thứ hai trong luồng nạp/rút/KYC, opt-in marketing, cookie không thiết yếu. Và nếu
+cổng bắt **gõ** ngày sinh hay tên thì đó không còn là một cú bấm — skill dừng, nhờ người tự qua.
+
+### Đào ra nguyên nhân thật: model chưa hỏng lần nào, là bộ kiểm cắt sớm
+
+Sáu lượt chạy thật, hai lượt ra `brand.md`, bốn lượt "hỏng". Tôi đã hai lần đề xuất **sửa kiến
+trúc** — tách công đoạn brand research làm đôi — để chữa cái tỉ lệ đó.
+
+Chủ dự án bắt đào nguyên nhân thay vì né. Đếm sự kiện `llm/retry` có payload `failure` trên cả sáu
+lượt:
+
+```
+run-log2 0 · run-m3 0 · run-m3b 0 · run-m3c 0 · run-m3d 0 · run-final 0
+```
+
+**Không một lượt nào model hỏng.** Mọi lượt "thất bại" đều là lượt tôi cắt ngang.
+
+| Lượt | Lời gọi tool | Kết quả |
+|---|---|---|
+| m3b | 178 | 13/18 — tôi cắt |
+| m3 | 195 | 13/18 — tôi cắt |
+| m3d | 205 | 13/18 — tôi cắt |
+| log2 | 250 | 13/18 — hết trần 18 phút |
+| m3c | 285 | 15/18 — tôi cắt ở dòng `brand.md` đầu tiên |
+| **final** | **339** | **18/18** |
+
+Quan hệ đơn điệu, không có ngưỡng gãy: **càng nhiều lời gọi càng đầy đủ.** Phân bố của lượt thành
+công giải thích vì sao — quét hết 238 lời gọi, **riêng phần ghi cần thêm 47** (27 `seo_fact_write`
++ 20 `seo_artifact_write`). Mọi lượt cắt ở 178-285 đều đã tiêu hết vào quét và **chưa bắt đầu ghi**.
+Model không hết sức; nó chưa tới lượt.
+
+Ba nhát cắt, cả ba của tôi: trần 18 phút (site này cần ~35 phút) · bộ dò đứng máy 30 giây rồi 2 phút
+(giết lượt khoẻ mạnh giữa lúc model suy luận) · dừng khi thấy `brand.md` (dừng ở lời gọi **thứ 1
+trong 27**).
+
+**Đề xuất tách đôi công đoạn đã rút lại** — nó chữa một bệnh không tồn tại.
+
+Bài học, và nó đắt: **một phép đo bị cắt ngang không phải là một kết quả.** Tôi đọc mấy mục đỏ như
+lời khai của sản phẩm, trong khi chúng là lời khai của cái đồng hồ bấm giờ tôi tự đặt. Bốn lần liên
+tiếp. Dấu hiệu đáng ra phải nhận ra sớm hơn nhiều: **tôi sửa bộ kiểm nhiều hơn sửa skill.**
+
+Còn một cái bẫy y hệt nằm chờ, đã sửa: điều kiện bỏ cuộc cuối cùng hỏi `types.includes('llm/retry')`,
+mà `types` gom **mọi loại sự kiện đã từng xảy ra** — nên hỏi nó là hỏi "đã từng có lần nào chưa".
+Một retry thoáng qua ở bước 3 làm điều kiện đó đúng vĩnh viễn. Nay chỉ bỏ cuộc khi có retry **mới kể
+từ lần tiến lên gần nhất**.
+
+### Lỗi thật duy nhất của buổi: `web_fetch` không tồn tại
+
+```
+Error: unknown tool "web_fetch"
+```
+
+Skill bảo model dùng `web_fetch` cho rung 1 (robots.txt), rung 2 (sitemap) và quét bundle JS. App
+này **không có** tool đó — tôi bê tên từ kho `SEO IE VN` (chạy trong Claude Code, ở đó có `WebFetch`)
+mà không kiểm. Bảng đếm nói rõ hậu quả: `web_search` gọi 4 lần (có thật), `web_fetch` gọi **1 lần**
+rồi thôi, và `browser_javascript` **81 lần** — model tự chế đường thay thế.
+
+Đã đổi sang `fetch()` chạy trong trang bằng `browser_javascript`, và đó thật ra là đường **tốt hơn**:
+nó giữ nguyên origin và cookie site mong đợi.
+
+**Lỗ trong bộ kiểm:** mục 17 gác `seo_*`, mục 18 gác `browser_*`, giữa hai cái đó tôi để hở đúng
+phần còn lại. Thêm mục 19 quét mọi tên tool trong skill, đối chiếu với danh sách **đo được** (mỗi tên
+là một tool đã chạy trót lọt thật) cộng một danh sách đen ghi rõ `web_fetch` và `browser_search`.
+
+Mục 19 bắt oan ngay lần đầu — nó tóm chính dòng cảnh báo *"There is NO `web_fetch` here"*. **Một rào
+chặn oan là một rào sẽ bị tắt**, nên nó được dạy phân biệt lời *sai khiến gọi* với lời *nhắc rằng
+không có*.
+
+Cùng lượt, mục 11 cũng lộ ra là mục kiểm đứng yên: nó chỉ hỏi "tám tool này có mặt không", nên tool
+thứ chín ra đời mà nó vẫn xanh và vẫn in "tám tool". Nay đếm **hai chiều** — bắt cả thiếu lẫn thừa.
+
+### Rửa thẻ markup lọt vào `source`
+
+Lượt chạy thành công để lại mười biên lai dạng `source: research/home-20260822.md</source>` — model
+tự bọc giá trị trong cặp thẻ, chỉ nửa đóng sống sót. Không có gì hỏng ra mặt: file vẫn ghi, biên lai
+vẫn trông đúng, chỉ là đường dẫn thôi không mở được ở mọi công đoạn sau.
+
+Rửa trong công cụ (`cleanSource`, áp cho cả bullet lẫn ô bảng), không phải bằng lời dặn trong skill —
+**một luật model phải nhớ là một luật sẽ có model quên.**
+
+### Thanh tiến độ quét trên trang SEO
+
+Chủ dự án chọn phương án có thanh, sau khi tôi nêu điểm yếu của nó: **mẫu số lấy ở đâu.** Nên mẫu số
+được làm cho chính xác chứ không ước lượng.
+
+**Mức 1 — chỉ cộng thêm.** Thanh nằm trong hàng `.hdw-seo-stage` của chính plugin, không đụng slot
+nào của upstream.
+
+**Tự vẽ một component** (`ScanProgressBar`), theo Luật 4: upstream không có thanh tiến độ — đã kiểm,
+gần nhất là `StateDot` với bốn trạng thái, không phải một tỉ lệ. Dựng bằng `div` + biến `--dsw-*`,
+cùng khuôn với `ConfidenceBar` đã có.
+
+Cơ chế, hai đầu đều đọc từ đĩa:
+
+- **Mẫu số** — tool mới `seo_scan_plan` ghi danh sách route người dùng duyệt ở GATE A vào
+  `<domain>/.scan-plan.json`. Không đọc số từ file kiểm kê do model viết: đếm hàng trong văn xuôi
+  model viết là phép đo sẽ sai âm thầm, và **một thanh người dùng học được là không đáng tin thì thà
+  đừng có còn hơn** — một lượt chạy sai là đủ để dạy điều đó.
+- **Tử số** — mỗi file bằng chứng tự khai `route:` trong front-matter (`seo_artifact_write` nhận thêm
+  đối số `route`). Một file phục vụ nhiều route thì khai cả danh sách, và mỗi mục được tính.
+
+`.scan-plan.json` được guard bảo vệ: sửa tay nó là làm thanh nói dối về việc chưa ai duyệt.
+
+Trang **tự đọc lại đĩa mỗi 5 giây trong lúc quét**, và chỉ trong lúc quét — điều kiện "đang chạy"
+cũng nằm sẵn trên đĩa (đã duyệt kế hoạch, công đoạn chưa xong). Thiếu nó thì thanh vẽ một lần rồi
+nói dối suốt nửa tiếng, mà **một thanh đứng im đọc ra là một lượt chạy đứng im.**
+
+**Hai lỗi chỉ MẮT bắt được, số đo xanh hết:**
+
+- Công đoạn **Blocked** mà vẫn vẽ thanh 75% — hai thứ nói ngược nhau trên cùng một hàng. Nay công
+  đoạn bị chặn không vẽ thanh.
+- Màu: tôi chọn `--dsw-alias-brand-primary`, tưởng là màu nhấn. Nó là token **chữ** (đen ở nền sáng,
+  trắng ở nền tối) nên vẽ ra một vệt đen trông như bôi xoá. Màu nhấn thật là
+  `--dsw-alias-state-business-primary` (xanh DeepSeek, tự đảo theo sáng/tối). Và xanh lá chỉ dành cho
+  lúc **xong** — mắt đọc màu trước khi đọc số, nên một thanh xanh lá ở 75% đọc ra là "thành công"
+  trong khi việc còn dở.
+
+Bộ kiểm: `spike:seo` **19/19** · `spike:seo-store` **46/46** · `spike:seo-ui` **28/28**.
+
+### Kho kiến thức thị trường: từ hàng rào thành vòng tự lớn
+
+Chủ dự án thêm site vào workspace thật của mình, rồi báo: **nút Brand research không bấm được.**
+
+Lý do trên màn hình là `Needs first: PH market research` — một công đoạn **chưa ai viết**. Tôi đã
+dựng kho `_knowledge/` thành điều kiện tiên quyết, rồi để cái nút duy nhất dẫn tới nó trỏ vào chỗ
+trống. Người dùng không có đường đi tiếp, và trang thì nói cứ như có.
+
+Chủ dự án hỏi thẳng một câu chấm dứt tranh luận: *bên `D:\Work\SEO IE VN` có bước đó không?* Đi đọc:
+kho mẫu chỉ có **hai** skill (`casino-brand-playbook`, `topical-map`), **không có** skill nghiên cứu
+thị trường nào cả. Mấy file `_knowledge/` bên đó mang dấu `contributing_brands: [alo789]` — chúng
+**lớn lên TỪ** lượt nghiên cứu brand, không đứng trước nó.
+
+Sửa theo đúng hình đó:
+
+- **Bỏ cổng chặn.** `readBoard` không còn nhận `MarketView`; hàng "PH market knowledge" trên trang
+  thành **bảng báo**, không phải điều kiện — và **nút "Research PH market" bị gỡ**. Một cái nút bấm
+  được mà đằng sau trống rỗng thì tệ hơn không có nút.
+- **Phase 1 tự gieo.** Kho trống thì skill gieo từ `references/ph-market-checklist.md` (mới, ~150
+  dòng: PAGCOR vs Curaçao vs POGO, GCash/Maya/InstaPay/7-Eleven, sabong/color game/tongits,
+  JILI/FaChai, mùa "ber months" và lương tháng 13). Mọi dòng gieo mang
+  `confidence: medium; source: skill-reference` — vốn từ khởi đầu, và nhãn nói đúng điều đó.
+- **Phase 7 ghi ngược.** Quét xong thì mang thứ đã xác minh về kho, **chỉ phần chung của thị
+  trường**. "ArionPlay rút tiền trong 5 phút" là chuyện brand; "site PH nào cũng dẫn đầu bằng GCash"
+  là chuyện thị trường.
+- **Không cho hạ cấp.** `mergeResearched`: cùng một câu, bằng chứng tốt hơn thì thay, kém hơn thì
+  **bị bỏ**. Luật nằm trong công cụ, không nằm trong lời dặn — nâng `medium` → `high` là ý đồ, còn
+  `high` → `low` thì kho càng dùng càng tệ mà không ai biết.
+
+### Rào chắn chỉ gác một cánh cửa — và mã gốc có ba
+
+`guard.ts` khai đúng **một** tool ghi file: `str_replace_editor`. Lượt chạy thật đếm ra
+**3 lần `write` + 1 lần `edit`** — engine có sẵn hai cái đó, model với tay sang và đi thẳng qua.
+
+Hậu quả đo được: `research/home.md` ghi tay, không biên lai, không dòng `route:`, và thanh tiến độ
+lặng lẽ ngừng đếm một route đã quét xong. Hậu quả **chưa** xảy ra nhưng vẫn mở toang: cùng đường đó
+ghi được thẳng vào `brand.md`, tức là toàn bộ luật "mọi câu phải có nguồn" có một cửa sau từ ngày
+đầu.
+
+Bộ kiểm không thấy vì nó hỏi sai câu: mục 24-28 kiểm `protectedFile` — **phép tính đường dẫn** — mà
+chưa bao giờ hỏi guard có **nhận ra cái tool đang ghi** hay không. Nay có mục 28b hỏi đúng câu đó.
+
+Cùng lượt, `research/*.md` chuyển sang **được bảo vệ**. Trước đó tôi cố ý để ngỏ với lý do "đây là
+ghi chú thô" — lý do ấy đúng cho tới khi file đó bắt đầu nuôi một con số người dùng đọc.
+
+### Ba lỗi của chính bộ kiểm, đắt hơn mọi lỗi sản phẩm trong buổi
+
+**1. Bài kiểm tự dọn đường cho mình.** Nó gieo sẵn năm file `_knowledge/` rồi mới bấm chạy — tức là
+**nhảy qua cổng thay vì mở cổng**. Nó xanh suốt trong khi workspace thật của chủ dự án đứng im. Nay
+lượt chạy bắt đầu từ **trống trơn**, đúng cảnh một người mở app lần đầu.
+
+**2. In "ANSWERED" trong khi không trả lời được gì.** Hàm trả lời hộ ở cổng duyệt đi ngược từ nút
+Submit lên trên tới khi gặp chữ "Skip this question" — mà Skip và Submit là **hai nút anh em** trong
+cùng một khung, nên nó dừng ngay ở khung chỉ chứa hai cái nút. Ô nhập và danh sách phương án nằm ở
+khối bên cạnh. Gõ vào hư không, chọn vào hư không, Submit mờ suốt.
+
+Nó in **403 dòng "ANSWERED"**, rồi báo mười mục đỏ như thể sản phẩm hỏng. Giá: 35 phút và một lượt
+gọi model thật, đổi lấy một bản báo cáo sai. Nay neo vào `data-question-scroll` (thuộc tính upstream
+đặt trên đúng khối thân câu hỏi), **kiểm nút Submit có sáng lên rồi mới bấm**, trả về `STUCK: …` khi
+không làm được, và bỏ cuộc sau một phút kèm dòng nói rõ *"bài kiểm hỏng, không phải skill"*.
+
+**3. Lại đo quá sớm.** Vòng theo dõi dừng khi thấy `playbook.md` — sản phẩm **Phase 6** — nên Phase 7
+bị chấm "vòng chưa khép" trước khi kịp chạy. Đúng loại lỗi đã cắt ở dòng đầu tiên của `brand.md` hôm
+trước, chỉ dịch xuống một phase. Nay chờ tới khi kho nhận được một dòng **không phải dòng gieo sẵn**,
+hoặc hết hai phút.
+
+Ba cái này cùng một họ với bài học hôm trước, và họ đó có tên: **một phép đo bị cắt ngang, hoặc tự
+dọn đường, không phải là một kết quả.**
+
+### `routes_scanned` thôi không hỏi model nữa
+
+Một lượt chạy thật đơn giản là không gửi `coverage.routes_scanned`, và front-matter mất trắng con số
+đó — không gì lên tiếng. Nay `routes_scanned` và `routes_planned` do **công cụ đếm** từ kế hoạch quét
+và dòng `route:` của từng file bằng chứng, và model gửi số vào thì bị bỏ qua. Cùng khuôn với
+`fact_count` và `high_confidence_pct` đã làm trước đó: **cái gì công cụ đếm được thì công cụ đếm.**
+
+### Nghiệm thu: 23/23 trên workspace trống trơn
+
+Một lượt, bắt đầu từ không có gì ngoài site record:
+
+| | |
+|---|---|
+| Kho kiến thức | tự gieo **5/5** file, Phase 7 ghi ngược vào `ph-market.md` **5 dòng có URL thật** |
+| `brand.md` | **92 dữ kiện, 92 có biên lai**, 12 mục đúng thứ tự, **7 bảng** có cột `source` |
+| Thanh tiến độ | **10 / 10 routes** |
+| Bằng chứng | 8/8 file sau kế hoạch đều khai `route:` |
+| Lời gọi `write`/`edit` | **0** — rào chắn đã bịt, mọi thứ đi qua tool |
+
+Thứ Phase 7 mang về đúng loại: *"PH-facing casino SPA hay khai trong sitemap nhiều vertical hơn số
+thực sự dựng — đối chiếu với endpoint navigation_v2 trước khi tin sitemap"* — kiến thức thị trường
+dùng lại được cho brand sau, không phải chuyện riêng của ArionPlay.
+
+Bộ kiểm: `spike:seo` **19/19** · `spike:seo-store` **51/51** · `spike:seo-ui` **29/29** ·
+`spike:seo-run` **23/23**.
+
+### Bịt mấy nút rỗng: công đoạn chưa có skill thì nói thật
+
+Chủ dự án thêm site rồi đâm vào một ngõ cụt: hàng công đoạn mời bấm, bấm xong mở ra một chat không có
+gì đằng sau — vì bảng liệt kê tên skill mà chưa ai viết. Một cái nút bấm được là một lời hứa; hứa mà
+không có gì đằng sau thì tệ hơn im lặng.
+
+Nay công đoạn nào không có skill trên đĩa thì hiện **`Not built yet`**, nút mờ hẳn, kèm dòng
+`No skill for this stage yet`. Danh sách skill đọc từ **thư mục thật** (`builtSkills()`), không từ một
+hằng số viết cạnh bảng — viết tay hai lần thì sớm muộn hai bản nói khác nhau, và cái được nhớ luôn là
+cái nói dối. Viết xong một skill là hàng đó tự sáng, không phải sửa thêm chỗ nào.
+
+Công đoạn **đã xong** thì miễn: Site setup xong ngay lúc thêm domain (form ghi `site.md`), dù skill
+của nó chưa bao giờ tồn tại — "chưa dựng" cạnh một việc đã xong là nói dối theo chiều ngược lại.
+
+Và hiện **cả hai lý do** khi cả hai cùng đúng: một hàng có thể vừa chưa tới lượt (thứ tự) vừa chưa có
+skill (nút chết). Bỏ vế nào cũng mất thông tin.
+
+Một lỗi chỉ **ảnh chụp** bắt được: nhãn `Not built yet` bị bẻ đôi thành `Not built / yet`, làm một
+hàng cao hơn hàng bên, đọc ra lởm chởm. Mọi mục kiểm xanh — DOM đúng, chữ đúng. Cột tên 200px không
+đủ; nới lên 260px và cấm chữ trạng thái xuống dòng.
+
+### Tách `seo-pipeline` thành repo riêng, mang theo cả bộ kiểm
+
+Plugin rời khỏi app, thành `D:\AI\seo-pipeline` — repo riêng, có git. Cơ chế đã có sẵn upstream:
+khai `dsh.bundle.patch` trong `package.json` là engine tự nạp khi plugin nằm trong hồ sơ. Ba chỗ nối
+vào `src/main/` (`paths.ts`, `engine.ts`, `plugin-link.ts`) không cần nữa — và vì chúng chưa từng được
+commit, gỡ ra là app **trở về đúng nguyên trạng đã commit**, không để lại một dấu vết nào.
+
+Ba trong bốn bộ kiểm khởi động engine thật, một bộ lái Electron thật có trình duyệt thật bên trong.
+Nhân đôi engine với Electron sang repo mới là vài trăm MB đổi lấy không gì, nên **repo mượn app làm
+hàng xóm**: `scripts/host.cjs` tìm app ở thư mục anh em, hoặc theo `HDW_APP`. Thiếu thứ gì bên app,
+bộ kiểm **dừng ngay và nói rõ phải chạy lệnh nào** — thay vì để lỗi rơi xuống ba tầng rồi bắt người
+đọc đi tìm bug trong plugin. Đúng bài học của cả buổi: một phép đo hỏng phải trông khác một sản phẩm
+hỏng.
+
+Bốn bộ kiểm chạy từ repo mới: `spike:store` **53/53** · `spike` **19/19** · `spike:ui` **31/31** ·
+`spike:run` **23/23**, lượt cuối trên workspace trống trơn, VPN qua PH, ra `brand.md` 58 dữ kiện và
+Phase 7 ghi ngược cả 5 file kiến thức.
+
+### "Failed to load plugins" — không phải bug plugin, là engine cũ còn treo
+
+Giữa lúc tách repo, app hiện màn hình đỏ `Failed to load plugins` kèm lỗi module-table về
+`dsh-client-ui-theme`. Đào ra: `spike:ui` vẫn 31/31, và `spike:run` vẫn qua mục 0-6 sạch — plugin nạp
+tốt. Nguyên nhân thật: spike chạy trên **cổng cố định 57931** (settings.yaml ghi cứng cổng đó vào
+baseURL của MiniMax, không chọn ngẫu nhiên được). Lượt bị máy ngủ cắt để lại một engine treo trên
+cổng ấy; cửa sổ mới nạp trúng cái engine nửa chết.
+
+Thêm chốt `freePort()` vào `spike:run`: `netstat` tìm PID đang giữ cổng, `taskkill` kết liễu, rồi mới
+bind. Máy ngủ giữa chừng lần nữa cũng không để lại engine ma.
+
+### Split tunneling của VPN — traffic không đi qua VPN dù app báo "connected"
+
+Trước khi chạy lượt thật, kiểm thấy `arionplay.com` trả 403 dù ProtonVPN báo đã nối sang PH. Đo IP
+ra thật của shell: `171.251.233.14 · Viettel · VN` — không phải IP VPN. Split tunneling đang loại
+trừ tiến trình khỏi đường VPN. Tắt split tunneling xong, IP ra thành `188.214.x` và `.com` trả 200.
+
+Bài học cho những lượt sau: **VPN báo "connected" không có nghĩa traffic của mình đi qua nó.** Đo IP
+ra thật, và đo phản hồi của chính site đích, trước khi tiêu nửa tiếng và tiền gọi model.
+
+## 2026-08-24 — Panel bên phải kéo rộng được như Claude app
+
+Bỏ trần cứng `MAX_WIDTH = 720px` của panel dock, thay bằng trần động theo cửa sổ:
+panel kéo rộng tới đâu cũng được miễn còn chừa `MIN_CONVERSATION_WIDTH = 480px` cho cột
+chat. Sửa trong `plugins/dock/src/client/store.ts` (`setWidth`). Mức 1, không đụng upstream.
+
+Vì sao: người dùng thấy panel cũ mở tối đa chỉ được ~720px, chật khi xem trang web/terminal.
+Claude app không chặn bằng con số cố định mà giữ một dải chat tối thiểu — làm y vậy, nên
+màn hình càng rộng thì panel càng kéo rộng được.
