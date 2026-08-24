@@ -125,6 +125,7 @@ export function apply(ctx: Context): void {
       reviewSessions,
       factCount: () => store.all().length,
       pendingCount: () => skills.all().length,
+      pendingList: () => skills.all(),
     })
     const offRoutes = registerRoutes(ctx, {
       store,

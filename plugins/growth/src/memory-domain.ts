@@ -70,6 +70,12 @@ export interface PendingSkill {
   readonly source: string
   /** Which chat proposed it. Diagnostics only. */
   readonly sessionId?: string
+  /**
+   * One plain sentence, in the user's own language, saying what this proposal
+   * changes about the skill and why — shown to the user above the diff. Only for
+   * a proposal that replaces an existing skill; a brand-new one has no "change".
+   */
+  readonly changeNote?: string
 }
 
 function asString(value: unknown): string {
@@ -125,6 +131,7 @@ function coercePendingSkill(raw: unknown): PendingSkill {
   const projectPath = asString(row['projectPath'])
   const sessionId = asString(row['sessionId'])
   const source = asString(row['source'])
+  const changeNote = asString(row['changeNote'])
   const createdAt = typeof row['createdAt'] === 'number' && Number.isFinite(row['createdAt'])
     ? row['createdAt']
     : 0
@@ -138,6 +145,7 @@ function coercePendingSkill(raw: unknown): PendingSkill {
     createdAt,
     source: source.length > 0 ? source : 'unknown',
     ...(sessionId.length > 0 ? { sessionId } : {}),
+    ...(changeNote.length > 0 ? { changeNote } : {}),
   }
 }
 

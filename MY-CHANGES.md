@@ -2617,3 +2617,70 @@ chat. Sửa trong `plugins/dock/src/client/store.ts` (`setWidth`). Mức 1, khô
 Vì sao: người dùng thấy panel cũ mở tối đa chỉ được ~720px, chật khi xem trang web/terminal.
 Claude app không chặn bằng con số cố định mà giữ một dải chat tối thiểu — làm y vậy, nên
 màn hình càng rộng thì panel càng kéo rộng được.
+
+## 2026-08-18 — Vòng nền không đề xuất lại skill đang chờ, và hiện phạm vi trên từng dòng
+
+Chủ dự án thấy hai dòng `gsc` trong hàng đợi và hỏi vì sao có hai bản cải tiến. Hóa ra không phải
+hai bản của một thứ: một cái **chỉ trong `D:\Work\GSC`**, một cái **mọi nơi** — hai file đích khác
+nhau, từ hai cuộc trò chuyện cách nhau một ngày. Giao diện giấu mất phạm vi nên chúng trông y hệt.
+
+**Hiện phạm vi trên từng dòng Skills.** Trước đây chỉ hộp Preview mới ghi "everywhere / this
+project"; hàng trong danh sách thì không. Nay mỗi dòng có nhãn `everywhere` hoặc `only in <thư mục>`.
+Đã xác nhận trên app: hai dòng giờ đọc là `only in GSC` và `everywhere`.
+
+**Gốc rễ vì sao đề xuất bị lặp:** vòng nền chạy dưới dạng fork, nên nó *thấy* các skill đã duyệt qua
+skill-catalog — nhưng một đề xuất **đang chờ** thì chưa nằm trên đĩa, nên nó **không thấy**. Thiếu
+thông tin đó, mỗi cuộc GSC mới lại tưởng "chưa có skill gsc" và đề xuất lại.
+
+Sửa hai lớp:
+
+1. **Báo cho vòng nền biết cái gì đang chờ.** Prompt của lần rà nay đính kèm danh sách đề xuất đang
+   chờ (tên + phạm vi + mô tả), kèm lệnh: *"những cái này đang chờ duyệt, đừng đề xuất lại; nếu một
+   cái đã bao được thứ bạn định viết thì im lặng; chỉ gọi lại khi thật sự cải tiến được, và dùng
+   đúng tên + phạm vi để bản mới thay bản cũ."* Danh sách đọc ngay lúc fork khởi động nên thấy cả
+   thứ một lần rà trước đó vừa thêm.
+2. **Chặn bản trùng y hệt ở tầng công cụ.** `propose_skill` giờ: nếu đã có đề xuất cùng tên + phạm
+   vi + dự án **và cùng nội dung** thì trả về nguyên bản cũ, không ghi gì — hết cảnh một lần rà cứ
+   đẩy lại đúng skill đó lên đầu với id và mốc thời gian mới. Bản khác nội dung (cải tiến thật) vẫn
+   thay bản cũ như trước.
+
+Đã chạy thử: mở một cuộc 12 lệnh để ép vòng nền chạy trong lúc hai `gsc` đang chờ → review chạy
+xong, "nothing kept", không crash, hàng đợi vẫn đúng hai `gsc`, không đẻ thêm cái thứ ba.
+
+## 2026-08-18 — Skill "thay bản cũ" hiện diff đỏ/xanh, chỉ dòng đổi
+
+Chủ dự án hỏi: một skill cải tiến thì làm sao biết đổi gì — ngồi dò từng chữ giữa hai khối à? Đúng,
+hai khối "Now on disk" / "Would become" xếp chồng bắt người đọc so tay. Sửa.
+
+Hệ thống có sẵn `DiffBlock` (đỏ cho dòng bỏ, xanh cho dòng thêm) — nhưng nó chỉ *tô*, không tự tính
+chỗ khác nhau: đưa nguyên khối cũ + khối mới thì nó bôi cả khối cũ đỏ, cả khối mới xanh, vẫn là bức
+tường chữ. Nên phần tính khác biệt làm ở `client/linediff.ts`: một thuật toán LCS theo dòng, gom
+thành từng cụm đổi, **bỏ các dòng không đổi**. Thứ đưa cho `DiffBlock` chỉ còn đúng những dòng khác
+nhau. Chân khối tự có dòng tổng `+thêm -bỏ · N file` — chính là "dòng tổng kết đã sửa gì" theo lượng.
+
+`linediff.ts` là logic thuần (không phải giao diện), nên tự viết là hợp lệ — phần *hiển thị* vẫn là
+`DiffBlock` của upstream. Skill "mới" (chưa có trên đĩa) thì không có gì để so, vẫn hiện nguyên khối
+"Would be written" như cũ.
+
+Đã chạy thử với một skill dựng riêng để kiểm (`difftest`): đổi một dòng + thêm một dòng → diff hiện
+đúng dòng cũ màu đỏ, dòng mới màu xanh, dòng thêm màu xanh, hai dòng không đổi bị ẩn, chân ghi
+`+2 -1 · 1 file`. Dọn sạch dữ liệu thử sau đó, chỉ còn lại hai `gsc` thật của chủ dự án.
+
+## 2026-08-18 — Thêm dòng tóm tắt "đã sửa gì" bằng ngôn ngữ của người dùng
+
+Chủ dự án muốn thêm một câu tổng: skill này cải tiến **cái gì**, viết bằng tiếng người dùng đang trò
+chuyện (họ nói tiếng Việt thì câu đó tiếng Việt).
+
+Chỉ có model — lúc nó cải tiến skill — mới biết nó đổi gì và vì sao, nên để nó tự viết. Thêm tham số
+`changeNote` cho tool `propose_skill`: một câu, **bằng đúng ngôn ngữ của cuộc trò chuyện**, chỉ dùng
+khi cải tiến skill đã có (bản mới hoàn toàn thì bỏ trống — không có gì để "đổi"). Prompt vòng nền
+được dặn kèm câu này mỗi khi patch. Câu đó hiện **ngay trên diff**, viền trái màu nhấn, đọc là hiểu
+ngay không cần dò đỏ/xanh.
+
+Về luật ngôn ngữ: nhãn cố định trên giao diện vẫn tiếng Anh; câu tóm tắt này là **nội dung do model
+viết**, cùng loại với các mẩu nhớ tiếng Việt đang hiện — nên nó theo ngôn ngữ người dùng là nhất
+quán, không phá luật.
+
+Đã chạy thử (ca `difftest` dựng riêng, có `changeNote` tiếng Việt): câu *"Sửa lại bước 2 cho rõ hơn
+và thêm bước 4 kiểm tra kết quả cuối."* hiện đúng phía trên diff, dưới là đỏ/xanh và chân `+2 -1 · 1
+file`. Dọn sạch sau đó.

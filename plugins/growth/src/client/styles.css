@@ -349,3 +349,16 @@
   margin-left: 6px;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* The assistant's plain-language summary of a skill change, above the diff. It
+   is content in the user's language, so it reads like prose, not chrome. */
+.hdw-gr-change-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}

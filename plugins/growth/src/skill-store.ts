@@ -92,6 +92,7 @@ export interface ProposeInput {
   readonly projectPath?: string | undefined
   readonly source: string
   readonly sessionId?: string | undefined
+  readonly changeNote?: string | undefined
 }
 
 /** Operations over the proposal queue. */
@@ -134,19 +135,33 @@ export function createSkillStore(table: KvTable<string, PendingSkill>): SkillSto
         createdAt: Date.now(),
         source: input.source,
         ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
+        ...(input.changeNote !== undefined && input.changeNote.trim().length > 0
+          ? { changeNote: input.changeNote.trim() }
+          : {}),
       }
 
-      // A second proposal for the same skill supersedes the first rather than
-      // queueing beside it. Without this the queue fills with three drafts of one
-      // skill and the user has to work out which is newest.
-      const superseded = all().filter((row) => (
+      // Twins are earlier proposals that would write the SAME file: same name,
+      // same scope, same project. They are the ones this proposal replaces.
+      const twins = all().filter((row) => (
         row.name === pending.name
         && row.scope === pending.scope
         && row.projectPath === pending.projectPath
       ))
 
+      // Nothing changed since the last pass proposed this: return the existing
+      // one untouched rather than churning its id and timestamp. A review that
+      // re-derives the identical skill every conversation must not keep bumping
+      // it to the top as if it were new work.
+      const identical = twins.find((row) => (
+        row.body === pending.body && row.description === pending.description
+      ))
+      if (identical !== undefined) return identical
+
+      // A second, DIFFERENT proposal for the same file supersedes the first
+      // rather than queueing beside it, so the user never has to work out which
+      // of three drafts is newest.
       await table.put(pending.id, pending)
-      for (const old of superseded) await table.delete(old.id)
+      for (const old of twins) await table.delete(old.id)
       return pending
     },
 

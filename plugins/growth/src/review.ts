@@ -24,6 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type { PendingSkill } from './memory-domain.ts'
 
 /** Tool calls a conversation must spend before a review becomes worth its cost. */
 export const REVIEW_TOOL_CALL_THRESHOLD = 10
@@ -64,7 +65,9 @@ const REVIEW_PROMPT = [
   'Prefer the earliest option that fits:',
   '  1. PATCH an existing skill. If one already covers this territory, pass its exact',
   '     name to `propose_skill` with the improved body. Extending the skill that was',
-  '     actually in play beats adding a near-duplicate beside it.',
+  '     actually in play beats adding a near-duplicate beside it. When you patch,',
+  '     also pass `changeNote`: one short sentence, in the language the user speaks',
+  '     in this conversation, saying what you changed and why.',
   '  2. ADD a new skill, but only for a class of task rather than this one session.',
   '     Name it for the recurring situation, not for today.',
   '',
@@ -73,6 +76,38 @@ const REVIEW_PROMPT = [
   '',
   'Say nothing else. When there is genuinely nothing to keep, reply "Nothing to keep."',
 ].join('\n')
+
+/**
+ * The line that tells the review pass what is already waiting for approval.
+ *
+ * The review runs as a fork, so it sees skills already ON DISK through the normal
+ * skill catalog — but a proposal still in the queue is not on disk and is
+ * therefore invisible to it. Without this note the pass re-proposes the same
+ * skill on every conversation of that kind, which is exactly how two `gsc`
+ * proposals piled up. Handing it the pending list lets its own "patch, don't
+ * duplicate" rule apply to proposals too.
+ * @param pending - the proposals waiting right now.
+ * @returns a prompt appendix, or an empty string when the queue is empty.
+ */
+function pendingNote(pending: readonly PendingSkill[]): string {
+  if (pending.length === 0) return ''
+  const lines = pending.map((row) => {
+    const where = row.scope === 'project' && row.projectPath !== undefined
+      ? `only in ${row.projectPath}`
+      : 'everywhere'
+    return `  - "${row.name}" (${where}): ${row.description}`
+  })
+  return [
+    '',
+    '',
+    'ALREADY WAITING for the user to approve. Do NOT propose any of these again:',
+    ...lines,
+    '',
+    'If one of them already covers what you would write, leave it — say nothing. Only',
+    'call `propose_skill` for it when you can genuinely improve it, and then use its',
+    'EXACT name and scope so your version replaces it rather than sitting beside it.',
+  ].join('\n')
+}
 
 /** What the review pass needs from the rest of the plugin. */
 export interface ReviewDeps {
@@ -90,6 +125,8 @@ export interface ReviewDeps {
   readonly factCount: () => number
   /** How many proposals are waiting right now. */
   readonly pendingCount: () => number
+  /** The proposals waiting right now, so the pass will not re-propose them. */
+  readonly pendingList: () => readonly PendingSkill[]
 }
 
 /** What one finished pass did, for the readout under the composer. */
@@ -145,7 +182,9 @@ export function registerBackgroundReview(ctx: Context, deps: ReviewDeps): Review
     try {
       run = await ctx.subagents.start('fork', {
         label: 'Growth review',
-        prompt: [{ type: 'text', text: REVIEW_PROMPT }],
+        // The pending list is read at start, so the pass sees whatever is waiting
+        // this very moment — including proposals an earlier pass just added.
+        prompt: [{ type: 'text', text: REVIEW_PROMPT + pendingNote(deps.pendingList()) }],
         parent: agent,
         signal: control.signal,
         // One visibility: the named tools disappear from the child's prompt and

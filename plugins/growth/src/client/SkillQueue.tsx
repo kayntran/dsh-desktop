@@ -78,6 +78,15 @@ export function SkillQueue({ pending, onApprove, onReject }: {
                 <span className="hdw-gr-row-meta">
                   <Pill>{skill.currentText === null ? 'new' : 'replaces existing'}</Pill>
                   <Pill>{skill.source}</Pill>
+                  {/* Scope on the row, not only in the preview: without it two
+                      proposals of the same name — one global, one for a project —
+                      are indistinguishable in the list, which is exactly the
+                      confusion that surfaced with two `gsc` rows. */}
+                  <Pill>
+                    {skill.scope === 'project'
+                      ? `only in ${(skill.projectPath ?? '').split(/[\\/]/).filter(Boolean).pop() ?? 'this project'}`
+                      : 'everywhere'}
+                  </Pill>
                   <Provenance createdAt={skill.createdAt} sessionId={skill.sessionId} />
                 </span>
               )}

@@ -47,6 +47,8 @@ export interface PendingSkillView {
   source: string
   /** The conversation this came from, so the user can trace it back. */
   sessionId?: string
+  /** A plain-language line, in the user's language, saying what an improvement changed. */
+  changeNote?: string
   /** Absolute path the skill file would be written to. */
   target: string
   /** The complete file that would be written. */

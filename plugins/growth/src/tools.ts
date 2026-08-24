@@ -219,6 +219,13 @@ const SKILL_SCOPE_HINT = [
   'makes sense inside the directory this conversation is working in.',
 ].join(' ')
 
+const SKILL_CHANGE_NOTE_HINT = [
+  'Only when you are improving a skill that already exists: one short sentence, in',
+  'the SAME language the user speaks in this conversation, saying what you changed',
+  'and why. It is shown to the user above the diff so they can decide at a glance.',
+  'Omit it entirely for a brand-new skill — there is no change to describe.',
+].join(' ')
+
 /**
  * Build the `propose_skill` tool over a store.
  * @param store - the proposal queue.
@@ -239,6 +246,7 @@ export function proposeSkillTool(store: SkillStore, reviewSessions: ReadonlyMap<
         },
         body: { type: 'string', description: SKILL_BODY_HINT },
         scope: { type: 'string', enum: ['global', 'project'], description: SKILL_SCOPE_HINT },
+        changeNote: { type: 'string', description: SKILL_CHANGE_NOTE_HINT },
       },
       required: ['name', 'description', 'body', 'scope'],
       additionalProperties: false,
@@ -295,6 +303,11 @@ export function proposeSkillTool(store: SkillStore, reviewSessions: ReadonlyMap<
         )
       }
 
+      const rawChangeNote = field(args, 'changeNote')
+      const changeNote = typeof rawChangeNote === 'string' && rawChangeNote.trim().length > 0
+        ? rawChangeNote.trim()
+        : undefined
+
       const writer = writerOf(exec.agent?.session.id, reviewSessions)
       const pending = await store.propose({
         name,
@@ -304,6 +317,7 @@ export function proposeSkillTool(store: SkillStore, reviewSessions: ReadonlyMap<
         projectPath: scope === 'project' ? cwd : undefined,
         source: writer.source,
         sessionId: writer.sessionId,
+        changeNote,
       })
 
       return (
