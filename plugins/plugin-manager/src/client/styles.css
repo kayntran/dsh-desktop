@@ -12,15 +12,36 @@
 
 /* ---------------------------------------------------------------- trigger */
 
-/* Matches upstream's Settings trigger: the sidebar's 34px compact row. */
+/*
+ * Matches upstream's Settings trigger: the sidebar's 34px compact row.
+ *
+ * SHARES its row rather than claiming it. `sidebar.footer.action` is a `list` slot
+ * whose container (`.footerActions` in upstream's SidebarRoot.module.css) is a flex
+ * ROW with no wrapping, so entries sit side by side and cannot stack. While this was
+ * the only entry, `width: calc(100% + 8px)` looked like a full-width row and worked;
+ * the moment the SEO page joined the slot, that width pushed it off the edge where it
+ * rendered as a clipped sliver — visible to the user, invisible to every HTTP-level
+ * check. Measured in `npm run spike:seo-ui`, checks 3 and 5.
+ *
+ * Upstream's CSS cannot be changed to allow wrapping, so the entries share instead:
+ * `flex: 1 1 0` splits the row evenly, `min-width: 0` lets the label ellipsize rather
+ * than force an overflow.
+ *
+ * The LEFT margin is -4px, not a positive gap: it lines the icon up with the Settings
+ * row directly below, whose trigger also sits at margin-left -4 + padding-left 10 (see
+ * ui-settings-general SettingsRoot.module.css `.trigger`). A positive left margin left
+ * the Plugins icon 6px to the right of Settings — the two rows read as misaligned. The
+ * right margin stays a small positive value so a second entry sharing the row cannot
+ * spill past the sidebar's edge and clip.
+ */
 .hdw-pm-trigger {
-  flex: none;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  width: calc(100% + 8px);
   height: 34px;
-  margin: 4px -4px 4px;
+  margin: 4px 2px 4px -4px;
   padding: 6px 2px 6px 10px;
   box-sizing: border-box;
   border: none;
@@ -52,6 +73,7 @@
 .hdw-pm-trigger-label {
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ---------------------------------------------------------------- surface */
