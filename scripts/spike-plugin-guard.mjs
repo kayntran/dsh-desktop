@@ -94,7 +94,7 @@ function kill(child) {
 /** Khởi động engine và chờ dòng URL. */
 async function bootEngine() {
   const child = spawn(nodeExe, [
-    dshBin, '--profile', 'web', '--patch', dockPatch, '--patch', probePatch, '--port', '0',
+    dshBin, '--profile', 'web', '--patch', dockPatch, '--patch', probePatch, '--port', '0', '--no-open',
   ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, DSH_HOME: dshHome } })
   let out = ''
   const baseUrl = await new Promise((res, rej) => {
@@ -145,7 +145,7 @@ async function callText(url) {
  * Đây là lần thứ hai dự án này trả giá cho việc dò chữ thay vì đo dấu vết.
  */
 function bootEntryIds(html) {
-  const match = /window\.__DSH_BOOT__\s*=\s*(\{[\s\S]*\})\s*;?\s*<\/script>/.exec(html)
+  const match = /(?:window\.__DSH_BOOT__|globalThis\[["']__DSH_BOOT__["']\])\s*=\s*(\{[\s\S]*?\})\s*;?\s*<\/script>/.exec(html)
   if (match === null) return []
   try {
     return JSON.parse(match[1]).entries.map((e) => e.id)

@@ -92,7 +92,8 @@ vẽ lại thứ đã có.
 
 ## Danh sách này chụp ở phiên bản nào
 
-Bản `0.1.0-rc.6`. Upstream đang phát triển mạnh nên nhiều khả năng sẽ có thêm slot mới. Sau mỗi lần
+Bản `0.1.1-rc.2` — đã rà lại toàn bộ bảng trên, mọi slot đang dùng vẫn còn.
+Upstream đang phát triển mạnh nên nhiều khả năng sẽ có thêm slot mới. Sau mỗi lần
 `/nang-cap-engine`, rà lại bằng cách tìm khai báo slot trong bản clone:
 
 ```bash

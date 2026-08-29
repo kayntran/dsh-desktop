@@ -148,7 +148,7 @@ function spawnEngine(home) {
     '--patch', statePath,
   ]
 
-  engine = spawn(nodeExe, [dshBin, '--profile', 'web', ...patches, '--port', '0'], {
+  engine = spawn(nodeExe, [dshBin, '--profile', 'web', ...patches, '--port', '0', '--no-open'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,

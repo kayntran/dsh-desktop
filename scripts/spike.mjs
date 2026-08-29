@@ -27,7 +27,7 @@ const record = (name, ok, detail) => {
 console.log(`node:    ${nodeExe}`)
 console.log(`dsh bin: ${dshBin}\n`)
 
-const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--port', '0'], {
+const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--port', '0', '--no-open'], {
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
 })

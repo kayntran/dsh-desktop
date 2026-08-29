@@ -77,7 +77,7 @@ function bootEngine() {
     '--patch', dockPatch,
     '--patch', managerPatch,
     '--patch', statePath,
-    '--port', '0',
+    '--port', '0', '--no-open',
   ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, DSH_HOME: dshHome } })
   let stdout = ''
   let stderr = ''
@@ -105,7 +105,7 @@ function kill(child) {
 
 /** Tên gói của mọi plugin giao diện ĐANG BẬT, đọc từ `__DSH_BOOT__` của trang. */
 function bootEntryIds(html) {
-  const match = /window\.__DSH_BOOT__\s*=\s*(\{[\s\S]*\})\s*;?\s*<\/script>/.exec(html)
+  const match = /(?:window\.__DSH_BOOT__|globalThis\[["']__DSH_BOOT__["']\])\s*=\s*(\{[\s\S]*?\})\s*;?\s*<\/script>/.exec(html)
   if (match === null) return []
   try {
     return JSON.parse(match[1]).entries.map((e) => e.id)
@@ -202,7 +202,7 @@ try {
   // được phục vụ thì công tắc không tồn tại với người dùng.
   log.selfAlive = await api.alive('harness-desktop-plugin-manager')
   const selfBundle = await (await fetch(`${baseUrl}/plugins/harness-desktop-plugin-manager/client.js`)).text()
-  log.selfRegistersTab = selfBundle.includes('settings.plugins.tab')
+  log.selfRegistersTab = selfBundle.includes('sidebar.footer.action')
   console.log(`nửa giao diện của công tắc: inBoot=${log.selfAlive.inBoot}`
     + ` client.js=${log.selfAlive.bundleStatus} đăng ký slot tab=${log.selfRegistersTab}`)
 
@@ -215,10 +215,10 @@ try {
   const ours = await api.byPkg(OURS.pkg)
   const core = await api.byPkg(CORE.pkg)
   const locked = await api.byPkg(LOCKED_PKG)
-  log.oursGroup = ours?.ours === true
-  log.coreGroup = core?.ours === false
+  log.oursGroup = ours?.origin === 'ours'
+  log.coreGroup = core?.origin === 'core'
   log.lockedFlag = locked?.locked === true
-  console.log(`phân nhóm: ${OURS.pkg} ours=${String(ours?.ours)}; ${CORE.pkg} ours=${String(core?.ours)}`)
+  console.log(`phân nhóm: ${OURS.pkg} origin=${String(ours?.origin)}; ${CORE.pkg} origin=${String(core?.origin)}`)
   console.log(`plugin khoá: ${LOCKED_PKG} locked=${String(locked?.locked)} lý do=${String(locked?.lockReason)}`)
 
   // 1. Tắt plugin của chính ta → tính năng biến mất thật.
@@ -334,7 +334,7 @@ if (log.pass1 !== true) {
     log.statePathMatches ? statePath : `plugin nói ${log.statePath}, bộ kiểm chờ ${statePath}`)
   record('2. phân nhóm đúng: của ta / của DeepSeek', log.oursGroup && log.coreGroup,
     `ours=${String(log.oursGroup)} core=${String(log.coreGroup)}`)
-  record('2b. nửa giao diện của công tắc được phục vụ và có đăng ký tab',
+  record('2b. nửa giao diện của công tắc được phục vụ và có đăng ký chỗ cắm',
     log.selfAlive.inBoot === true && log.selfAlive.bundleStatus === 200 && log.selfRegistersTab,
     `inBoot=${log.selfAlive.inBoot} client.js=${log.selfAlive.bundleStatus} slot=${log.selfRegistersTab}`)
 

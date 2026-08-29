@@ -83,7 +83,7 @@ function safeLstat(path) {
 
 /** Khởi động engine với `--patch`, chờ dòng URL. */
 function bootEngine() {
-  const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--patch', patchPath, '--port', '0'], {
+  const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--patch', patchPath, '--port', '0', '--no-open'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
