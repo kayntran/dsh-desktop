@@ -2922,3 +2922,29 @@ hiện: dải nổi *"Version 0.1.1 is ready"* với hai nút, 298×49 px, nằm
 
 Mắt xích chưa đo: bấm *Restart now* rồi app có mở lại thành 0.1.1 không — thao tác đó cài thật vào máy
 nên để chủ dự án quyết.
+
+### Cài phải IM LẶNG, và chỉ nhìn màn hình mới biết
+
+Bản đầu truyền `isSilent: false` cho `quitAndInstall`, lý do ghi trong chú thích là "để người dùng
+thấy trình cài nếu nó có gì muốn nói". Lý do đó sai trong đúng ngữ cảnh này. Cấu hình NSIS của dự án
+để `oneClick: false` — thứ cho phép người cài LẦN ĐẦU chọn thư mục và chọn cài cho ai — nên một lần
+cập nhật không im lặng sẽ **diễn lại trọn bộ trình thuật sĩ đó**: *"Who should this application be
+installed for?"*, Next, Next, mỗi lần cập nhật. Không ai đồng ý bấm qua một chương trình cài đặt để
+nhận một bản vá; đó là ngược hẳn với chữ "âm thầm" mà tính năng này hứa.
+
+**Không có bộ kiểm nào bắt được.** Nhật ký ghi `Executing: ...setup.exe` rồi `Quitting application` —
+đọc lên hoàn toàn bình thường. Chủ dự án nhìn thấy hộp thoại bật lên trên màn hình và báo. Đây là lần
+thứ ba trong ngày một thứ "xanh trong log" hoá ra sai trước mắt người dùng.
+
+Sửa: `quitAndInstall(true, true)`.
+
+Nghiệm thu lại trên **bản đã cài thật** (cài 0.1.0 vào máy, dựng 0.1.1 phục vụ ở `127.0.0.1`, rồi bấm
+nút trong app): đếm hộp thoại Setup suốt quá trình = **0**, phiên bản đã cài nhảy 0.1.0 → 0.1.1 sau
+khoảng 90 giây, và nhật ký khép lại bằng `app: starting Harness Desktop 0.1.1`. App tự đóng, cài lặng
+lẽ, tự mở lại — người dùng chỉ bấm đúng một nút.
+
+Một cái bẫy nhỏ đi kèm, ghi lại để khỏi mất thì giờ lần sau: **trình cài chạy lâu hơn nhiều so với vẻ
+ngoài của nó.** Chép đủ `engine`, `runtime`, `plugins`, `pnpm` mất khoảng 2,5 phút, và trong lúc đó
+tiến trình setup trông y như đang treo. Lần đầu đã tắt nó giữa chừng vì tưởng vậy, và kết quả là một
+bản cài chỉ có mỗi `engine` — app mở lên rồi đứng im ở màn hình chờ, vì thiếu `runtime` thì engine
+không khởi động nổi. Trông y hệt một lỗi thật của app.

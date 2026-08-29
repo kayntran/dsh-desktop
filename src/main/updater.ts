@@ -225,10 +225,20 @@ async function check(): Promise<void> {
  * user who has the app minimised should not have to open it to say yes.
  */
 export function installUpdate(): void {
-  // `isSilent` false so the user sees the installer if it has anything to say;
-  // `isForceRunAfter` so the app comes back rather than leaving them at a desktop
-  // wondering whether it worked.
-  autoUpdater.quitAndInstall(false, true)
+  // SILENT, and this is not a preference.
+  //
+  // The first version passed `false` here, reasoning that the user should see the
+  // installer if it had anything to say. Watching a real update run showed what
+  // that means with this project's NSIS settings: `oneClick: false` is what lets a
+  // FIRST-TIME installer offer a folder and a per-user/all-users choice, and a
+  // non-silent update replays that whole wizard — "Who should this application be
+  // installed for?", Next, Next — every single time. Nobody agreed to click
+  // through a setup program to receive a patch; that is the opposite of the
+  // "quietly in the background" this feature promises.
+  //
+  // `isForceRunAfter` so the app comes back on its own rather than leaving the user
+  // at a desktop wondering whether it worked.
+  autoUpdater.quitAndInstall(true, true)
 }
 
 /**
