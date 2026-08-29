@@ -144,6 +144,16 @@ export function minimaxRelayPatchPath(): string {
   return join(minimaxRelayDir(), 'cordis.patch.yml')
 }
 
+/** Directory of the app-update surface: the Settings row and the ready-to-restart pill. */
+export function updaterDir(): string {
+  return join(pluginsRoot(), 'updater')
+}
+
+/** Config file that enables the app-update surface, passed to the engine via `--patch`. */
+export function updaterPatchPath(): string {
+  return join(updaterDir(), 'cordis.patch.yml')
+}
+
 /** Directory of Soul and Memory: what the assistant knows about the user. */
 export function growthDir(): string {
   return join(pluginsRoot(), 'growth')

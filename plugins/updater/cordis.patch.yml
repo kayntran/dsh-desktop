@@ -1,0 +1,10 @@
+# Enables the app-update surface: the Settings row and the ready-to-restart pill.
+#
+# `name` must be the PACKAGE NAME, not a file path: the engine resolves the client
+# half through `createRequire(<profile dir>).resolve('<name>/package.json')`. An
+# absolute path still loads the Node half, but the client half is never served and
+# nothing reports an error. The junction inside the profile's resolution tree is
+# built by `src/main/plugin-link.ts`.
+- insert:
+    - id: hdw-updater
+      name: harness-desktop-updater

@@ -22,6 +22,7 @@ import {
   minimaxRelayPatchPath,
   pluginManagerPatchPath,
   pluginStatePath,
+  updaterPatchPath,
   thinkTagsPatchPath,
 } from './paths.js'
 
@@ -225,7 +226,7 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   // `--profile` and `--patch` are launcher flags and must come BEFORE `--port`,
   // which is forwarded to the app.
   //
-  // SIX `--patch` LAYERS, AND THE ORDER IS MANDATORY. The engine applies them in
+  // SEVEN `--patch` LAYERS, AND THE ORDER IS MANDATORY. The engine applies them in
   // command-line order, and a layer can only edit rows that already exist when it
   // applies:
   //
@@ -234,7 +235,8 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
   //   3. the think-tag rewriter
   //   4. the MiniMax relay
   //   5. Soul and Memory
-  //   6. the user's own choices — MUST COME LAST
+  //   6. the app-update surface
+  //   7. the user's own choices — MUST COME LAST
   //
   // Put the last layer earlier and it cannot see the rows the ones above insert, so a
   // user who disables the panel — or the switch itself — finds them enabled again on
@@ -248,6 +250,7 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     '--patch', thinkTagsPatchPath(),
     '--patch', minimaxRelayPatchPath(),
     '--patch', growthPatchPath(),
+    '--patch', updaterPatchPath(),
     '--patch', pluginStatePath(),
     '--port', '0',
     // From dsh 0.1.1-rc.2 the web profile opens the user's default browser on

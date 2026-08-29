@@ -2863,3 +2863,62 @@ backtick, nên một dấu backtick lẻ trong đó — kể cả nằm trong ch
 chuỗi sớm và cả file thành lỗi cú pháp. Nó không hiện ra dưới dạng một mục kiểm đỏ mà là hộp thoại
 "A JavaScript error occurred in the main process", nên nhìn không ra là do đâu. Đã ghi cảnh báo ngay
 trên khối đó.
+
+## 2026-08-29 — Tự động cập nhật
+
+Nằm ở `plugins/updater/`, cắm vào `settings.general.item` và `shell.overlay`, **mức 1 cả hai**. Phần
+máy móc ở `src/main/updater.ts`.
+
+**Người dùng thấy gì:** một dòng trong Settings › General ghi phiên bản đang chạy kèm nút kiểm tay;
+khi bản mới đã tải xong, một dải nhỏ nổi ở góc phải dưới với nút *Restart now* và nút bỏ qua. App
+**không bao giờ tự khởi động lại** — đang có lượt chạy dở, đang có terminal mở, chỉ người dùng mới
+biết lúc nào tiện. Bản đã tải được áp lặng lẽ vào lần đóng app kế tiếp.
+
+### Vì sao máy móc ở lớp vỏ mà giao diện ở plugin
+
+Thứ một bản cập nhật thay chính là các file của app, và tiến trình duy nhất thay được chúng là tiến
+trình đang chạy từ đó. Engine là một `node.exe` riêng do lớp vỏ đẻ ra — nó không thay nổi một bản cài
+Electron, càng không khởi động lại được. Bảng phân loại trong `/them-tinh-nang` cũng ghi thẳng "cập
+nhật app" thuộc lớp vỏ.
+
+Hai nửa nối nhau bằng **đúng khuôn mẫu đã có**: lớp vỏ POST trạng thái lên `/hdw/update/state` và giữ
+một request chờ ở `/hdw/update/wait`. Lớp vỏ **gọi ra ngoài, không lắng nghe** — lý do đã ghi ở
+`shot-link.ts` và `lifecycle.ts`: một cổng mở trong lớp vỏ là một cánh cửa mới trên máy người dùng mà
+mọi tiến trình khác cũng gõ được. Plugin không có phụ thuộc lúc chạy nào.
+
+### Đã gỡ: module báo bản mới cũ
+
+Dự án **đã có sẵn** `src/main/updates.ts` — hỏi GitHub rồi hiện thông báo và mở trang tải — nhưng nó
+đang **tắt**: hằng số repo để rỗng, kèm ghi chú "điền vào là bật". Bỏ sót ở vòng tra đầu, chỉ thấy khi
+đụng vào `main.ts`. Nó trùng việc với cơ chế mới nên đã xoá; mục trong khay hệ thống nay trỏ sang
+cơ chế mới (*"Version X is ready — restart to update"*) thay vì mở trang tải.
+
+### Ba ràng buộc thật của `electron-updater`, đã đo chứ không đọc
+
+- **Chỉ bản cài (NSIS) tự cập nhật được.** Bản portable giải nén vào thư mục tạm mỗi lần chạy nên
+  không có bản cài nào để thay, và công cụ cũng không sinh file mô tả cho nó. Đã **bỏ bản portable**
+  khỏi danh sách đóng gói. Trạng thái `unsupported` vẫn giữ, cho ai đang chạy bản portable 0.1.0 đã
+  phát hành: nói thẳng "bản này phải tải tay" thay vì im lặng — im lặng ở đó đọc y hệt "bạn đang dùng
+  bản mới nhất", qua mọi lần phát hành.
+- **App chưa ký số** (đã kiểm chính file dựng ra: `Status: NotSigned`). Cập nhật vẫn chạy vì không có
+  tên nhà phát hành thì bước đối chiếu chữ ký bị bỏ qua. Độ tin cậy dựa vào HTTPS tới GitHub và mã băm
+  SHA512 trong `latest.yml` — đúng bằng mức khi tự tải từ trang release.
+- **`electron-updater` là gói CommonJS, lớp vỏ là ESM.** Viết `import { autoUpdater } from ...` thì
+  TypeScript xanh, esbuild xanh, và **app chết lúc khởi động** với hộp thoại của Electron chứ không
+  phải một lỗi đọc được. Phải nạp bằng `createRequire`. Ghi lại vì nó sẽ cắn lại người sau.
+
+### Nghiệm thu
+
+Bộ mới `npm run spike:updater` — **6/6 trong trang thật**, gồm mục quyết định: bấm *Restart now* trên
+dải nổi thì lệnh `install` về tới lớp vỏ đang chờ. Nó bắt được ngay một khiếm khuyết ở bản đầu: nhịp
+hỏi 60 giây khiến nút *Check for updates* trông như hỏng cả phút, và dải nổi trễ chừng ấy sau khi tải
+xong. Hạ xuống 3 giây — request không rời khỏi máy nên khoản tiết kiệm kia là tưởng tượng còn độ trễ
+thì có thật.
+
+Phần máy móc chỉ sống trong bản đóng gói, nên đã dựng một "bản 0.1.1 giả" phục vụ ở `127.0.0.1` và cho
+**bản đóng gói thật** đi trọn vòng. Nhật ký của chính nó: `Checking for update` → `Found version 0.1.1`
+→ `Downloading update` → `New version 0.1.1 has been downloaded` → `staged`. Rồi đọc lại trang đang
+hiện: dải nổi *"Version 0.1.1 is ready"* với hai nút, 298×49 px, nằm trong khung nhìn.
+
+Mắt xích chưa đo: bấm *Restart now* rồi app có mở lại thành 0.1.1 không — thao tác đó cài thật vào máy
+nên để chủ dự án quyết.

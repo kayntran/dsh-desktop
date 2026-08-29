@@ -23,8 +23,13 @@ export interface TrayHandlers {
   openShellLog: () => void
   /** Open the About window. */
   openAbout: () => void
-  /** Open the download page for a new release. */
-  openRelease: () => void
+  /**
+   * Restart into the version already downloaded.
+   *
+   * Only ever reachable when one is staged: the entry appears with the version
+   * and disappears with it.
+   */
+  installUpdate: () => void
   /** Quit for real, stopping the engine too. */
   quit: () => void
 }
@@ -41,8 +46,8 @@ function buildMenu(): Menu {
     { type: 'separator' },
     { label: status, enabled: false },
     ...updateVersion === undefined ? [] : [{
-      label: `Version ${updateVersion} is available — download`,
-      click: () => bound?.openRelease(),
+      label: `Version ${updateVersion} is ready — restart to update`,
+      click: () => bound?.installUpdate(),
     }],
     { type: 'separator' },
     { label: 'Open data folder', click: () => bound?.openDataDir() },

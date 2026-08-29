@@ -116,6 +116,16 @@ extraResources:
       - cordis.patch.yml
       - lib/**/*
       - '!**/*.map'
+  # Mặt hiện của việc tự cập nhật: dòng trong Settings và dải nổi khi bản mới đã tải
+  # xong. Phần máy móc nằm ở lớp vỏ (`src/main/updater.ts`) — chỉ Electron mới thay
+  # được file của chính app. Không phụ thuộc lúc chạy nào.
+  - from: plugins/updater
+    to: plugins/updater
+    filter:
+      - package.json
+      - cordis.patch.yml
+      - lib/**/*
+      - '!**/*.map'
 
 # Không biên dịch lại native addon cho ABI của Electron — chúng không chạy
 # trong Electron mà trong node.exe ở trên. Cả hai addon trong cây phụ thuộc
@@ -127,10 +137,29 @@ npmRebuild: false
 # Chỉ còn mã của app nằm trong asar; engine đã ra ngoài qua extraResources.
 asar: true
 
+# Where the app looks for a newer version of itself, and where `latest.yml` — the
+# little file that names the newest version and its hash — gets published beside the
+# installer. Without this block electron-builder writes no `app-update.yml` into the
+# package, and `src/main/updater.ts` has nothing to read: the check fails on every
+# launch instead of reporting "you are up to date".
+#
+# The repository is public, so no token is needed at runtime.
+publish:
+  provider: github
+  owner: kayntran
+  repo: dsh-desktop
+
 win:
+  # NSIS ONLY, and the missing `portable` line is the point.
+  #
+  # A portable build cannot update itself: it unpacks into a temporary folder on
+  # every run, so there is no installation for a new version to replace, and
+  # electron-builder does not even generate the metadata for one. Publishing both
+  # would mean handing half the users a build whose update row can only ever say
+  # "download it yourself" — see the `unsupported` phase in `plugins/updater`, which
+  # still exists for anyone running the portable 0.1.0 that is already out there.
   target:
     - nsis
-    - portable
   icon: resources/icon.ico
   artifactName: ${productName}-${version}-setup.${ext}
 
@@ -146,6 +175,3 @@ nsis:
   shortcutName: Harness Desktop
   uninstallDisplayName: Harness Desktop
   deleteAppDataOnUninstall: false
-
-portable:
-  artifactName: ${productName}-${version}-portable.${ext}

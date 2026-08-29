@@ -1,0 +1,105 @@
+/*
+ * Every color and radius comes from upstream's `--dsw-*` variables, with not one
+ * hard-coded value — which is what makes both surfaces follow light and dark mode,
+ * and follow along every time DeepSeek retunes the palette.
+ *
+ * The `hdw-upd-` prefix rather than a bare `hdw-`: this bundle shares a document with
+ * the panel's stylesheet, and the panel already owns `.hdw-setting`. Borrowing that
+ * class would have looked right on this machine and gone unstyled the moment someone
+ * turned the panel plugin off.
+ */
+
+/* ----------------------------------------------- the row in Settings > General */
+
+/* Metrics copied from the rows upstream draws beside it, so the four rows on that
+   page read as one list rather than three plus ours. */
+.hdw-upd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.hdw-upd-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  /* Upstream reserves this much so a long title never runs under the control. */
+  padding-right: 48px;
+}
+
+.hdw-upd-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.hdw-upd-desc {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+/* The button must not be squeezed by the text column beside it. */
+.hdw-upd-row > :last-child {
+  flex: 0 0 auto;
+}
+
+/* -------------------------------------------------------------- the ready pill */
+
+/*
+ * Bottom right, above every column and outside their scroll containers — which is
+ * what `shell.overlay` is for.
+ *
+ * `pointer-events: auto` is declared here rather than inherited: the overlay layer
+ * itself is click-through so that an entry never blocks the app underneath, and an
+ * entry that wants the mouse has to say so. Without this line the pill is visible
+ * and completely dead, which is the kind of failure that shows up as "the button
+ * does nothing" rather than as an error.
+ */
+.hdw-upd-pill {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 20px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  pointer-events: auto;
+}
+
+.hdw-upd-pill-text {
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.hdw-upd-pill-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-caption);
+  cursor: pointer;
+}
+
+.hdw-upd-pill-x:hover {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+}

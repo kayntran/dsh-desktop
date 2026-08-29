@@ -12,12 +12,12 @@ import { dshHome, dshVersion, engineLogPath, nodeVersion } from './paths.js'
 import { startNotifier, stopNotifier } from './notifier.js'
 import { clearLastInstall, lastInstall, undoLastInstall } from './plugin-undo.js'
 import { startShotLink, stopShotLink } from './shot-link.js'
+import { installUpdate, startUpdater, stopUpdater } from './updater.js'
 import { ensureTools } from './tools.js'
 import { linkPlugins } from './plugin-link.js'
 import {
   createTray, destroyTray, hintHiddenToTray, setTrayStatus, setTrayUpdate,
 } from './tray.js'
-import { openReleasePage, startUpdateChecks, stopUpdateChecks } from './updates.js'
 import {
   beginQuit, createWindow, isWindowActive, revealWindow, showAbout, showEngine, showError, showSplash,
 } from './window.js'
@@ -68,7 +68,7 @@ if (!app.requestSingleInstanceLock()) {
       openDataDir: () => { void shell.openPath(dshHome()) },
       openLog: () => { void shell.openPath(engineLogPath()) },
       openShellLog: () => { void shell.openPath(shellLogPath()) },
-      openRelease: openReleasePage,
+      installUpdate,
       openAbout: () => {
         void showAbout({
           name: app.getName(),
@@ -82,7 +82,6 @@ if (!app.requestSingleInstanceLock()) {
       quit: quitApp,
     })
     createWindow({ onAction: handleAction, onHiddenToTray: hintHiddenToTray })
-    startUpdateChecks((update) => { setTrayUpdate(update.version) })
     await boot()
   })
 
@@ -94,7 +93,7 @@ if (!app.requestSingleInstanceLock()) {
     stopNotifier()
     stopShotLink()
     stopRestartLink()
-    stopUpdateChecks()
+    stopUpdater()
     destroyTray()
     stopEngine()
   })
@@ -109,6 +108,7 @@ async function boot(): Promise<void> {
       stopNotifier()
       stopShotLink()
       stopRestartLink()
+      stopUpdater()
       void showError({ message: 'The engine stopped unexpectedly while running.', tail, ...undoOffer() })
     })
     setTrayStatus('Running')
@@ -123,6 +123,9 @@ async function boot(): Promise<void> {
     // The Plugins page asks for a restart after installing something; same
     // outbound shape, same reason — see `engine-restart.ts`.
     startRestartLink(engine.url, restartEngine)
+    // App updates: downloaded quietly, applied only when the user says so. Same
+    // outbound shape again — see `updater.ts`.
+    startUpdater(engine.url, (version) => { setTrayUpdate(version) })
     await showEngine(engine.url)
   } catch (error) {
     setTrayStatus('Failed to start')
@@ -144,6 +147,7 @@ function restartEngine(): void {
   stopNotifier()
   stopShotLink()
   stopRestartLink()
+  stopUpdater()
   stopEngine()
   void showSplash().then(boot)
 }
