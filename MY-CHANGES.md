@@ -2684,3 +2684,95 @@ quán, không phá luật.
 Đã chạy thử (ca `difftest` dựng riêng, có `changeNote` tiếng Việt): câu *"Sửa lại bước 2 cho rõ hơn
 và thêm bước 4 kiểm tra kết quả cuối."* hiện đúng phía trên diff, dưới là đỏ/xanh và chân `+2 -1 · 1
 file`. Dọn sạch sau đó.
+
+## 2026-08-29 — Nâng engine lên 0.1.1-rc.2, và một tính năng mới của DeepSeek suýt giết panel
+
+Nhảy bốn bản một lượt: `0.1.0-rc.6` → `rc.7` → `rc.8` → `0.1.1-rc.1` → `rc.2`. Người dùng app được
+thêm: gửi ảnh vào hội thoại và model nhìn được ảnh (`DeepSeek-V4-Flash-Vision-Exp`), menu `@` tham
+chiếu được cả file lẫn phiên cũ, PowerShell chạy liên tục trên Windows, Codex và Claude Code làm
+subagent, plugin tự đăng ký được thẻ trong Settings, và mức suy luận `low` cho model DeepSeek.
+
+### Ba chỗ phải sửa theo API mới
+
+**1. `ui-primitives` và `ui-slots` biến mất khỏi bản cài.** Upstream chuyển hai gói này từ
+`peerDependencies` sang `devDependencies` — bản dựng web của họ đã nhúng sẵn nên họ chỉ cần chúng lúc
+biên dịch. Mà `npm run engine:install` chạy với `--omit=dev`, nên hai gói nền tảng mà **toàn bộ giao
+diện của ta** dựa vào không được tải về nữa: 33 lỗi kiểu ngay lượt kiểm đầu. Cách sửa: ghim thẳng hai
+gói đó trong [engine/package.json](engine/package.json). Chúng vẫn được **trang web cấp lúc chạy** qua
+bảng module; bản trên đĩa chỉ để có kiểu dữ liệu lúc biên dịch. Tốn thêm 0,5 MB trong bản cài.
+
+**2. Upstream bỏ hẳn component ảnh dùng chung.** `MessageImage` từng được `ui-attachment` xuất ra và
+thẻ ảnh chụp màn hình của ta dùng nó (kèm sẵn khung phóng to khi bấm). Nửa client của gói đó nay nói
+thẳng một câu: *"Register attachment presentation without exporting React components as package
+values."* Nó chuyển sang chỉ đổ vào slot `conversation.message.images`, mà slot đó thuộc về thân tin
+nhắn, không phải thẻ kết quả tool.
+
+Kiểm trước khi tự viết đúng theo Luật 4: cả 25 component trong `ui-primitives` không cái nào vẽ ảnh,
+và không có service nào phát ra khung xem ảnh. Nên khối ảnh nay nằm ở
+[ScreenshotImage.tsx](plugins/dock/src/client/ScreenshotImage.tsx) — nhưng **khung phóng to vẫn là
+`Modal` của upstream**, và mọi màu vẫn là biến `--dsw-*`. Mức 1.
+
+**3. Danh sách "module do trang cấp" đã đổi.** `dsh-client-web-react` và `dsh-client-schema-form` bị
+xoá khỏi upstream; `react` và `react-dom` nay là gói thật. Quan trọng hơn: bảng module cố định trong
+`packages/client/web/src/platform.ts` **không còn tồn tại** — thay bằng gói `dsh-client-modules` với
+một bộ nạp CJS lười. Bảng nền nay chỉ còn bảy tên (react ×4, cordis, ui-primitives, ui-slots); mọi gói
+dsh khác được giải qua **dòng trong đồ thị khởi động** theo tên gói. `CLIENT_EXTERNALS` trong ba file
+`build.mjs` đã cập nhật, kèm nguồn tra cứu mới.
+
+### Lỗi thật: engine mới tự mở trình duyệt, và nó cướp mất quyền điều khiển panel
+
+Sau khi sửa xong ba chỗ trên, `npm run spike:dock` tụt từ **62/62 xuống 40/62**. Chia rất sạch: mọi
+thứ **người dùng tự bấm** (mở tab, gõ địa chỉ, chuột, bàn phím, terminal, Files) đều đạt; mọi thứ
+**agent tự điều khiển trang web** (đọc trang, chụp ảnh, điều hướng, điền form) đều hỏng, với cùng một
+câu: `tab.el.executeJavaScript is not a function`.
+
+Đường truy: chạy lại với mã nguồn cũ nguyên bản + engine mới → hỏng y hệt, nên không phải do ba sửa
+đổi trên. Cài lại engine rc.6 → 62/62 trở lại, nên đúng là do bản mới. Đặt đầu đo vào chỗ ném lỗi:
+thẻ webview ở đó là `HTMLElement` trơn, `customElements.get('webview')` trả *chưa đăng ký*. Đầu đo
+thứ hai ghi lai lịch từng thẻ được tạo: cái stage mà cầu nối đang nói chuyện **chỉ tạo đúng một thẻ**,
+không có tab mà panel đang hiện — tức là có hai trang cùng chạy plugin, và cầu nối nói với trang sai.
+
+Thủ phạm là một tính năng mới trong ghi chú phát hành rc.8, đọc thì vô hại: *"opening the browser
+automatically for local `dsh web` runs"*. App khởi động engine đúng bằng lệnh đó. Nên từ bản này, mỗi
+lần mở app desktop thì **một tab trình duyệt cũng tự bật lên**; tab đó cũng tải plugin panel, cũng nối
+vào cầu điều khiển, mà trình duyệt thường thì không có `<webview>` — nên lệnh của agent đi nhầm sang
+đó rồi chết, trong khi panel trong cửa sổ app ngồi không.
+
+Sửa: thêm cờ `--no-open` vào lệnh khởi động engine ở [src/main/engine.ts](src/main/engine.ts). Sau đó
+`spike:dock` **62/62** trở lại, và mở app không còn bật tab trình duyệt nào.
+
+Bài học ghi lại vì nó sẽ lặp: **một dòng trong ghi chú phát hành nói về trải nghiệm dòng lệnh vẫn có
+thể là một thay đổi hành vi phá app.** Bảng đối chiếu tính năng mới không bắt được nó — chỉ có bộ kiểm
+chạy thật mới bắt được, và nó bắt bằng cách hỏng ở một chỗ trông chẳng liên quan gì.
+
+### Ba bộ kiểm đã nói dối, nay sửa lại
+
+Cùng lượt này lộ ra ba chỗ bộ kiểm báo sai — nguy hiểm ngang lỗi thật, vì một cái lưới nói dối là cái
+lưới sẽ bị bỏ.
+
+- **`spike:loader`, `spike:manager`, `spike:plugin-guard`** dò bảng khởi động bằng
+  `window.__DSH_BOOT__ = …`, mà bản mới ghi `globalThis["__DSH_BOOT__"] = …`. Đọc ra rỗng, nên mọi mục
+  dựa vào nó báo đỏ oan trong khi tính năng chạy đúng. `spike:manager` từ 6 mục đỏ về **14/14**.
+- **`spike:manager`** còn ôm hai khẳng định lỗi thời **của chính ta**, không liên quan tới nâng cấp:
+  công tắc plugin đã rời Settings sang chân thanh bên, và `ours` kiểu boolean đã thành `origin` ba giá
+  trị từ lúc thêm chợ plugin.
+- **`spike:pty-route`** đòi biến môi trường `HDW_SEED_PATCH` mới đăng ký được workspace; chạy trần thì
+  mục 4 luôn đỏ. Nay mặc định dùng `scripts/spike-ws-seed.mjs` như `spike:dock` vẫn làm → **6/6**.
+
+Mười hai file `spike-*` khởi động engine đều đã thêm `--no-open`, cùng lý do với app.
+
+### Còn một mục đỏ, và nó không thuộc về lượt này
+
+`spike:switch` mục 20 dò gói mẫu `dsh-plugin-vetting` trong chợ cộng đồng. Gói vẫn còn trên npm nhưng
+**đã bị gỡ khỏi danh mục chợ** — dữ liệu bên ngoài, rữa theo thời gian. Mục 20 thoát sớm nên mục 21 và
+22 (cài thật rồi gỡ thật) âm thầm không chạy. Cần chọn gói mẫu khác, tách thành việc riêng.
+
+### Nghiệm thu
+
+`npm run typecheck` sạch. `spike:dock` **62/62**, `spike:manager` **14/14**, `spike:pty-route`
+**6/6**, `spike:tools`, `spike:card`, `spike:chats`, `spike:think`, `spike:relay`, `spike:picker`,
+`spike:plugin` đều đạt. Trong app thật: phiên cũ đọc được nguyên vẹn dù rc.8 đổi định dạng lưu trữ
+SQLite, panel mở được, Files đọc thư mục, Terminal chạy shell thật, và agent đọc được nội dung trang
+web trong panel. `spike:loader` còn 4 mục đỏ nhưng chính nó ghi ở chân báo cáo rằng mục đỏ ở đó là
+**phép đo tính chất của engine**, không phải lỗi: engine không tự giữ trạng thái tắt qua lần khởi động
+lại, nên plugin quản lý phải tự lưu — mà nó đang làm đúng vậy, và `spike:manager` chứng minh.

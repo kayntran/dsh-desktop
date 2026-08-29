@@ -14,7 +14,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const nodeExe = join(root, 'runtime', 'node.exe')
 const dshBin = join(root, 'engine', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 
-const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--port', '0'], {
+const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--port', '0', '--no-open'], {
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
 })

@@ -134,7 +134,7 @@ function bootEngine() {
     dshBin, '--profile', 'web',
     '--patch', dockPatch,
     '--patch', probePatch,
-    '--port', '0',
+    '--port', '0', '--no-open',
   ], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -174,7 +174,7 @@ function kill(child) {
  * 404, mà chuỗi tên gói vẫn xuất hiện chín chỗ trong trang.
  */
 function bootEntryIds(html) {
-  const match = /window\.__DSH_BOOT__\s*=\s*(\{[\s\S]*\})\s*;?\s*<\/script>/.exec(html)
+  const match = /(?:window\.__DSH_BOOT__|globalThis\[["']__DSH_BOOT__["']\])\s*=\s*(\{[\s\S]*?\})\s*;?\s*<\/script>/.exec(html)
   if (match === null) return []
   try {
     return JSON.parse(match[1]).entries.map((e) => e.id)
@@ -472,7 +472,7 @@ if (log.pass2.ok === true) {
       '--patch', dockPatch,
       '--patch', probePatch,
       '--patch', statePatch,
-      '--port', '0',
+      '--port', '0', '--no-open',
     ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, DSH_HOME: dshHome } })
     let out = ''
     try {

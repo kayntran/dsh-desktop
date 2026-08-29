@@ -26,15 +26,15 @@
  * Upstream's `ToolRow` and `GenericToolCard` are **not exported** from the
  * `dsh-client-ui-tool` package; it exports only `apply`, `inject` and a few types. So the
  * row frame has to be built by hand. In exchange, every material inside it is the
- * system's own: icons from `ui-primitives`, the image from `ui-attachment`'s
- * `MessageImage` (which brings its own full-size lightbox on click), and colors only from
- * `--dsw-alias-*` variables.
+ * system's own: icons from `ui-primitives`, the enlarged view's frame from that package's
+ * `Modal`, and colors only from `--dsw-alias-*` variables. The image block itself lives
+ * in `ScreenshotImage.tsx`, which records why it too had to be written by hand.
  * @module
  */
 
 import { useCallback } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { MessageImage } from '@deepseek-ai/dsh-client-ui-attachment'
+import { ScreenshotImage } from './ScreenshotImage.tsx'
 // Upstream's 70 icons include NO camera — counted. The globe is used instead, the same
 // one the browser panel uses, so this card reads as "a browser thing" rather than
 // importing some off-key drawing of our own.
@@ -102,15 +102,14 @@ function toAttachment(meta: unknown): ImageAttachmentRef | undefined {
   }
 }
 
-/** The copy shown inside the image block. `MessageImage` takes it as props rather than
- * carrying its own, because the primitives package is cordis-free and holds no locale. */
+/** The copy shown inside the image block. It arrives as props rather than living in the
+ * image component, because that component holds no locale. */
 const IMAGE_LABELS = {
   image: 'Page screenshot',
-  open: 'Click to view the full-size image',
-  openNamed: (label: string) => `View full size: ${label}`,
+  lightbox: 'Page screenshot, full size',
+  close: 'Close',
   loading: 'Loading the image…',
   loadFailed: 'Could not load the image — click to retry',
-  lightbox: { dialog: 'Page screenshot, full size', close: 'Close' },
 }
 
 /**
@@ -147,7 +146,7 @@ export function ScreenshotCard({ block, loadShot }: ScreenshotCardProps): React.
       </div>
       {attachment !== undefined && (
         <div className="hdw-shot-image">
-          <MessageImage attachment={attachment} load={load} variant="single" labels={IMAGE_LABELS} />
+          <ScreenshotImage attachment={attachment} load={load} labels={IMAGE_LABELS} />
         </div>
       )}
     </div>

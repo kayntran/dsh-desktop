@@ -17,10 +17,10 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const nodeExe = join(root, 'runtime', 'node.exe')
@@ -55,12 +55,20 @@ console.log(`DSH_HOME: ${home}\n`)
 // brand-new DSH_HOME has no workspace at all, and then EVERY connection is refused —
 // correct by the rules, but it leaves the success path untested. Supplied through an
 // environment variable so the spike does not depend on a file outside the project.
-const seedPatch = process.env['HDW_SEED_PATCH']
-const patchArgs = seedPatch === undefined
-  ? ['--patch', patch]
-  : ['--patch', patch, '--patch', seedPatch]
+// Mặc định dùng plugin gieo có sẵn trong `scripts/`; biến môi trường chỉ để thay
+// bằng bản khác khi cần. Trước đây không có mặc định, nên chạy bộ này bằng
+// `npm run spike:pty-route` luôn để mục 4 đỏ — một mục đỏ vì THIẾU ĐỒ GIEO trông
+// y hệt một mục đỏ vì hỏng thật, và đó là loại nhiễu làm người ta thôi tin bộ kiểm.
+const seedFile = join(root, 'scripts', 'spike-ws-seed.mjs')
+const seedPatchFile = join(home, 'hdw-ws-seed.patch.yml')
+writeFileSync(seedPatchFile, `- insert:
+    - id: hdw-ws-seed
+      name: ${pathToFileURL(seedFile).href}
+`)
+const seedPatch = process.env['HDW_SEED_PATCH'] ?? seedPatchFile
+const patchArgs = ['--patch', patch, '--patch', seedPatch]
 
-const child = spawn(nodeExe, [dshBin, '--profile', 'web', ...patchArgs, '--port', '0'], {
+const child = spawn(nodeExe, [dshBin, '--profile', 'web', ...patchArgs, '--port', '0', '--no-open'], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,

@@ -41,7 +41,7 @@ const rpc = async (base, method, payload = {}) => {
   return res.json()
 }
 
-const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--port', '0'], {
+const child = spawn(nodeExe, [dshBin, '--profile', 'web', '--port', '0', '--no-open'], {
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
 })

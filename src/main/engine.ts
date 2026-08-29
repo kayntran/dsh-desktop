@@ -250,6 +250,18 @@ export async function startEngine(onExit: (tail: string) => void): Promise<Engin
     '--patch', growthPatchPath(),
     '--patch', pluginStatePath(),
     '--port', '0',
+    // From dsh 0.1.1-rc.2 the web profile opens the user's default browser on
+    // startup. That is right for someone running `dsh web` in a terminal and wrong
+    // here: the app already shows the UI in its own window, so the browser tab is a
+    // second copy nobody asked for.
+    //
+    // It is not merely untidy. That tab loads the panel plugin too and joins the
+    // panel's control bridge, and an ordinary browser has no `<webview>` — so the
+    // agent's "read this page", "screenshot it", "navigate it" commands were routed
+    // into the browser tab and died there while the panel in this window sat unused.
+    // Measured: `npm run spike:dock` fell from 62/62 to 40/62 on the upgrade, and
+    // every one of the 22 failures was a command that had gone to the wrong copy.
+    '--no-open',
   ], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,

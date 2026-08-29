@@ -654,9 +654,52 @@
   display: flex;
 }
 
-/* A safety net, NOT styling: when `MessageImage`'s own CSS is present, the image already
-   fits inside its 240px box and this line has no effect. If for some reason that CSS is
-   absent, this line keeps an 800px image from breaking the whole conversation frame. */
-.hdw-shot-image img {
+/* The clickable image block. From dsh 0.1.1-rc.2 upstream no longer exports a reusable
+   image component, so the box is drawn here — see `ScreenshotImage.tsx`. It is a button
+   so that keyboard and screen-reader users reach the full-size view the same way. */
+.hdw-shot-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 240px;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.hdw-shot-thumb[disabled] {
+  cursor: default;
+}
+
+.hdw-shot-thumb:not([disabled]):hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+/* An 800px capture must not stretch the conversation frame. */
+.hdw-shot-thumb img {
+  display: block;
   max-width: 100%;
+  height: auto;
+}
+
+.hdw-shot-status {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.hdw-shot-thumb[data-state='error'] .hdw-shot-status {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The enlarged view. The card, mask and Escape handling are upstream's `Modal`; only the
+   image sizing belongs here, so a tall capture scrolls instead of overflowing. */
+.hdw-shot-zoom-body img {
+  display: block;
+  max-width: 100%;
+  max-height: 75vh;
+  margin: 0 auto;
 }

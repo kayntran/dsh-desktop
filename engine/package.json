@@ -2,8 +2,10 @@
   "name": "harness-desktop-engine",
   "version": "0.0.0",
   "private": true,
-  "description": "Cây phụ thuộc của engine dsh, tách riêng khỏi app. Các gói của dsh khai báo phụ thuộc thật bằng peerDependencies, mà bộ thu thập của electron-builder chỉ đi theo dependencies nên bỏ sót hơn 200 gói. Cài riêng ở đây rồi chép nguyên khối vào bản đóng gói thì npm lo phần phân giải, không phụ thuộc vào suy đoán của trình đóng gói. Nâng cấp dsh = đổi số ở dòng dưới rồi chạy lại npm install trong thư mục này.",
+  "description": "Cây phụ thuộc của engine dsh, tách riêng khỏi app. Các gói của dsh khai báo phụ thuộc thật bằng peerDependencies, mà bộ thu thập của electron-builder chỉ đi theo dependencies nên bỏ sót hơn 200 gói. Cài riêng ở đây rồi chép nguyên khối vào bản đóng gói thì npm lo phần phân giải, không phụ thuộc vào suy đoán của trình đóng gói. Nâng cấp dsh = đổi số ở dòng dưới rồi chạy lại npm install trong thư mục này. Hai gói ui-primitives và ui-slots ghim riêng: từ 0.1.1-rc.2 upstream chuyển chúng sang devDependencies vì bản dựng web của họ đã nhúng sẵn, nên `npm install --omit=dev` không kéo về nữa — nhưng trang web vẫn cấp chúng cho plugin qua bảng module, và mã của ta cần kiểu dữ liệu của chúng lúc biên dịch.",
   "dependencies": {
-    "@deepseek-ai/dsh": "0.1.0-rc.6"
+    "@deepseek-ai/dsh": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.1-rc.2"
   }
 }

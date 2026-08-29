@@ -333,7 +333,7 @@ let engine
 
 /** Khởi động engine ĐÚNG như lớp vỏ khởi động nó — kể cả việc không đặt DSH_HOME. */
 function startEngine() {
-  engine = spawn(nodeExe, [dshBin, '--profile', 'web', '--patch', dockPatch, '--port', '0'], {
+  engine = spawn(nodeExe, [dshBin, '--profile', 'web', '--patch', dockPatch, '--port', '0', '--no-open'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,

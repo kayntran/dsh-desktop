@@ -92,7 +92,6 @@ phần còn lại của app.
 | `@deepseek-ai/dsh-client-ui-slots` | Đăng ký vào slot |
 | `@deepseek-ai/dsh-client-locale` | Đa ngôn ngữ |
 | `@deepseek-ai/dsh-client-runtime` | Lấy dữ liệu phiên, gọi về host |
-| `@deepseek-ai/dsh-client-schema-form` | Xử lý dữ liệu form theo schema — **lưu ý: không render gì**, chỉ là lớp dữ liệu; phần hiển thị vẫn tự dựng bằng `Input`/`Button` |
 
 ## Màu và khoảng cách
 
