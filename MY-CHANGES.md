@@ -2805,3 +2805,30 @@ Hai điều đáng nhớ hơn cả bản thân lỗi:
 Nghiệm thu lần này làm đúng vậy: chạy cả `release/win-unpacked/Harness Desktop.exe` lẫn bản portable.
 Cả hai đều lên engine, phục vụ đủ ba plugin có giao diện, mở được tab web và agent đọc được nội dung
 trang, và mở được phiên terminal thật (`cmd.exe`, đúng thư mục, chữ của shell chảy về).
+
+## 2026-08-29 — Rà lại bản nâng cấp: một nhánh báo lỗi chưa từng chạy được
+
+Hai chỗ, tìm ra khi soi lại chính diff vừa làm.
+
+**Khối ảnh trong thẻ chụp màn hình có một nhánh báo lỗi là code chết.** Nó tự viết ra trạng thái
+"không tải được ảnh — bấm để thử lại", nhưng đường duy nhất dẫn vào trạng thái đó là `load` ném lỗi
+— mà `load` chỉ ghép chuỗi địa chỉ `/hdw/image?...`, không tải gì, nên không bao giờ ném. Lần tải
+thật là do trình duyệt làm qua thuộc tính `src`, và không ai theo dõi kết quả. Hậu quả thật: mở lại
+một phiên cũ mà ảnh đã bị dọn → người dùng thấy **icon ảnh vỡ của trình duyệt**, không một chữ giải
+thích, không cách thử lại; còn câu chữ `loadFailed`, bộ đếm thử lại và luật CSS `data-state='error'`
+đều nằm chết.
+
+Sửa: thêm `onError` cho thẻ ảnh. Kèm `key={attempt}`, vì địa chỉ không đổi giữa các lần thử nên nếu
+không thay khoá thì React giữ nguyên thẻ cũ và trình duyệt chẳng hỏi lại lần nào — "thử lại" sẽ chỉ
+là một cú bấm không làm gì.
+
+`spike:card` có thêm mục 6 cho đúng ca này, và **đã kiểm ngược**: bỏ `onError` ra thì mục 6 đỏ với
+đúng triệu chứng (`hasImg=true`, địa chỉ trỏ vào ảnh đã mất). Một mục kiểm không tự đỏ khi gỡ bản vá
+thì không gác gì cả. Vòng chờ của bộ kiểm cũng phải sửa theo: sự kiện lỗi của thẻ ảnh nổ **sau** khi
+ảnh tốt đã vẽ, nên chờ mỗi "ảnh tốt đã hiện" là đọc hụt và mục 6 đỏ oan.
+
+**`engine/package.json` dặn sai người nâng cấp sau.** Dòng mô tả vẫn viết "đổi số ở dòng dưới" từ
+thời chỉ có một phiên bản, trong khi nay có ba phải đi cùng nhau. Đổi mỗi `dsh` thì hai gói giao diện
+nằm lại bản cũ: npm vẫn cài được, typecheck vẫn sạch, nhưng plugin biên dịch theo hợp đồng slot cũ
+trong khi engine phục vụ hợp đồng mới — đúng loại lệch âm thầm đã ngốn cả buổi hôm nay. Đã sửa cả
+dòng mô tả lẫn bước tương ứng trong quy trình `/nang-cap-engine`.

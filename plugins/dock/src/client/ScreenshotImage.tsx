@@ -88,6 +88,21 @@ export function ScreenshotImage({ attachment, load, labels }: ScreenshotImagePro
     else if (url !== undefined) setZoomed(true)
   }, [failed, url])
 
+  /**
+   * The image itself could not be fetched.
+   *
+   * This is the ONLY route into the failed state, and it has to exist: `load` resolves a
+   * `/hdw/image?...` address by assembling a string, so it never rejects, and the fetch
+   * that can actually fail is the one the browser performs from `src`. Without this
+   * handler a screenshot whose bytes are gone — an old session whose attachment was
+   * pruned, so the route answers 404 — painted the browser's broken-image glyph with no
+   * explanation and no way to retry, while every line below that reads `failed` sat
+   * unreachable.
+   */
+  const onImageError = useCallback(() => {
+    setFailed(true)
+  }, [])
+
   const closeZoom = useCallback(() => {
     setZoomed(false)
   }, [])
@@ -104,7 +119,20 @@ export function ScreenshotImage({ attachment, load, labels }: ScreenshotImagePro
         aria-label={failed ? labels.loadFailed : labels.lightbox}
       >
         {url !== undefined && !failed
-          ? <img src={url} alt={labels.image} width={attachment.width} height={attachment.height} />
+          // `key` is what makes the retry a real retry. The address does not change
+          // between attempts, so React would otherwise keep the same element and the
+          // browser would never ask for the picture again; keying on the attempt count
+          // mounts a fresh tag, which starts a fresh request.
+          ? (
+              <img
+                key={attempt}
+                src={url}
+                alt={labels.image}
+                width={attachment.width}
+                height={attachment.height}
+                onError={onImageError}
+              />
+            )
           : <span className="hdw-shot-status">{failed ? labels.loadFailed : labels.loading}</span>}
       </button>
       {zoomed && url !== undefined && (

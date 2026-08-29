@@ -43,7 +43,10 @@ cd _upstream_dsh && git pull --ff-only && git log --oneline <cũ>..<mới> | hea
 git checkout -b nang-cap-engine-<phiên-bản>
 ```
 
-Đổi số trong [engine/package.json](../../../engine/package.json) rồi:
+Đổi **cả ba số** trong [engine/package.json](../../../engine/package.json) — `dsh`,
+`dsh-client-ui-primitives`, `dsh-client-ui-slots` — sang cùng một phiên bản. Bỏ sót hai gói sau thì
+không có gì báo: npm vẫn cài, typecheck vẫn sạch, nhưng plugin biên dịch theo hợp đồng slot cũ trong
+khi engine phục vụ hợp đồng mới. Rồi:
 
 ```bash
 npm run engine:install

@@ -68,7 +68,15 @@ function fakeShot(width, height) {
   return canvas.toDataURL('image/png')
 }
 
-const loadShot = async (attachment) => fakeShot(attachment.width, attachment.height)
+const DEAD_ID = 'sha256:' + 'd'.repeat(64)
+
+// Ca "gone" trả về một địa chỉ chắc chắn nạp hỏng — đúng thứ xảy ra khi mở lại
+// một phiên cũ mà ảnh đã bị dọn: đường dẫn còn, byte thì không.
+const loadShot = async (attachment) => (
+  attachment.attachmentId === DEAD_ID
+    ? '/hdw/image?id=khong-con-nua'
+    : fakeShot(attachment.width, attachment.height)
+)
 
 const DONE_META = {
   attachment_id: 'sha256:' + 'a'.repeat(64),
@@ -79,11 +87,14 @@ const DONE_META = {
   seen_by_model: false,
 }
 
+const DEAD_META = { ...DONE_META, attachment_id: DEAD_ID }
+
 const CASES = [
   ['running', { callId: 'c1', name: 'browser_screenshot', argsRaw: '{}', turn: 1, step: 1, time: 0, callView: null, subCalls: [] }],
   ['done', { kind: 'tool-result', callId: 'c2', seq: 2, time: 0, call: null, callTime: null, content: [], isError: false, meta: DONE_META, callView: null, resultView: null, subCalls: [] }],
   ['junk', { kind: 'tool-result', callId: 'c3', seq: 3, time: 0, call: null, callTime: null, content: [], isError: false, meta: { attachment_id: 7 }, callView: null, resultView: null, subCalls: [] }],
   ['error', { kind: 'tool-result', callId: 'c4', seq: 4, time: 0, call: null, callTime: null, content: [], isError: true, meta: undefined, callView: null, resultView: null, subCalls: [] }],
+  ['gone', { kind: 'tool-result', callId: 'c5', seq: 5, time: 0, call: null, callTime: null, content: [], isError: false, meta: DEAD_META, callView: null, resultView: null, subCalls: [] }],
 ]
 
 for (const [id, block] of CASES) {
@@ -141,10 +152,12 @@ async function main() {
   })
   await win.loadFile(page)
 
-  // Chờ ảnh nạp xong. `MessageImage` nạp bất đồng bộ nên hỏi ngay là hỏi hụt.
+  // Chờ CẢ HAI phía lắng: ảnh tốt hiện ra, VÀ ảnh hỏng đã kịp báo hỏng. Chờ mỗi vế
+  // đầu là hỏng — sự kiện lỗi của thẻ <img> nổ sau khi ảnh tốt đã vẽ, nên đọc DOM ngay
+  // lúc đó vẫn thấy thẻ ảnh hỏng còn nằm nguyên, và mục 6 đỏ oan y hệt như bản vá không chạy.
   for (let i = 0; i < 40; i += 1) {
     const ready = await win.webContents.executeJavaScript(
-      `!!document.querySelector('#case-done img')`)
+      `!!document.querySelector('#case-done img') && !document.querySelector('#case-gone img')`)
     if (ready) break
     await new Promise((r) => { setTimeout(r, 250) })
   }
@@ -163,7 +176,7 @@ async function main() {
         h: box ? Math.round(box.height) : 0,
       }
     }
-    return { running: pick('running'), done: pick('done'), junk: pick('junk'), error: pick('error') }
+    return { running: pick('running'), done: pick('done'), junk: pick('junk'), error: pick('error'), gone: pick('gone') }
   })()`)
 
   if (noise.length > 0) console.log(`  (console trang) ${noise.join(' | ').slice(0, 600)}`)
@@ -184,6 +197,14 @@ async function main() {
   record('4. chụp lỗi: nói rõ là lỗi thay vì im lặng',
     !seen.error.hasImg && String(seen.error.html ?? "").includes('capture failed'),
     JSON.stringify(seen.error))
+
+  // Vì sao mục này đáng có: nhánh báo lỗi của khối ảnh TỪNG là code chết. Hàm
+  // `load` chỉ ghép chuỗi địa chỉ nên không bao giờ ném, mà thẻ <img> lại không
+  // có `onError` — nên một tấm ảnh đã mất byte hiện ra dưới dạng icon ảnh vỡ của
+  // trình duyệt, không một chữ giải thích. Mục này gác đúng chỗ đó.
+  record('6. ảnh không nạp được: nói ra và cho bấm thử lại, không để icon ảnh vỡ',
+    !seen.gone.hasImg && String(seen.gone.html ?? '').includes('Could not load'),
+    JSON.stringify(seen.gone))
 
   const errors = await win.webContents.executeJavaScript(
     `(window.__errors || []).join(' | ')`).catch(() => '')
