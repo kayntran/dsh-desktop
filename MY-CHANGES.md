@@ -2776,3 +2776,32 @@ SQLite, panel mở được, Files đọc thư mục, Terminal chạy shell th�
 web trong panel. `spike:loader` còn 4 mục đỏ nhưng chính nó ghi ở chân báo cáo rằng mục đỏ ở đó là
 **phép đo tính chất của engine**, không phải lỗi: engine không tự giữ trạng thái tắt qua lần khởi động
 lại, nên plugin quản lý phải tự lưu — mà nó đang làm đúng vậy, và `spike:manager` chứng minh.
+
+## 2026-08-29 — Bản đóng gói dựng ra được nhưng chết ngay khi mở, và không gì báo
+
+Phát hiện lúc dựng bản phát hành đầu tiên cho người khác dùng. `npm run dist` chạy xong, exit code 0,
+installer 171 MB nằm đó trông bình thường. Mở lên thì app hiện màn hình lỗi: engine chết với
+`Cannot find package 'ws'`.
+
+Nguyên nhân nằm ở [electron-builder.yml](electron-builder.yml). Hai thư viện lúc chạy của panel
+(`ws`, `node-pty`) được khai bằng hai dòng kiểu `<thư mục gói>/<tên>/**/*` **bên trong** danh sách lọc
+của mục chép `plugins/dock`. Danh sách đó là loại "chỉ lấy những thứ này" — và khi có một danh sách
+như vậy, electron-builder **gạt cả thư mục gói ra trước khi đọc tới các dòng đó**. Kết quả: bản đóng
+gói không mang theo thư viện nào của panel.
+
+Tách thành hai mục chép riêng vẫn hỏng y hệt, chừng nào chúng còn mang lọc kiểu "chỉ lấy" (`- '**/*'`
+cũng tính là một). Chỉ khi bỏ hết, để lại **thuần các dòng loại trừ** (`- '!**/*.pdb'`) thì mới chép
+được — cũng chính là lý do mục chép cây phụ thuộc của engine phía trên luôn chạy đúng: nó không có lọc.
+
+Hai điều đáng nhớ hơn cả bản thân lỗi:
+
+- **Lỗi này chỉ tồn tại trong bản đóng gói.** `npm run dev` không bao giờ dính, vì lúc đó plugin được
+  nạp thẳng từ thư mục dự án, nơi thư viện của nó nằm sẵn. Mọi bộ kiểm hiện có đều chạy trên cây dự
+  án, nên **62/62 vẫn xanh trong khi thứ giao cho người dùng thì không mở nổi**.
+- **Không có gì báo.** Không cảnh báo lúc dựng, không lỗi, không dòng log. Nên luật rút ra, đã ghi
+  thẳng vào file cấu hình: *sau mỗi lần đụng vào phần đóng gói, phải CHẠY THỬ BẢN ĐÃ ĐÓNG GÓI — đọc
+  log không chứng minh được gì.*
+
+Nghiệm thu lần này làm đúng vậy: chạy cả `release/win-unpacked/Harness Desktop.exe` lẫn bản portable.
+Cả hai đều lên engine, phục vụ đủ ba plugin có giao diện, mở được tab web và agent đọc được nội dung
+trang, và mở được phiên terminal thật (`cmd.exe`, đúng thư mục, chữ của shell chảy về).

@@ -52,10 +52,34 @@ extraResources:
       - package.json
       - cordis.patch.yml
       - lib/**/*
-      - node_modules/ws/**/*
-      - node_modules/node-pty/**/*
-      - '!node_modules/node-pty/prebuilds/darwin-*/**'
-      - '!node_modules/node-pty/prebuilds/win32-arm64/**'
+      - '!**/*.map'
+  # The panel's two runtime dependencies, each copied by ITS OWN entry, and — this is
+  # the part that matters — WITHOUT AN "ONLY TAKE THESE" FILTER.
+  #
+  # A filter that lists what to include makes electron-builder drop `node_modules`
+  # before the list is ever consulted, so `node_modules/ws/**/*` written inside the
+  # entry above copied NOTHING. The packaged app carried no `plugins/dock/node_modules`
+  # at all and the engine died at startup with `Cannot find package 'ws'`. Two separate
+  # entries with `- '**/*'` failed for the same reason. Only-exclude filters (every
+  # line starting with `!`) are fine: they leave the default "take everything" in
+  # place, which is also why `engine/node_modules` above has always worked.
+  #
+  # The failure appears ONLY in a packaged build, never in `npm run dev`, where the
+  # plugin is loaded straight from the project directory that holds its dependencies.
+  # And nothing reports it: `npm run dist` exits 0 and produces an installer that looks
+  # perfectly normal. So the check after any packaging change is to RUN THE PACKAGED
+  # BUILD — reading the build log proves nothing.
+  - from: plugins/dock/node_modules/ws
+    to: plugins/dock/node_modules/ws
+    filter:
+      - '!**/*.map'
+  # node-pty ships prebuilt binaries for platforms this app does not target, plus
+  # debug symbols; dropping them cuts about 22 MB.
+  - from: plugins/dock/node_modules/node-pty
+    to: plugins/dock/node_modules/node-pty
+    filter:
+      - '!prebuilds/darwin-*/**'
+      - '!prebuilds/win32-arm64/**'
       - '!**/*.pdb'
       - '!**/*.map'
   # Công tắc bật/tắt plugin. Không có phụ thuộc lúc chạy nào — cả hai nửa đã nằm
