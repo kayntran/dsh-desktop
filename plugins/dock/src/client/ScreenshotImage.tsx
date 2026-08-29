@@ -65,6 +65,20 @@ export function ScreenshotImage({ attachment, load, labels }: ScreenshotImagePro
   const [attempt, setAttempt] = useState(0)
   const [zoomed, setZoomed] = useState(false)
 
+  /**
+   * What identifies the picture, as a plain string.
+   *
+   * The effect below keys on THIS rather than on `attachment`, and the difference is not
+   * cosmetic. The card assembles `attachment` from the block's raw data inside its render
+   * body, so the object is new on every render, and slot entries are not memoized — every
+   * repaint of the conversation would therefore re-run the effect and clear `failed`. A
+   * card sitting on "could not load" would flip back to the image, ask for the missing
+   * bytes again, fail again, and go on flickering for as long as an answer was streaming
+   * beside it. The other fields travel with this id (they come from the same result), so
+   * the address the effect builds does not go stale.
+   */
+  const attachmentId = String(attachment.attachmentId)
+
   useEffect(() => {
     // The card also renders while the user scrolls back through an old session, so a
     // resolved address can arrive after this card is gone. Dropping the late result
@@ -81,7 +95,8 @@ export function ScreenshotImage({ attachment, load, labels }: ScreenshotImagePro
     return () => {
       live = false
     }
-  }, [attachment, load, attempt])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see `attachmentId` above.
+  }, [attachmentId, load, attempt])
 
   const onActivate = useCallback(() => {
     if (failed) setAttempt((n) => n + 1)

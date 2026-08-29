@@ -48,7 +48,13 @@ const record = (name, ok, detail) => {
  * Trang thử: dựng ba thẻ cạnh nhau, mỗi thẻ một trạng thái.
  *
  * `loadShot` giả vẽ một tấm PNG thật bằng canvas ngay trong trang, nên đường đi
- * của ảnh là đường thật từ `MessageImage` trở đi — chỉ đoạn hỏi engine là thay.
+ * của ảnh là đường thật từ khối ảnh trở đi — chỉ đoạn hỏi engine là thay.
+ *
+ * CẨN THẬN KHI SỬA KHỐI DƯỚI: nó là một chuỗi template bao bằng dấu backtick, nên
+ * MỘT dấu backtick lẻ trong đó — kể cả nằm trong chú thích, kiểu bọc tên một biến —
+ * đóng chuỗi sớm và cả file thành lỗi cú pháp. Đã trả giá một lần: app bật hộp thoại
+ * "A JavaScript error occurred in the main process" chứ không phải một mục kiểm đỏ,
+ * nên nhìn không ra là do đâu. Trong khối đó, viết tên biến trần, đừng bọc gì cả.
  */
 const ENTRY = `
 import { createElement } from 'react'
@@ -97,19 +103,48 @@ const CASES = [
   ['gone', { kind: 'tool-result', callId: 'c5', seq: 5, time: 0, call: null, callTime: null, content: [], isError: false, meta: DEAD_META, callView: null, resultView: null, subCalls: [] }],
 ]
 
+const roots = new Map()
+
+// Props của thẻ, gom một chỗ để lần vẽ lại dựng đúng bộ như lần đầu.
+const cardProps = (block) => ({
+  block,
+  sessionId: 'session-1',
+  loadShot,
+  callId: block.callId,
+  toolName: 'browser_screenshot',
+  openFile: () => {},
+})
+
 for (const [id, block] of CASES) {
   const host = document.createElement('div')
   host.id = 'case-' + id
   host.style.margin = '12px'
   document.body.append(host)
-  createRoot(host).render(createElement(ScreenshotCard, {
-    block,
-    sessionId: 'session-1',
-    loadShot,
-    callId: block.callId,
-    toolName: 'browser_screenshot',
-    openFile: () => {},
-  }))
+  const mounted = createRoot(host)
+  roots.set(id, { root: mounted, block })
+  mounted.render(createElement(ScreenshotCard, cardProps(block)))
+}
+
+// Đếm số lần một thẻ <img> được gắn MỚI vào ca "gone".
+//
+// Đây là thước của mục 7. Đọc DOM một phát thì không thấy gì: nếu trạng thái lỗi bị
+// xoá mỗi lần vẽ lại, thẻ ảnh gắn vào rồi lỗi rồi biến đi trong vài mili giây, và
+// giữa hai lần nhìn mọi thứ trông y như đứng yên. Bộ đếm thì không bỏ sót lần nào.
+window.__goneImgMounts = 0
+new MutationObserver((records) => {
+  for (const record of records) {
+    for (const node of record.addedNodes) {
+      if (node.nodeName === 'IMG') window.__goneImgMounts += 1
+    }
+  }
+}).observe(document.querySelector('#case-gone'), { childList: true, subtree: true })
+
+// Vẽ lại một ca với dữ liệu MỚI HOÀN TOÀN nhưng cùng nội dung — đúng thứ khung hội
+// thoại làm mỗi lần có chữ chảy về, và đúng thứ khiến thẻ cha dựng lại tham chiếu ảnh.
+window.__repaint = (id) => {
+  const kept = roots.get(id)
+  const meta = kept.block.meta === undefined ? undefined : { ...kept.block.meta }
+  kept.root.render(createElement(ScreenshotCard, cardProps({ ...kept.block, meta })))
 }
 `
 
@@ -205,6 +240,32 @@ async function main() {
   record('6. ảnh không nạp được: nói ra và cho bấm thử lại, không để icon ảnh vỡ',
     !seen.gone.hasImg && String(seen.gone.html ?? '').includes('Could not load'),
     JSON.stringify(seen.gone))
+
+  // --- 7. vẽ lại nhiều lần thì câu báo lỗi phải ĐỨNG YÊN.
+  //
+  // Vì sao cần: thẻ cha dựng lại `attachment` mỗi lần vẽ, và entry cắm slot không được
+  // memo hoá. Nếu khối ảnh bám vào chính object đó thì mỗi lần khung hội thoại vẽ lại
+  // — mà chữ đang chảy về là vẽ lại liên tục — trạng thái lỗi bị xoá, thẻ ảnh gắn lại,
+  // trình duyệt xin lại tấm ảnh không tồn tại. Câu báo nhấp nháy, và app bắn một
+  // request hỏng cho mỗi lần vẽ. Mục 6 KHÔNG bắt được chỗ này: nó chỉ vẽ một lần.
+  const stable = await win.webContents.executeJavaScript(`(async () => {
+    window.__goneImgMounts = 0
+    for (let i = 0; i < 5; i += 1) {
+      window.__repaint('gone')
+      await new Promise((r) => setTimeout(r, 60))
+    }
+    await new Promise((r) => setTimeout(r, 400))
+    const host = document.querySelector('#case-gone')
+    return {
+      mounts: window.__goneImgMounts,
+      hasImg: !!host.querySelector('img'),
+      html: host.innerText.replace(/\\s+/g, ' ').trim().slice(0, 60),
+    }
+  })()`)
+  record('7. vẽ lại nhiều lần: câu báo lỗi đứng yên, không gắn lại thẻ ảnh',
+    stable.mounts === 0 && stable.hasImg === false
+      && String(stable.html ?? '').includes('Could not load'),
+    JSON.stringify(stable))
 
   const errors = await win.webContents.executeJavaScript(
     `(window.__errors || []).join(' | ')`).catch(() => '')

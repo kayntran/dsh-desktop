@@ -2832,3 +2832,34 @@ thời chỉ có một phiên bản, trong khi nay có ba phải đi cùng nhau.
 nằm lại bản cũ: npm vẫn cài được, typecheck vẫn sạch, nhưng plugin biên dịch theo hợp đồng slot cũ
 trong khi engine phục vụ hợp đồng mới — đúng loại lệch âm thầm đã ngốn cả buổi hôm nay. Đã sửa cả
 dòng mô tả lẫn bước tương ứng trong quy trình `/nang-cap-engine`.
+
+## 2026-08-29 — Vá xong lại đẻ ra lỗi mới: trạng thái lỗi bị xoá mỗi lần vẽ lại
+
+Bản vá `onError` ở mục trên bật được nhánh báo lỗi lên — và chính việc bật được đó làm lộ một chỗ
+trước kia vô hại. Khối ảnh có một `useEffect` bám vào **object** `attachment`, mà thẻ cha dựng lại
+object đó ngay trong thân render, và entry cắm slot thì **không được memo hoá** (đã kiểm: không có
+`memo(` nào trong bản dựng của `dsh-client-ui-renderer`). Nên mỗi lần khung hội thoại vẽ lại là một
+lần `setFailed(false)`.
+
+Hậu quả thật, chỉ xuất hiện SAU khi có `onError`: một thẻ đang đứng ở "không tải được ảnh" sẽ bị xoá
+trạng thái, gắn lại thẻ ảnh, trình duyệt xin lại tấm ảnh không tồn tại, lại lỗi — lặp đúng theo nhịp
+vẽ lại. Mà chữ đang chảy về là vẽ lại liên tục, nên câu báo nhấp nháy và app bắn một request hỏng cho
+mỗi lần vẽ. Trước khi có `onError`, `failed` không bao giờ bật nên chuyện này không tồn tại.
+
+Sửa: effect bám vào `attachment.attachmentId` (chuỗi, ổn định) thay vì object.
+
+Bài học lặp lại lần thứ hai trong ngày, lần này ở quy mô nhỏ: **một thứ vô hại chỉ vô hại trong ngữ
+cảnh hiện tại.** Vòng review trước tôi đã soi đúng chỗ effect này, thấy nó chạy lại thừa nhưng không
+gây gì, và bỏ qua — kết luận đó đúng vào lúc đó và sai ngay khi nhánh lỗi được bật lên.
+
+`spike:card` thêm mục 7: vẽ lại 5 lượt rồi đếm số lần thẻ `<img>` được gắn MỚI, bằng
+`MutationObserver`. Đếm chứ không đọc DOM một phát — nếu trạng thái bị xoá thì thẻ ảnh gắn vào rồi
+lỗi rồi biến đi trong vài mili giây, giữa hai lần nhìn mọi thứ trông y như đứng yên. **Đã kiểm
+ngược:** hoàn nguyên deps về object thì mục 7 đỏ với `mounts: 5`, đúng một lần gắn lại cho mỗi lần
+vẽ; lắp bản vá vào thì `mounts: 0`.
+
+Kèm một cái bẫy đã trả giá: khối `ENTRY` trong `spike-card.cjs` là một chuỗi template bao bằng dấu
+backtick, nên một dấu backtick lẻ trong đó — kể cả nằm trong chú thích, kiểu bọc tên một biến — đóng
+chuỗi sớm và cả file thành lỗi cú pháp. Nó không hiện ra dưới dạng một mục kiểm đỏ mà là hộp thoại
+"A JavaScript error occurred in the main process", nên nhìn không ra là do đâu. Đã ghi cảnh báo ngay
+trên khối đó.
