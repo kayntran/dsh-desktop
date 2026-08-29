@@ -24,9 +24,16 @@ const ID = 'harness-desktop-dock'
  * Modules that must NOT be bundled in: the loader supplies them through the shell's
  * frozen module table, and that table is the page's only copy.
  *
- * Source of truth: `PLATFORM_MODULES` in
- * `_upstream_dsh/packages/client/web/src/platform.ts:8-15`, plus the documented
- * `RUNTIME_STORE_EXEMPTION` exception at `tsdown.client.ts:62`.
+ * Two kinds of entry sit in this list. The first seven are the shell's BASELINE table —
+ * the specifiers the shipped web bundle seeds the loader with. The last one is a GRAPH
+ * ROW: from dsh 0.1.1-rc.2 the loader resolves `<package>/client` to the bundle of an
+ * installed plugin package, so any dsh package that ships a client half can be required
+ * without being in the baseline table.
+ *
+ * Source of truth for the baseline, read out of the bundle that actually ships:
+ *   node -e "…dist/assets/index-*.js" | grep -oE '@deepseek-ai/[a-z-]+'
+ * (`_upstream_dsh/packages/client/web/src/platform.ts` was the source until 0.1.0-rc.6;
+ * that file's frozen table is gone, replaced by `dsh-client-modules`.)
  *
  * RE-CHECK THIS LIST AFTER EVERY `/nang-cap-engine`.
  */
@@ -37,10 +44,7 @@ const CLIENT_EXTERNALS = [
   'react-dom/client',
   '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
   '@deepseek-ai/dsh-client-runtime/client',
 ]
 
