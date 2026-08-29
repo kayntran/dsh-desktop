@@ -161,7 +161,20 @@ win:
   target:
     - nsis
   icon: resources/icon.ico
-  artifactName: ${productName}-${version}-setup.${ext}
+  # DASHES, NOT `${productName}` — the product name has a space in it, and that space
+  # silently breaks updates.
+  #
+  # electron-builder writes the download name into `latest.yml` with spaces replaced
+  # by dashes, because a space cannot sit in a URL unescaped. The FILE it produces
+  # keeps the space. Publish both and the app asks GitHub for
+  # `Harness-Desktop-0.1.0-setup.exe` while the asset sitting there is called
+  # `Harness Desktop-0.1.0-setup.exe` — a 404 on every update, for everyone, with
+  # nothing wrong anywhere else. (GitHub turns the space into a dot of its own
+  # accord, which makes the two names differ in a third way again.)
+  #
+  # Naming the file without a space in the first place makes the two agree by
+  # construction rather than by remembering to rename at upload time.
+  artifactName: Harness-Desktop-${version}-setup.${ext}
 
 nsis:
   # Cho người dùng thấy và chọn nơi cài, thay vì cài lén vào AppData.

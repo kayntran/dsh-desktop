@@ -2948,3 +2948,20 @@ ngoài của nó.** Chép đủ `engine`, `runtime`, `plugins`, `pnpm` mất kho
 tiến trình setup trông y như đang treo. Lần đầu đã tắt nó giữa chừng vì tưởng vậy, và kết quả là một
 bản cài chỉ có mỗi `engine` — app mở lên rồi đứng im ở màn hình chờ, vì thiếu `runtime` thì engine
 không khởi động nổi. Trông y hệt một lỗi thật của app.
+
+### Tên file có dấu cách suýt làm hỏng cả cơ chế
+
+Bắt được lúc soi `latest.yml` ngay trước khi phát hành, chưa kịp lên GitHub.
+
+`artifactName` cũ là `${productName}-${version}-setup.${ext}`, mà tên sản phẩm có dấu cách, nên file
+dựng ra là `Harness Desktop-0.1.0-setup.exe`. Nhưng electron-builder ghi vào `latest.yml` cái tên đã
+thay dấu cách bằng gạch ngang — `Harness-Desktop-0.1.0-setup.exe` — vì một dấu cách không nằm trần
+trong URL được. Hai cái tên khác nhau nghĩa là app hỏi GitHub một file không tồn tại: **404 ở mọi lần
+cập nhật, cho mọi người, trong khi không có gì khác sai cả.** GitHub còn tự đổi dấu cách thành dấu
+chấm khi nhận file, làm hai cái tên lệch nhau theo kiểu thứ ba.
+
+Sửa ở gốc: đặt `artifactName` không có dấu cách, để tên file và tên trong `latest.yml` khớp nhau **do
+cấu tạo**, chứ không do nhớ đổi tên lúc tải lên.
+
+Đây lại là một lỗi không báo gì: bản dựng xong sạch, installer chạy tốt, chỉ có việc cập nhật là chết
+— mà việc đó chỉ xảy ra ở lần phát hành SAU, trên máy người khác.
