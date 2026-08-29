@@ -37,6 +37,7 @@
     "spike:switch": "electron scripts/spike-switch-ui.cjs",
     "spike:think": "node scripts/spike-think-tags.mjs",
     "spike:relay": "node scripts/spike-minimax-relay.mjs",
+    "spike:updater-shell": "electron scripts/spike-updater-shell.cjs",
     "spike:updater": "electron scripts/spike-updater.cjs",
     "spike:chats": "electron scripts/spike-dock-chats.cjs"
   },

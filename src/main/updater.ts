@@ -92,9 +92,35 @@ let running = false
 let attempt = 0
 let timer: NodeJS.Timeout | undefined
 let checkTimer: NodeJS.Timeout | undefined
+/**
+ * The startup check's timer, at module scope so `stopUpdater` can cancel it.
+ *
+ * It used to be a local `const` inside `startUpdater`, which meant nothing could
+ * reach it: the minute-long wait outlived the stop and fired a check while the
+ * updater believed itself idle. An engine restart in the first minute — installing
+ * a plugin right after launch does exactly that — left one orphan behind per
+ * restart, and quitting the app could still open a network request on the way out.
+ */
+let firstCheckTimer: NodeJS.Timeout | undefined
 let controller: AbortController | undefined
 let engineUrl = ''
 let state: UpdateState = { phase: 'unknown', current: app.getVersion() }
+
+/**
+ * Whether the `autoUpdater` event handlers have been attached.
+ *
+ * They are attached ONCE for the life of the process, not once per start. The
+ * first version attached them inside `startUpdater`, which runs again after every
+ * engine restart — and engine restarts are ordinary: each plugin installed from
+ * the market rings for one, so does the error page's Retry. `stopUpdater` cannot
+ * detach them either, so the sets accumulated: after three restarts every
+ * download-progress tick fired four times, and past ten Node started printing a
+ * max-listeners warning into the log that reads like a fault in the app.
+ */
+let wired = false
+
+/** Where to send the "a version is staged" news, replaced on each start. */
+let onReadyCallback: ((version: string) => void) | undefined
 
 /**
  * Whether this build can replace itself.
@@ -138,6 +164,10 @@ function blockedState(reason: string): UpdateState {
  * @param next - the new state.
  */
 function report(next: UpdateState): void {
+  // A stopped updater says nothing. The handlers outlive any one start, so without
+  // this an event still in flight when the engine went down would post to an
+  // address that is being torn down.
+  if (!running) return
   state = next
   if (engineUrl === '') return
   void fetch(new URL(STATE_PATH, engineUrl), {
@@ -204,6 +234,9 @@ async function poll(): Promise<void> {
 
 /** Ask GitHub whether there is anything newer. */
 async function check(): Promise<void> {
+  // Told to stop means stopped, including for a timer that was already counting
+  // down when the word came.
+  if (!running) return
   const blocked = cannotUpdateBecause()
   if (blocked !== undefined) {
     report(blockedState(blocked))
@@ -242,16 +275,17 @@ export function installUpdate(): void {
 }
 
 /**
- * Start the updater. Called once the engine is up.
- * @param baseUrl - the engine's address, for the two routes above.
- * @param onReady - called with the version once a download is staged, so the tray
- * can offer the restart too.
+ * Attach the settings and the event handlers, once per process.
+ *
+ * Everything here is about the `autoUpdater` singleton rather than about one run,
+ * which is why it is separated from `startUpdater`: that function runs again after
+ * every engine restart, and re-attaching handlers there stacked a fresh set on top
+ * of the old ones each time. The handlers read the module state (`onReadyCallback`,
+ * and `report`'s own `running` check) so they always act for the current start.
  */
-export function startUpdater(baseUrl: string, onReady: (version: string) => void): void {
-  if (running) return
-  running = true
-  attempt = 0
-  engineUrl = baseUrl
+function wireUpdaterEvents(): void {
+  if (wired) return
+  wired = true
 
   // Downloading is the whole point of choosing "quietly in the background"; the
   // user is asked only about the restart.
@@ -284,7 +318,9 @@ export function startUpdater(baseUrl: string, onReady: (version: string) => void
   autoUpdater.on('update-downloaded', (info: { version: string }) => {
     logShell(`updater: version ${info.version} is downloaded and staged`)
     report({ phase: 'ready', current: app.getVersion(), next: info.version })
-    onReady(info.version)
+    // Only while a start is live: a download that lands after the engine went down
+    // has no tray to tell, and the next start reports the staged version anyway.
+    if (running) onReadyCallback?.(info.version)
   })
   autoUpdater.on('error', (error: Error) => {
     report({
@@ -295,6 +331,22 @@ export function startUpdater(baseUrl: string, onReady: (version: string) => void
     })
     logShell(`updater: ${error.message}`)
   })
+}
+
+/**
+ * Start the updater. Called once the engine is up.
+ * @param baseUrl - the engine's address, for the two routes above.
+ * @param onReady - called with the version once a download is staged, so the tray
+ * can offer the restart too.
+ */
+export function startUpdater(baseUrl: string, onReady: (version: string) => void): void {
+  if (running) return
+  running = true
+  attempt = 0
+  engineUrl = baseUrl
+  onReadyCallback = onReady
+
+  wireUpdaterEvents()
 
   // Say hello straight away so the settings row has a version to show even before
   // the first check runs.
@@ -305,8 +357,8 @@ export function startUpdater(baseUrl: string, onReady: (version: string) => void
 
   void poll()
 
-  const first = setTimeout(() => { void check() }, FIRST_CHECK_MS)
-  first.unref()
+  firstCheckTimer = setTimeout(() => { void check() }, FIRST_CHECK_MS)
+  firstCheckTimer.unref()
   checkTimer = setInterval(() => { void check() }, EVERY_MS)
   checkTimer.unref()
 }
@@ -316,6 +368,10 @@ export function stopUpdater(): void {
   running = false
   if (timer !== undefined) { clearTimeout(timer); timer = undefined }
   if (checkTimer !== undefined) { clearInterval(checkTimer); checkTimer = undefined }
+  // The startup check too. It was the one that got away: a minute is long enough
+  // for an engine restart to happen inside it, and the orphan then fired against a
+  // stopped updater.
+  if (firstCheckTimer !== undefined) { clearTimeout(firstCheckTimer); firstCheckTimer = undefined }
   // Abort the held-open request too: without this the shell would sit on a
   // connection to an engine it is about to kill.
   controller?.abort()

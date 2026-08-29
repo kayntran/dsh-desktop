@@ -2965,3 +2965,41 @@ cấu tạo**, chứ không do nhớ đổi tên lúc tải lên.
 
 Đây lại là một lỗi không báo gì: bản dựng xong sạch, installer chạy tốt, chỉ có việc cập nhật là chết
 — mà việc đó chỉ xảy ra ở lần phát hành SAU, trên máy người khác.
+
+### `stopUpdater` không dừng được hết những gì `startUpdater` bật lên
+
+Tìm ra khi tự rà lại diff. Hai chỗ rò rỉ, cùng một gốc, cùng một kiểu: **không cái nào hiện ra dưới
+dạng lỗi.**
+
+**Bộ lắng nghe nhân bản.** Năm handler của `autoUpdater` được gắn bên trong `startUpdater`, mà hàm đó
+chạy lại sau *mỗi* lần khởi động lại engine — và khởi động lại engine là chuyện thường ngày: mỗi lần
+cài một plugin từ chợ là một lần, nút Retry ở màn hình lỗi cũng vậy. `stopUpdater` không gỡ handler
+nào, và cờ `if (running) return` cũng không chặn vì `running` vừa bị đặt false. Ba lần cài plugin
+trong một phiên là mỗi nhịp tiến độ tải bắn bốn lần báo; quá mười lần thì Node in cảnh báo tràn
+listener vào nhật ký, đọc lên y như lỗi của app. Sửa: tách phần gắn handler ra `wireUpdaterEvents()`,
+gọi **một lần cho cả đời tiến trình**, và handler đọc trạng thái module thay vì đóng gói tham số của
+một lần bật.
+
+**Hẹn giờ mồ côi.** Lượt kiểm tra đầu tiên (sau 60 giây) được cất vào một `const` cục bộ, nên
+`stopUpdater` không có tay cầm để huỷ. Một phút là đủ dài để engine kịp khởi động lại bên trong nó, và
+mỗi lần bật lại để thêm một hẹn giờ nữa. Lúc thoát app cũng vậy: `before-quit` gọi `stopUpdater()` mà
+một lượt kiểm tra vẫn có thể mở kết nối mạng trên đường ra. Sửa: đưa lên biến cấp module và xoá trong
+`stopUpdater`, kèm cờ `running` ở đầu `check()` và ở đầu `report()` — để "đã tắt" nghĩa là im, kể cả
+với một sự kiện đang trên đường về.
+
+### Bộ kiểm mới: `npm run spike:updater-shell`
+
+`spike:updater` gác nửa người dùng nhìn thấy; nó không với tới lớp vỏ, nên hai lỗi trên nằm ngoài tầm
+nó hoàn toàn. Bộ mới dựng một máy chủ tí hon nói đúng hai route mà lớp vỏ gọi, rồi bật/tắt ba lần —
+mô phỏng ba lần cài plugin — và đếm.
+
+**Đã kiểm ngược cả hai mục**, vì một mục kiểm không tự đỏ khi gỡ bản vá thì không gác gì:
+
+- Bỏ cờ `wired` → mục 1 đỏ với `{"update-available":3, ...}`, đúng ba bộ như dự đoán.
+- Bỏ cờ `running` trong `report` → mục 2 đỏ: hai sự kiện đến muộn sau lệnh tắt bắn thêm hai lần báo
+  (3 → 5).
+
+Một chi tiết bộ kiểm dạy lại ngay lần chạy đầu: phải đo **phần mình thêm vào**, không đo tổng.
+`electron-updater` tự gắn sẵn một handler `error` của riêng nó lúc được nạp, nên phép đo tuyệt đối đỏ
+oan ở đúng một sự kiện và xanh ở bốn cái còn lại — thứ nhiễu khiến người đọc kết luận sai rằng chính
+bộ kiểm mới là cái hỏng.
